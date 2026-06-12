@@ -4,9 +4,12 @@
 
 /* ===== Lock ===== */
 
+static void lock_tap(void) { lz_ui_key(LZ_K_ENTER, 0); }  /* tap anywhere unlocks */
+
 void lz_scr_lock(lv_obj_t *root)
 {
     lv_obj_set_style_bg_color(root, lv_color_hex(0x0B0E13), 0);
+    lz_on_click(root, lock_tap);
 
     /* top inset row: networks left, battery right */
     lv_obj_t *hub = lz_icon(root, LZ_I_HUB, &lz_icons_14, LZ_CYAN);

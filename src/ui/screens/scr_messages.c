@@ -50,13 +50,15 @@ static lv_obj_t *filter_chip(lv_obj_t *parent, const char *label,
 }
 
 static void tab_bar(lv_obj_t *parent, const char *l, const char *r, bool left_active,
-                    lv_color_t underline, lv_color_t bg)
+                    lv_color_t underline, lv_color_t bg,
+                    void (*l_tap)(void), void (*r_tap)(void))
 {
     lv_obj_t *tabs = lz_box(parent);
     lv_obj_set_size(tabs, LZ_W, 24);
     lv_obj_set_style_bg_color(tabs, bg, 0);
     lv_obj_set_style_bg_opa(tabs, LV_OPA_COVER, 0);
     const char *names[2] = { l, r };
+    void (*taps[2])(void) = { l_tap, r_tap };
     for(int i = 0; i < 2; i++) {
         bool act = (i == 0) == left_active;
         lv_obj_t *t = lz_box(tabs);
@@ -68,8 +70,17 @@ static void tab_bar(lv_obj_t *parent, const char *l, const char *r, bool left_ac
         lv_obj_t *lbl = lz_text(t, names[i], LZ_F_BODY,
                                 act ? LZ_TEXT_BRIGHT : LZ_TEXT_META);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -1);
+        if(taps[i]) lz_on_click(t, taps[i]);
     }
 }
+
+static void tap_tab_dms(void)      { if(S.msg_tab != LZ_TAB_DMS)      { S.msg_tab = LZ_TAB_DMS;      S.focus = 0; lz_rebuild(); } }
+static void tap_tab_channels(void) { if(S.msg_tab != LZ_TAB_CHANNELS) { S.msg_tab = LZ_TAB_CHANNELS; S.focus = 0; lz_rebuild(); } }
+static void tap_filter_all(void)   { S.msg_filter = LZ_FILT_ALL; S.focus = 0; lz_rebuild(); }
+static void tap_filter_mt(void)    { S.msg_filter = LZ_FILT_MT;  S.focus = 0; lz_rebuild(); }
+static void tap_filter_mc(void)    { S.msg_filter = LZ_FILT_MC;  S.focus = 0; lz_rebuild(); }
+static void tap_compose(void)      { lz_go(LZ_V_CONTACTS); }
+static void tap_send(void)         { lz_ui_key(LZ_K_ENTER, 0); }
 
 void lz_scr_messages(lv_obj_t *root)
 {
@@ -78,9 +89,13 @@ void lz_scr_messages(lv_obj_t *root)
     lv_obj_t *bar = lz_navbar(root, "Messages", NULL);
     lv_obj_t *pen = lz_icon(bar, LZ_I_EDIT, &lz_icons_18, LZ_MINT);
     lv_obj_align(pen, LV_ALIGN_RIGHT_MID, -7, 0);
+    lv_obj_t *penhit = lz_box(bar);
+    lv_obj_set_size(penhit, 44, LZ_NAVBAR_H);
+    lv_obj_align(penhit, LV_ALIGN_RIGHT_MID, 0, 0);
+    lz_on_click(penhit, tap_compose);
 
     tab_bar(root, "Direct", "Channels", S.msg_tab == LZ_TAB_DMS,
-            LZ_MINT, lv_color_hex(0x0E141B));
+            LZ_MINT, lv_color_hex(0x0E141B), tap_tab_dms, tap_tab_channels);
 
     /* filter chips */
     lv_obj_t *filters = lz_box(root);
@@ -92,12 +107,15 @@ void lz_scr_messages(lv_obj_t *root)
     lv_obj_set_flex_align(filters, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(filters, 8, 0);
     lv_obj_set_style_pad_column(filters, 5, 0);
-    filter_chip(filters, "All", S.msg_filter == LZ_FILT_ALL,
-                lv_color_black(), false, lv_color_hex(0xCFD4DA), LZ_ON_MINT);
-    filter_chip(filters, "Meshtastic", S.msg_filter == LZ_FILT_MT,
-                LZ_CYAN, true, LZ_CYAN, LZ_ON_CYAN);
-    filter_chip(filters, "MeshCore", S.msg_filter == LZ_FILT_MC,
-                LZ_AMBER, true, LZ_AMBER, LZ_ON_AMBER);
+    lz_on_click(filter_chip(filters, "All", S.msg_filter == LZ_FILT_ALL,
+                lv_color_black(), false, lv_color_hex(0xCFD4DA), LZ_ON_MINT),
+                tap_filter_all);
+    lz_on_click(filter_chip(filters, "Meshtastic", S.msg_filter == LZ_FILT_MT,
+                LZ_CYAN, true, LZ_CYAN, LZ_ON_CYAN),
+                tap_filter_mt);
+    lz_on_click(filter_chip(filters, "MeshCore", S.msg_filter == LZ_FILT_MC,
+                LZ_AMBER, true, LZ_AMBER, LZ_ON_AMBER),
+                tap_filter_mc);
 
     /* list */
     lv_obj_t *body = lz_vflex(root);
@@ -248,6 +266,10 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_style_border_color(bar, LZ_HAIRLINE, 0);
     lv_obj_t *chev = lz_icon(bar, LZ_I_CHEV_L, &lz_icons_18, LZ_TEXT_NAV);
     lv_obj_align(chev, LV_ALIGN_LEFT_MID, 5, 0);
+    lv_obj_t *backhit = lz_box(bar);
+    lv_obj_set_size(backhit, 64, LZ_NAVBAR_H);
+    lv_obj_set_pos(backhit, 0, 0);
+    lz_on_click(backhit, lz_back);
     lv_obj_t *name = lz_text(bar, t->name, LZ_F_BODY, lv_color_hex(0xF2F4F6));
     lv_obj_align(name, LV_ALIGN_TOP_MID, 0, 3);
     lv_obj_t *sub = lz_box(bar);
@@ -358,6 +380,7 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_style_pad_column(send, 3, 0);
     lz_text(send, lz_net_name(t->net), LZ_F_SMALL, lv_color_white());
     lz_icon(send, LZ_I_SEND, &lz_icons_14, lv_color_white());
+    lz_on_click(send, tap_send);
 
     lz_nav_set(1, 0, NULL);  /* no focusables: up/down scroll, Enter sends */
 }

@@ -30,8 +30,17 @@ static lv_obj_t *colored_navbar(lv_obj_t *root, const char *title, lv_color_t bg
     lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
     lv_obj_t *dot = lz_dot(bar, 6, status_on ? LZ_GREEN : lv_color_hex(0x5A616A));
     lv_obj_align(dot, LV_ALIGN_RIGHT_MID, -8, 0);
+    lv_obj_t *hit = lz_box(bar);
+    lv_obj_set_size(hit, 64, LZ_NAVBAR_H);
+    lv_obj_set_pos(hit, 0, 0);
+    lz_on_click(hit, lz_back);
     return bar;
 }
+
+static void tap_mt_nodes(void)    { if(S.mt_tab != 0) { S.mt_tab = 0; S.focus = 0; lz_rebuild(); } }
+static void tap_mt_channels(void) { if(S.mt_tab != 1) { S.mt_tab = 1; S.focus = 0; lz_rebuild(); } }
+static void tap_mc_contacts(void) { if(S.mc_tab != 0) { S.mc_tab = 0; S.focus = 0; lz_rebuild(); } }
+static void tap_mc_rooms(void)    { if(S.mc_tab != 1) { S.mc_tab = 1; S.focus = 0; lz_rebuild(); } }
 
 static lv_obj_t *identity_card(lv_obj_t *root, lv_color_t bg, lv_color_t hairline)
 {
@@ -108,6 +117,7 @@ void lz_scr_meshtastic(lv_obj_t *root)
     lv_obj_set_style_border_width(tabs, 1, 0);
     lv_obj_set_style_border_color(tabs, lv_color_hex(0x1B2026), 0);
     const char *names[2] = { "Nodes", "Channels" };
+    void (*mt_taps[2])(void) = { tap_mt_nodes, tap_mt_channels };
     for(int i = 0; i < 2; i++) {
         bool act = (S.mt_tab == i);
         lv_obj_t *tb = lz_box(tabs);
@@ -118,6 +128,7 @@ void lz_scr_meshtastic(lv_obj_t *root)
         lv_obj_set_style_border_color(tb, act ? LZ_CYAN : lv_color_hex(0x0B0E12), 0);
         lv_obj_t *lbl = lz_text(tb, names[i], LZ_F_BODY, act ? LZ_TEXT_BRIGHT : LZ_TEXT_META);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -1);
+        lz_on_click(tb, mt_taps[i]);
     }
 
     lv_obj_t *body = lz_vflex(root);
@@ -253,6 +264,7 @@ void lz_scr_meshcore(lv_obj_t *root)
     lv_obj_set_style_border_width(tabs, 1, 0);
     lv_obj_set_style_border_color(tabs, lv_color_hex(0x1F1B12), 0);
     const char *names[2] = { "Contacts", "Rooms" };
+    void (*mc_taps[2])(void) = { tap_mc_contacts, tap_mc_rooms };
     for(int i = 0; i < 2; i++) {
         bool act = (S.mc_tab == i);
         lv_obj_t *tb = lz_box(tabs);
@@ -263,6 +275,7 @@ void lz_scr_meshcore(lv_obj_t *root)
         lv_obj_set_style_border_color(tb, act ? LZ_AMBER : lv_color_hex(0x0E0D0A), 0);
         lv_obj_t *lbl = lz_text(tb, names[i], LZ_F_BODY, act ? LZ_TEXT_BRIGHT : LZ_TEXT_META);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -1);
+        lz_on_click(tb, mc_taps[i]);
     }
 
     lv_obj_t *body = lz_vflex(root);

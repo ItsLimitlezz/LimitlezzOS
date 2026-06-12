@@ -4,8 +4,10 @@
  *
  * Input mapping (mirrors the design prototype):
  *   Arrow keys  trackball roll (focus move)
- *   Enter       trackball click (select / send)
+ *   Page Up     trackball press (select)
+ *   Enter       keyboard Enter (select / send)
  *   Esc         back; Backspace edits draft then back
+ *   Mouse       touchscreen (tap rows, tabs, chips, back, send; drag scrolls)
  *   1 / 2 / 3   Messages network filter
  *   typing      conversation composer
  *
@@ -28,6 +30,18 @@ static SDL_Renderer *ren;
 static SDL_Texture *tex;
 
 uint32_t lz_tick_ms(void) { return SDL_GetTicks(); }
+
+/* mouse = touchscreen */
+static int32_t m_x, m_y;
+static bool m_down;
+
+static void mouse_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
+{
+    (void)drv;
+    data->point.x = m_x;
+    data->point.y = m_y;
+    data->state = m_down ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 {
@@ -80,6 +94,16 @@ static void pump(int ms)
         lv_timer_handler();
         SDL_Delay(5);
     }
+}
+
+/* synthetic tap through the real LVGL pointer pipeline */
+static void tap_at(int x, int y)
+{
+    m_x = x; m_y = y;
+    m_down = true;
+    pump(90);
+    m_down = false;
+    pump(150);
 }
 
 static void shots(const char *dir)
@@ -149,6 +173,33 @@ static void shots(const char *dir)
     pump(1200);
     snprintf(path, sizeof path, "%s/20-store-open.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
+
+    /* regression: home must render its grid after a flex-layout screen
+     * (screens style the root; rebuild has to fully reset it) */
+    S.view = LZ_V_HOME; S.focus = 0; lz_rebuild();
+    lz_go(LZ_V_SETTINGS);
+    pump(30);
+    lz_ui_key(LZ_K_BACK, 0);          /* Esc back to home, the real path */
+    pump(60);
+    snprintf(path, sizeof path, "%s/21-home-after-settings.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+
+    /* touch: tap the Meshtastic tile on home -> stack manager opens */
+    tap_at(122, 56);
+    snprintf(path, sizeof path, "%s/22-touch-open-meshtastic.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+
+    /* touch: tap the nav-bar back chevron -> home again */
+    tap_at(20, 14);
+    snprintf(path, sizeof path, "%s/23-touch-back-home.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+
+    /* touch: into Messages, tap the Channels tab, then the MeshCore chip */
+    tap_at(40, 56);                   /* Messages tile */
+    tap_at(240, 41);                  /* Channels tab */
+    tap_at(160, 70);                  /* MeshCore filter chip */
+    snprintf(path, sizeof path, "%s/24-touch-channels-mc.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
 }
 
 int main(int argc, char **argv)
@@ -167,6 +218,12 @@ int main(int argc, char **argv)
     disp_drv.flush_cb = flush_cb;
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
+
+    static lv_indev_drv_t indev_drv;
+    lv_indev_drv_init(&indev_drv);
+    indev_drv.type = LV_INDEV_TYPE_POINTER;
+    indev_drv.read_cb = mouse_read_cb;
+    lv_indev_drv_register(&indev_drv);
 
     if(!headless) {
         win = SDL_CreateWindow("LimitlezzOS — T-Deck simulator",
@@ -195,12 +252,27 @@ int main(int argc, char **argv)
                 else if(k == SDLK_DOWN)     lz_ui_key(LZ_K_DOWN, 0);
                 else if(k == SDLK_LEFT)     lz_ui_key(LZ_K_LEFT, 0);
                 else if(k == SDLK_RIGHT)    lz_ui_key(LZ_K_RIGHT, 0);
+                else if(k == SDLK_PAGEUP)   lz_ui_key(LZ_K_ENTER, 0);  /* trackball press */
                 else if(k == SDLK_RETURN)   lz_ui_key(LZ_K_ENTER, 0);
                 else if(k == SDLK_ESCAPE || k == SDLK_BACKSPACE) lz_ui_key(LZ_K_BACK, 0);
             }
             else if(e.type == SDL_TEXTINPUT) {
                 for(const char *p = e.text.text; *p; p++)
                     if(*p > 0) lz_ui_key(LZ_K_CHAR, *p);
+            }
+            else if(e.type == SDL_MOUSEMOTION) {
+                m_x = e.motion.x / SCALE;
+                m_y = e.motion.y / SCALE;
+            }
+            else if(e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
+                m_x = e.button.x / SCALE;
+                m_y = e.button.y / SCALE;
+                m_down = true;
+            }
+            else if(e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
+                m_x = e.button.x / SCALE;
+                m_y = e.button.y / SCALE;
+                m_down = false;
             }
         }
         lv_timer_handler();

@@ -279,6 +279,9 @@ void lz_scr_contact(lv_obj_t *root)
     lv_obj_t *tic = lz_icon(trace, LZ_I_ROUTE, &lz_icons_16f, lv_color_hex(0xCFD4DA));
     lv_obj_center(tic);
 
+    lz_nav_track(msg, 0);     /* also makes both buttons tappable */
+    lz_nav_track(trace, 1);
+
     /* spec table */
     lv_obj_t *card = lz_card(body);
     lv_obj_set_height(card, LV_SIZE_CONTENT);
@@ -336,6 +339,10 @@ void lz_scr_terminal(lv_obj_t *root)
     lv_obj_set_style_border_color(bar, lv_color_hex(0x0C0F14), 0);
     lv_obj_t *chev = lz_icon(bar, LZ_I_CHEV_L, &lz_icons_18, lv_color_hex(0xCFD4DA));
     lv_obj_align(chev, LV_ALIGN_LEFT_MID, 5, 0);
+    lv_obj_t *backhit = lz_box(bar);
+    lv_obj_set_size(backhit, 64, LZ_NAVBAR_H);
+    lv_obj_set_pos(backhit, 0, 0);
+    lz_on_click(backhit, lz_back);
     lv_obj_t *t = lz_text(bar, "Terminal", LZ_F_HEAD, lv_color_hex(0xCFD4DA));
     lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
     lv_obj_t *baud = lz_text(bar, "115200", LZ_F_MONO, lv_color_hex(0x5F6A5F));

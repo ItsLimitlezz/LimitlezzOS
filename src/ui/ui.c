@@ -39,15 +39,52 @@ void lz_nav_set(int cols, int count, void (*activate)(int idx))
 
 void lz_nav_set_scroll(lv_obj_t *scroll) { g_scroll = scroll; }
 
+/* Tap dispatch is deferred with lv_async_call: activating usually rebuilds
+ * the screen, and deleting the pressed object from inside its own event is
+ * not safe in LVGL 8. */
+static void tap_item_async(void *p)
+{
+    int idx = (int)(intptr_t)p;
+    if(idx < 0 || idx >= g_count) return;
+    S.focus = idx;
+    if(g_activate) g_activate(idx);
+    else lz_rebuild();          /* no action: focus just follows the tap */
+}
+
+static void tap_item_cb(lv_event_t *e)
+{
+    lv_async_call(tap_item_async, lv_event_get_user_data(e));
+}
+
+static void tap_fn_async(void *p) { ((void (*)(void))p)(); }
+
+static void tap_fn_cb(lv_event_t *e)
+{
+    lv_async_call(tap_fn_async, lv_event_get_user_data(e));
+}
+
+void lz_on_click(lv_obj_t *obj, void (*fn)(void))
+{
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, tap_fn_cb, LV_EVENT_CLICKED, (void *)fn);
+}
+
 void lz_nav_track(lv_obj_t *obj, int idx)
 {
     if(idx == S.focus) g_focus_obj = obj;
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, tap_item_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
 }
 
 void lz_rebuild(void)
 {
     g_cols = 1; g_count = 0; g_activate = NULL; g_scroll = NULL; g_focus_obj = NULL;
     lv_obj_clean(g_root);
+    /* screens style the root itself (flex flow, bg) — reset it fully so
+     * layout from the previous screen can't leak into the next build */
+    lv_obj_remove_style_all(g_root);
+    lv_obj_set_size(g_root, LZ_W, LZ_H);
+    lv_obj_clear_flag(g_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(g_root, LZ_SCREEN_BG, 0);
     lv_obj_set_style_bg_opa(g_root, LV_OPA_COVER, 0);
     switch(S.view) {
@@ -213,6 +250,8 @@ lv_obj_t *lz_box(lv_obj_t *parent)
     lv_obj_t *o = lv_obj_create(parent);
     lv_obj_remove_style_all(o);
     lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    /* visual primitive: must not steal taps from the row/handler above it */
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
     return o;
 }
 
@@ -250,6 +289,11 @@ lv_obj_t *lz_navbar(lv_obj_t *parent, const char *title, const char *back_label)
         lv_obj_t *t = lz_text(bar, title, LZ_F_HEAD, lv_color_hex(0xF2F4F6));
         lv_obj_align(t, LV_ALIGN_CENTER, 0, 0);
     }
+    /* invisible back hit area over the chevron */
+    lv_obj_t *hit = lz_box(bar);
+    lv_obj_set_size(hit, 64, LZ_NAVBAR_H);
+    lv_obj_set_pos(hit, 0, 0);
+    lz_on_click(hit, lz_back);
     return bar;
 }
 

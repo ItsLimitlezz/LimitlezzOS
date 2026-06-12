@@ -76,7 +76,8 @@ void lz_rebuild(void);
 /* Registered by each screen during build */
 void lz_nav_set(int cols, int count, void (*activate)(int idx));
 void lz_nav_set_scroll(lv_obj_t *scroll_container);
-void lz_nav_track(lv_obj_t *obj, int idx);    /* obj scrolled into view when focused */
+void lz_nav_track(lv_obj_t *obj, int idx);    /* scrolled into view when focused; tap = select */
+void lz_on_click(lv_obj_t *obj, void (*fn)(void));  /* tap handler for chrome elements */
 
 /* --- shared widgets / helpers --- */
 lv_obj_t *lz_box(lv_obj_t *parent);                       /* plain styleless container */
