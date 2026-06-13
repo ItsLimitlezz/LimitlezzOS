@@ -122,7 +122,11 @@ void lz_scr_terminal(lv_obj_t *root);
 void lz_scr_files(lv_obj_t *root);
 void lz_scr_wifi(lv_obj_t *root);
 void lz_scr_settime(lv_obj_t *root);
-int  lz_tz_offset(int idx);             /* minutes offset for a timezone index */
+int  lz_tz_offset(int idx);             /* standard offset (min) for a timezone index */
+void lz_tz_apply(int idx);              /* push zone (offset+DST rule) into the service */
+int  lz_tz_count(void);
+const char *lz_tz_name(int idx);
+int  lz_tz_find(const char *s);         /* by region name or abbrev; -1 if none */
 void lz_scr_tzpick(lv_obj_t *root);     /* timezone picker list */
 void lz_settime_enter(void);            /* load current clock into the editor */
 void lz_settime_key(lz_key_t k, char c);

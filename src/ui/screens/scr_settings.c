@@ -35,17 +35,53 @@ static const srow_t SROWS[12] = {
 };
 #define SETTINGS_FOCUS_COUNT 14   /* 2 network rows + 12 SROWS */
 
-/* named timezones people recognize (label + offset in minutes). Includes the
- * US daylight variants so you pick the one that matches the clock right now. */
-static const struct { const char *name; int off_min; } TZ[] = {
-    { "EST", -300 }, { "EDT", -240 }, { "CST", -360 }, { "CDT", -300 },
-    { "MST", -420 }, { "MDT", -360 }, { "PST", -480 }, { "PDT", -420 },
-    { "AKST", -540 }, { "HST", -600 }, { "AST", -240 }, { "UTC", 0 },
-    { "GMT", 0 }, { "BST", 60 }, { "CET", 60 }, { "CEST", 120 },
-    { "EET", 120 }, { "IST", 330 }, { "JST", 540 }, { "AEST", 600 },
+/* Named regions people recognize. Each carries a STANDARD-time offset plus a
+ * daylight rule, so the clock follows DST automatically — pick "Eastern" once
+ * and it shows EDT in summer, EST in winter. (Arizona/Hawaii don't observe it.) */
+static const struct { const char *name; const char *std; const char *dst; int off_min; int rule; } TZ[] = {
+    { "Eastern",     "EST",  "EDT",  -300, LZ_DST_US   },
+    { "Central",     "CST",  "CDT",  -360, LZ_DST_US   },
+    { "Mountain",    "MST",  "MDT",  -420, LZ_DST_US   },
+    { "Pacific",     "PST",  "PDT",  -480, LZ_DST_US   },
+    { "Alaska",      "AKST", "AKDT", -540, LZ_DST_US   },
+    { "Arizona",     "MST",  "MST",  -420, LZ_DST_NONE },
+    { "Hawaii",      "HST",  "HST",  -600, LZ_DST_NONE },
+    { "UTC",         "UTC",  "UTC",     0, LZ_DST_NONE },
+    { "UK",          "GMT",  "BST",     0, LZ_DST_EU   },
+    { "Central EU",  "CET",  "CEST",   60, LZ_DST_EU   },
+    { "Eastern EU",  "EET",  "EEST",  120, LZ_DST_EU   },
+    { "India",       "IST",  "IST",   330, LZ_DST_NONE },
+    { "Japan",       "JST",  "JST",   540, LZ_DST_NONE },
+    { "Sydney",      "AEST", "AEST",  600, LZ_DST_NONE },
 };
 #define TZ_COUNT ((int)(sizeof TZ / sizeof TZ[0]))
 int lz_tz_offset(int idx) { return TZ[(idx >= 0 && idx < TZ_COUNT) ? idx : 0].off_min; }
+/* push the zone at idx into the service (offset + DST rule + abbrevs) */
+void lz_tz_apply(int idx)
+{
+    int i = (idx >= 0 && idx < TZ_COUNT) ? idx : 0;
+    lz_svc_set_tz_zone(TZ[i].off_min, TZ[i].rule, TZ[i].std, TZ[i].dst);
+}
+
+/* zone lookups for the serial console (`tz <name|abbrev>`) */
+static bool tz_ci_eq(const char *a, const char *b)
+{
+    for(; *a && *b; a++, b++) {
+        char ca = *a, cb = *b;
+        if(ca >= 'A' && ca <= 'Z') ca += 32;
+        if(cb >= 'A' && cb <= 'Z') cb += 32;
+        if(ca != cb) return false;
+    }
+    return *a == *b;
+}
+int lz_tz_count(void) { return TZ_COUNT; }
+const char *lz_tz_name(int idx) { return TZ[(idx >= 0 && idx < TZ_COUNT) ? idx : 0].name; }
+int lz_tz_find(const char *s)
+{
+    for(int i = 0; i < TZ_COUNT; i++)
+        if(tz_ci_eq(TZ[i].name, s) || tz_ci_eq(TZ[i].std, s) || tz_ci_eq(TZ[i].dst, s)) return i;
+    return -1;
+}
 
 static void cycle(int *idx, int n) { *idx = (*idx + 1) % n; }
 
@@ -263,7 +299,9 @@ void lz_scr_settings(lv_obj_t *root)
                 }
                 case 8: value_chevron(row, KBLIGHT[S.settings.kb_light]); break;
                 case 9: value_chevron(row, TIMEOUTS[S.settings.timeout]); break;
-                case 10: value_chevron(row, TZ[S.settings.tz_idx].name); break;
+                case 10: { char zb[24]; snprintf(zb, sizeof zb, "%s (%s)",
+                               TZ[S.settings.tz_idx].name, lz_svc_tz_abbrev());
+                           value_chevron(row, zb); break; }
                 case 11: { char tb[8]; value_chevron(row, lz_fmt_now(tb, sizeof tb)); break; }
                 case 12: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
                 case 13: {
@@ -482,7 +520,7 @@ static void tzpick_activate(int idx)
 {
     if(idx < 0 || idx >= TZ_COUNT) return;
     S.settings.tz_idx = idx;
-    lz_svc_set_tz(TZ[idx].off_min);
+    lz_tz_apply(idx);
     lz_back();
 }
 
@@ -505,9 +543,11 @@ void lz_scr_tzpick(lv_obj_t *root)
         lv_obj_t *nm = lz_text(row, TZ[i].name, LZ_F_BODY, sel ? LZ_MINT : LZ_TEXT);
         lv_obj_set_flex_grow(nm, 1);
         int off = TZ[i].off_min;
-        char ob[12];
-        if(off == 0) snprintf(ob, sizeof ob, "UTC");
-        else snprintf(ob, sizeof ob, "UTC%+d:%02d", off / 60, (off < 0 ? -off : off) % 60);
+        char ob[24];
+        int oh = off / 60, om = (off < 0 ? -off : off) % 60;
+        if(off == 0) snprintf(ob, sizeof ob, "UTC%s", TZ[i].rule != LZ_DST_NONE ? " ·DST" : "");
+        else snprintf(ob, sizeof ob, "UTC%+d:%02d%s", oh, om,
+                      TZ[i].rule != LZ_DST_NONE ? " ·DST" : "");
         lz_text(row, ob, LZ_F_SMALL, LZ_TEXT_VALUE);
         if(sel) lz_dot(row, 7, LZ_MINT);   /* current selection marker */
         lz_nav_track(row, i);

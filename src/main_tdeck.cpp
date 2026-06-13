@@ -116,6 +116,9 @@ static lv_color_t draw_buf_mem[LZ_W * 40];   /* internal-RAM fallback */
 
 extern "C" uint32_t lz_tick_ms(void) { return millis(); }
 
+void lz_cli_begin(void);                 /* serial console (serial_cli.cpp) */
+void lz_cli_poll(void);
+
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 {
     uint32_t w = area->x2 - area->x1 + 1;
@@ -394,6 +397,7 @@ void setup()
 
     lz_ui_init(lv_scr_act());            /* applies brightness via backlight_set */
     Serial.println("=== boot complete ===");
+    lz_cli_begin();                      /* serial command console */
 }
 
 static uint32_t g_last_input_ms;     /* for the keyboard-light Auto timeout */
@@ -460,6 +464,7 @@ void loop()
     if(input) g_last_input_ms = millis();
     kb_backlight_update();
 
+    lz_cli_poll();                       /* serial command console */
     lz_svc_loop();
     static int last_wifi = -1;
     lz_wifi_loop();

@@ -36,7 +36,10 @@ static void        (*g_dirty)(void);
 static lz_identity_t g_id = { 0x7c3af1d0, "!7c3af1d0", "Node", "NODE" };
 static bool          g_have_identity;            /* false until onboarding done */
 static uint32_t      g_epoch_base = 1718200980;  /* UTC at uptime 0 */
-static int           g_tz_min;                   /* timezone offset, minutes */
+static int           g_tz_std_min;               /* standard-time offset, minutes */
+static int           g_dst_rule;                 /* LZ_DST_NONE / _US / _EU */
+static char          g_tz_std_ab[6] = "UTC";     /* abbrev in standard time */
+static char          g_tz_dst_ab[6] = "UTC";     /* abbrev in daylight time */
 
 /* ---------- helpers ---------- */
 
@@ -44,7 +47,6 @@ static uint32_t now_epoch(void)                  /* UTC */
 {
     return g_epoch_base + lz_tick_ms() / 1000;
 }
-static uint32_t now_local(void) { return now_epoch() + g_tz_min * 60; }
 
 /* days since 1970-01-01 for a civil date (Howard Hinnant's algorithm) */
 static long days_from_civil(int y, int m, int d)
@@ -56,6 +58,46 @@ static long days_from_civil(int y, int m, int d)
     int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     return era * 146097L + doe - 719468;
 }
+
+/* 0=Sunday .. 6=Saturday for a day-count since the 1970 epoch (a Thursday) */
+static int weekday(long days) { return (int)(((days % 7) + 4 + 7) % 7); }
+static int nth_sunday(int y, int m, int nth)     /* day-of-month of the Nth Sunday */
+{
+    int wd = weekday(days_from_civil(y, m, 1));
+    return 1 + ((7 - wd) % 7) + (nth - 1) * 7;
+}
+static int last_sunday(int y, int m, int last_day)
+{
+    return last_day - weekday(days_from_civil(y, m, last_day));
+}
+
+/* is daylight saving in effect at this UTC instant for the active zone? */
+static bool dst_at(uint32_t utc)
+{
+    if(g_dst_rule == LZ_DST_NONE) return false;
+    if(g_dst_rule == LZ_DST_US) {
+        /* 2nd Sun Mar 02:00 .. 1st Sun Nov 02:00, in local standard time */
+        time_t t = (time_t)(utc + g_tz_std_min * 60);
+        struct tm tm; gmtime_r(&t, &tm);
+        int m = tm.tm_mon + 1, d = tm.tm_mday, h = tm.tm_hour;
+        int y = tm.tm_year + 1900;
+        if(m < 3 || m > 11) return false;
+        if(m > 3 && m < 11) return true;
+        if(m == 3) { int s = nth_sunday(y, 3, 2);  return d > s || (d == s && h >= 2); }
+        int e = nth_sunday(y, 11, 1);              return d < e || (d == e && h < 2);
+    }
+    /* EU: last Sun Mar 01:00 UTC .. last Sun Oct 01:00 UTC */
+    time_t t = (time_t)utc;
+    struct tm tm; gmtime_r(&t, &tm);
+    int m = tm.tm_mon + 1, d = tm.tm_mday, h = tm.tm_hour, y = tm.tm_year + 1900;
+    if(m < 3 || m > 10) return false;
+    if(m > 3 && m < 10) return true;
+    if(m == 3) { int s = last_sunday(y, 3, 31);  return d > s || (d == s && h >= 1); }
+    int e = last_sunday(y, 10, 31);              return d < e || (d == e && h < 1);
+}
+
+static int eff_tz_min(void) { return g_tz_std_min + (dst_at(now_epoch()) ? 60 : 0); }
+static uint32_t now_local(void) { return now_epoch() + eff_tz_min() * 60; }
 
 const lz_identity_t *lz_svc_identity(void) { return &g_id; }
 
@@ -79,7 +121,7 @@ const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)
 
 const char *lz_fmt_hm(uint32_t ts, char *buf, size_t n)
 {
-    uint32_t secs = (ts + g_tz_min * 60) % 86400;   /* stored UTC -> local */
+    uint32_t secs = (ts + eff_tz_min() * 60) % 86400;   /* stored UTC -> local */
     snprintf(buf, n, "%02u:%02u", (unsigned)(secs / 3600), (unsigned)((secs % 3600) / 60));
     return buf;
 }
@@ -171,14 +213,29 @@ void lz_svc_set_time(uint32_t epoch)              /* UTC (e.g. from NTP) */
     g_time_synced = true;
 }
 bool lz_svc_time_synced(void) { return g_time_synced; }
-void lz_svc_set_tz(int offset_min) { g_tz_min = offset_min; }
-int  lz_svc_tz(void) { return g_tz_min; }
+
+void lz_svc_set_tz(int offset_min)               /* fixed offset, no DST */
+{
+    g_tz_std_min = offset_min; g_dst_rule = LZ_DST_NONE;
+}
+void lz_svc_set_tz_zone(int std_min, int dst_rule, const char *std_ab, const char *dst_ab)
+{
+    g_tz_std_min = std_min;
+    g_dst_rule = dst_rule;
+    snprintf(g_tz_std_ab, sizeof g_tz_std_ab, "%s", std_ab ? std_ab : "UTC");
+    snprintf(g_tz_dst_ab, sizeof g_tz_dst_ab, "%s", dst_ab ? dst_ab : g_tz_std_ab);
+}
+int  lz_svc_tz(void) { return eff_tz_min(); }
+bool lz_svc_dst_active(void) { return dst_at(now_epoch()); }
+const char *lz_svc_tz_abbrev(void) { return dst_at(now_epoch()) ? g_tz_dst_ab : g_tz_std_ab; }
 
 /* manual set: the user enters LOCAL wall-clock; store as UTC */
 void lz_svc_set_clock(int y, int mo, int d, int h, int mi)
 {
     uint32_t local = (uint32_t)(days_from_civil(y, mo, d) * 86400L + h * 3600 + mi * 60);
-    lz_svc_set_time(local - g_tz_min * 60);
+    uint32_t utc = local - g_tz_std_min * 60;
+    if(dst_at(utc)) utc -= 3600;                 /* entered wall time was daylight */
+    lz_svc_set_time(utc);
 }
 void lz_svc_get_clock(int *y, int *mo, int *d, int *h, int *mi)
 {
