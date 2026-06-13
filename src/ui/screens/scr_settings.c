@@ -3,8 +3,6 @@
 #include "../ui.h"
 #include <stdio.h>
 
-static const char *REGIONS[]  = { "US", "EU868", "ANZ", "CN", "JP" };
-static const char *PRESETS[]  = { "Long/Fast", "Long/Slow", "Med/Fast", "Short/Fast" };
 static const char *TXPOW[]    = { "Low", "Medium", "High", "Max" };
 static const int   TXPOW_DBM[] = { 2, 8, 17, 22 };
 static const char *TIMEOUTS[] = { "15s", "30s", "1m", "5m", "Never" };
@@ -19,21 +17,21 @@ typedef struct {
 
 /* focus indices 2..10 map onto this table (this is a dark-only OS — no dark
  * mode toggle; Wi-Fi opens its own setup screen) */
-static const srow_t SROWS[12] = {
-    { "Region",           LZ_I_PUBLIC,     ROW_VALUE  },  /* f=2  */
-    { "Modem preset",     LZ_I_GRAPHIC_EQ, ROW_VALUE  },  /* f=3  */
-    { "TX power",         LZ_I_CELL_TOWER, ROW_VALUE  },  /* f=4  */
-    { "Wi-Fi",            LZ_I_WIFI,       ROW_NAV    },  /* f=5  */
-    { "GPS",              LZ_I_LOCATION,   ROW_TOGGLE },  /* f=6  */
-    { "Brightness",       LZ_I_BRIGHTNESS, ROW_SLIDER },  /* f=7  */
-    { "Keyboard light",   LZ_I_BRIGHTNESS, ROW_VALUE  },  /* f=8  */
-    { "Sleep after",      LZ_I_SCHEDULE,   ROW_VALUE  },  /* f=9  */
-    { "Time zone",        LZ_I_PUBLIC,     ROW_VALUE  },  /* f=10 */
-    { "Set time",         LZ_I_SCHEDULE,   ROW_NAV    },  /* f=11 */
-    { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=12 */
-    { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=13 */
+/* Meshtastic is fixed to US / LongFast (no Region or Modem-preset options) and
+ * MeshCore to its single public profile, so neither is configurable here. */
+static const srow_t SROWS[10] = {
+    { "TX power",         LZ_I_CELL_TOWER, ROW_VALUE  },  /* f=2  */
+    { "Wi-Fi",            LZ_I_WIFI,       ROW_NAV    },  /* f=3  */
+    { "GPS",              LZ_I_LOCATION,   ROW_TOGGLE },  /* f=4  */
+    { "Brightness",       LZ_I_BRIGHTNESS, ROW_SLIDER },  /* f=5  */
+    { "Keyboard light",   LZ_I_BRIGHTNESS, ROW_VALUE  },  /* f=6  */
+    { "Sleep after",      LZ_I_SCHEDULE,   ROW_VALUE  },  /* f=7  */
+    { "Time zone",        LZ_I_PUBLIC,     ROW_VALUE  },  /* f=8  */
+    { "Set time",         LZ_I_SCHEDULE,   ROW_NAV    },  /* f=9  */
+    { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=10 */
+    { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=11 */
 };
-#define SETTINGS_FOCUS_COUNT 14   /* 2 network rows + 12 SROWS */
+#define SETTINGS_FOCUS_COUNT 12   /* 2 network rows + 10 SROWS */
 
 /* Named regions people recognize. Each carries a STANDARD-time offset plus a
  * daylight rule, so the clock follows DST automatically — pick "Eastern" once
@@ -93,18 +91,16 @@ static void settings_activate(int f)
     switch(f) {
         case 0: S.net_mt = !S.net_mt; lz_apply_networks(); break;
         case 1: S.net_mc = !S.net_mc; lz_apply_networks(); break;
-        case 2: cycle(&S.settings.region, 5); break;
-        case 3: cycle(&S.settings.preset, 4); break;
-        case 4: cycle(&S.settings.tx, 4); lz_backend_set_tx_power(TXPOW_DBM[S.settings.tx]); break;
-        case 5: lz_go(LZ_V_WIFI); return;          /* Wi-Fi setup */
-        case 6: S.settings.gps = !S.settings.gps; break;
-        case 7: return;                            /* slider: left/right adjusts */
-        case 8: cycle(&S.settings.kb_light, 3); break;
-        case 9: cycle(&S.settings.timeout, 5); break;
-        case 10: lz_go(LZ_V_TZPICK); S.focus = S.settings.tz_idx; lz_rebuild(); return;
-        case 11: lz_settime_enter(); lz_go(LZ_V_SETTIME); return;
-        case 12: S.settings.save = !S.settings.save; break;
-        case 13: lz_go(LZ_V_SYSTEM); return;
+        case 2: cycle(&S.settings.tx, 4); lz_backend_set_tx_power(TXPOW_DBM[S.settings.tx]); break;
+        case 3: lz_go(LZ_V_WIFI); return;          /* Wi-Fi setup */
+        case 4: S.settings.gps = !S.settings.gps; break;
+        case 5: return;                            /* slider: left/right adjusts */
+        case 6: cycle(&S.settings.kb_light, 3); break;
+        case 7: cycle(&S.settings.timeout, 5); break;
+        case 8: lz_go(LZ_V_TZPICK); S.focus = S.settings.tz_idx; lz_rebuild(); return;
+        case 9: lz_settime_enter(); lz_go(LZ_V_SETTIME); return;
+        case 10: S.settings.save = !S.settings.save; break;
+        case 11: lz_go(LZ_V_SYSTEM); return;
         default: return;
     }
     lz_rebuild();
@@ -264,9 +260,9 @@ void lz_scr_settings(lv_obj_t *root)
 
     /* --- grouped rows --- */
     static const struct { const char *title; int first, count; } GROUPS[6] = {
-        { "RADIO",        2, 3 }, { "CONNECTIVITY", 5, 2 },
-        { "DISPLAY",      7, 3 }, { "TIME",        10, 2 },
-        { "POWER",       12, 1 }, { "DEVICE",      13, 1 },
+        { "RADIO",        2, 1 }, { "CONNECTIVITY", 3, 2 },
+        { "DISPLAY",      5, 3 }, { "TIME",         8, 2 },
+        { "POWER",       10, 1 }, { "DEVICE",      11, 1 },
     };
     char bval[8];
     for(int g = 0; g < 6; g++) {
@@ -279,13 +275,11 @@ void lz_scr_settings(lv_obj_t *root)
             lv_obj_t *lbl = lz_text(row, r->label, LZ_F_BODY, LZ_TEXT_SETTING);
             lv_obj_set_flex_grow(lbl, 1);
             switch(f) {
-                case 2: value_chevron(row, REGIONS[S.settings.region]); break;
-                case 3: value_chevron(row, PRESETS[S.settings.preset]); break;
-                case 4: value_chevron(row, TXPOW[S.settings.tx]); break;
-                case 5: value_chevron(row, lz_wifi_connected() ? lz_wifi_connected()
+                case 2: value_chevron(row, TXPOW[S.settings.tx]); break;
+                case 3: value_chevron(row, lz_wifi_connected() ? lz_wifi_connected()
                                           : (lz_wifi_enabled() ? "On" : "Off")); break;
-                case 6: lz_toggle(row, S.settings.gps, LZ_TOGGLE_ON); break;
-                case 7: {
+                case 4: lz_toggle(row, S.settings.gps, LZ_TOGGLE_ON); break;
+                case 5: {
                     /* brightness slider (left/right adjusts while focused) */
                     lv_obj_t *track = lz_box(row);
                     lv_obj_set_size(track, 96, 5);
@@ -301,14 +295,14 @@ void lz_scr_settings(lv_obj_t *root)
                     lv_obj_align(knob, LV_ALIGN_LEFT_MID, (96 * S.settings.bright) / 100 - 5, 0);
                     break;
                 }
-                case 8: value_chevron(row, KBLIGHT[S.settings.kb_light]); break;
-                case 9: value_chevron(row, TIMEOUTS[S.settings.timeout]); break;
-                case 10: { char zb[24]; snprintf(zb, sizeof zb, "%s (%s)",
+                case 6: value_chevron(row, KBLIGHT[S.settings.kb_light]); break;
+                case 7: value_chevron(row, TIMEOUTS[S.settings.timeout]); break;
+                case 8: { char zb[24]; snprintf(zb, sizeof zb, "%s (%s)",
                                TZ[S.settings.tz_idx].name, lz_svc_tz_abbrev());
                            value_chevron(row, zb); break; }
-                case 11: { char tb[8]; value_chevron(row, lz_fmt_now(tb, sizeof tb)); break; }
-                case 12: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
-                case 13: {
+                case 9: { char tb[8]; value_chevron(row, lz_fmt_now(tb, sizeof tb)); break; }
+                case 10: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
+                case 11: {
                     lz_sysinfo_t si; lz_svc_sysinfo(&si);
                     char sb[16];
                     if(si.battery_pct >= 0) snprintf(sb, sizeof sb, "%d%% - %dC", si.battery_pct, si.temp_c);

@@ -653,8 +653,8 @@ void lz_onboard_advance(void)
 
 bool lz_settings_slider_focused(void)
 {
-    /* settings focus order: 0 Meshtastic, 1 MeshCore, then rows; brightness is row idx 7 */
-    return S.focus == 7;
+    /* settings focus order: 0 Meshtastic, 1 MeshCore, then rows; brightness is focus 5 */
+    return S.focus == 5;
 }
 
 void lz_settings_bright_adjust(int delta)
