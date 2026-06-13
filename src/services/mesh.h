@@ -27,6 +27,10 @@ extern "C" {
 #define LZ_TAIL_MAX     32
 #define LZ_TEXT_MAX     200
 
+/* Stage 1 is Meshtastic-only (spec roadmap). MeshCore stays visible but
+ * grayed/locked until its stack lands in Stage 2. Flip to 1 to re-enable. */
+#define LZ_MESHCORE_ENABLED 0
+
 typedef struct {
     uint32_t num;                /* node number (low 32 of MAC on Meshtastic) */
     char     id[16];             /* "!7c3af1d0" / "MC-4f8e" */

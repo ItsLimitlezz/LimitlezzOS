@@ -15,19 +15,20 @@ typedef struct {
     int kind;
 } srow_t;
 
-/* focus indices 2..11 map onto this table */
-static const srow_t SROWS[10] = {
-    { "Region",           LZ_I_PUBLIC,     ROW_VALUE  },
-    { "Modem preset",     LZ_I_GRAPHIC_EQ, ROW_VALUE  },
-    { "TX power",         LZ_I_CELL_TOWER, ROW_VALUE  },
-    { "Wi-Fi",            LZ_I_WIFI,       ROW_TOGGLE },
-    { "GPS",              LZ_I_LOCATION,   ROW_TOGGLE },
-    { "Brightness",       LZ_I_BRIGHTNESS, ROW_SLIDER },
-    { "Dark mode",        LZ_I_DARK_MODE,  ROW_TOGGLE },
-    { "Sleep after",      LZ_I_SCHEDULE,   ROW_VALUE  },
-    { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },
-    { "System & battery", LZ_I_MONITORING, ROW_NAV    },
+/* focus indices 2..10 map onto this table (this is a dark-only OS — no dark
+ * mode toggle; Wi-Fi opens its own setup screen) */
+static const srow_t SROWS[9] = {
+    { "Region",           LZ_I_PUBLIC,     ROW_VALUE  },  /* f=2  */
+    { "Modem preset",     LZ_I_GRAPHIC_EQ, ROW_VALUE  },  /* f=3  */
+    { "TX power",         LZ_I_CELL_TOWER, ROW_VALUE  },  /* f=4  */
+    { "Wi-Fi",            LZ_I_WIFI,       ROW_NAV    },  /* f=5  */
+    { "GPS",              LZ_I_LOCATION,   ROW_TOGGLE },  /* f=6  */
+    { "Brightness",       LZ_I_BRIGHTNESS, ROW_SLIDER },  /* f=7  */
+    { "Sleep after",      LZ_I_SCHEDULE,   ROW_VALUE  },  /* f=8  */
+    { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=9  */
+    { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=10 */
 };
+#define SETTINGS_FOCUS_COUNT 11   /* 2 network rows + 9 SROWS */
 
 static void cycle(int *idx, int n) { *idx = (*idx + 1) % n; }
 
@@ -35,17 +36,16 @@ static void settings_activate(int f)
 {
     switch(f) {
         case 0: S.net_mt = !S.net_mt; break;
-        case 1: S.net_mc = !S.net_mc; break;
+        case 1: if(!LZ_MESHCORE_ENABLED) return; S.net_mc = !S.net_mc; break;
         case 2: cycle(&S.settings.region, 5); break;
         case 3: cycle(&S.settings.preset, 4); break;
         case 4: cycle(&S.settings.tx, 4); break;
-        case 5: S.settings.wifi = !S.settings.wifi; break;
+        case 5: lz_go(LZ_V_WIFI); return;          /* Wi-Fi setup */
         case 6: S.settings.gps = !S.settings.gps; break;
         case 7: return;                            /* slider: left/right adjusts */
-        case 8: S.settings.dark = !S.settings.dark; break;
-        case 9: cycle(&S.settings.timeout, 5); break;
-        case 10: S.settings.save = !S.settings.save; break;
-        case 11: lz_go(LZ_V_SYSTEM); return;
+        case 8: cycle(&S.settings.timeout, 5); break;
+        case 9: S.settings.save = !S.settings.save; break;
+        case 10: lz_go(LZ_V_SYSTEM); return;
         default: return;
     }
     lz_rebuild();
@@ -157,12 +157,14 @@ void lz_scr_settings(lv_obj_t *root)
     lv_label_set_long_mode(noteL, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(noteL, lv_pct(100));
 
-    /* --- NETWORKS: first-class toggles --- */
+    /* --- NETWORKS: first-class toggles (MeshCore locked until Stage 2) --- */
     lv_obj_t *nets = group_card(body, "NETWORKS");
     for(int i = 0; i < 2; i++) {
         bool is_mt = i == 0;
         bool on = is_mt ? mt : mc;
+        bool locked = !is_mt && !LZ_MESHCORE_ENABLED;
         lv_obj_t *row = setting_row_base(nets, S.focus == i, i == 1);
+        if(locked) lv_obj_set_style_opa(row, LV_OPA_50, 0);
         lv_obj_t *tile = lz_box(row);
         lv_obj_set_size(tile, 28, 28);
         lv_obj_set_style_radius(tile, 8, 0);
@@ -179,15 +181,26 @@ void lz_scr_settings(lv_obj_t *root)
         lz_text(cl, is_mt ? "Meshtastic" : "MeshCore", LZ_F_BODY, LZ_TEXT);
         const char *sub = is_mt
             ? (mt ? "Node JESS - US - LongFast" : "Disabled - history kept")
-            : (mc ? "Companion - 5 contacts"    : "Disabled - history kept");
+            : (locked ? "Coming soon" : mc ? "Companion - 5 contacts" : "Disabled - history kept");
         lz_text(cl, sub, LZ_F_SMALL, is_mt ? LZ_TEXT_2 : lv_color_hex(0x988E7C));
-        lz_toggle(row, on, is_mt ? LZ_TRACK_MT : LZ_TRACK_MC);
+        if(locked) {
+            lv_obj_t *chip = lz_box(row);
+            lv_obj_set_size(chip, LV_SIZE_CONTENT, 16);
+            lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(chip, lv_color_hex(0x252A31), 0);
+            lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+            lv_obj_set_style_pad_hor(chip, 7, 0);
+            lv_obj_t *cl2 = lz_text(chip, "Soon", LZ_F_SMALL, lv_color_hex(0x868F99));
+            lv_obj_center(cl2);
+        } else {
+            lz_toggle(row, on, is_mt ? LZ_TRACK_MT : LZ_TRACK_MC);
+        }
     }
 
     /* --- grouped rows --- */
     static const struct { const char *title; int first, count; } GROUPS[5] = {
         { "RADIO",        2, 3 }, { "CONNECTIVITY", 5, 2 },
-        { "DISPLAY",      7, 3 }, { "POWER",       10, 1 }, { "DEVICE", 11, 1 },
+        { "DISPLAY",      7, 2 }, { "POWER",        9, 1 }, { "DEVICE", 10, 1 },
     };
     char bval[8];
     for(int g = 0; g < 5; g++) {
@@ -203,7 +216,8 @@ void lz_scr_settings(lv_obj_t *root)
                 case 2: value_chevron(row, REGIONS[S.settings.region]); break;
                 case 3: value_chevron(row, PRESETS[S.settings.preset]); break;
                 case 4: value_chevron(row, TXPOW[S.settings.tx]); break;
-                case 5: lz_toggle(row, S.settings.wifi, LZ_TOGGLE_ON); break;
+                case 5: value_chevron(row, lz_wifi_connected() ? lz_wifi_connected()
+                                          : (lz_wifi_enabled() ? "On" : "Off")); break;
                 case 6: lz_toggle(row, S.settings.gps, LZ_TOGGLE_ON); break;
                 case 7: {
                     /* brightness slider (left/right adjusts while focused) */
@@ -221,10 +235,9 @@ void lz_scr_settings(lv_obj_t *root)
                     lv_obj_align(knob, LV_ALIGN_LEFT_MID, (96 * S.settings.bright) / 100 - 5, 0);
                     break;
                 }
-                case 8: lz_toggle(row, S.settings.dark, LZ_TOGGLE_ON); break;
-                case 9: value_chevron(row, TIMEOUTS[S.settings.timeout]); break;
-                case 10: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
-                case 11: value_chevron(row, "87% - 24C"); break;
+                case 8: value_chevron(row, TIMEOUTS[S.settings.timeout]); break;
+                case 9: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
+                case 10: value_chevron(row, "87% - 24C"); break;
             }
             lz_nav_track(row, f);
         }
@@ -252,7 +265,7 @@ void lz_scr_settings(lv_obj_t *root)
         lz_text(r, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);
     }
 
-    lz_nav_set(1, 12, settings_activate);
+    lz_nav_set(1, SETTINGS_FOCUS_COUNT, settings_activate);
 }
 
 /* ===== System ===== */

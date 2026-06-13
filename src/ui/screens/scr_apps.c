@@ -370,8 +370,116 @@ static void blink_del_cb(lv_event_t *e)
     lv_timer_del(lv_event_get_user_data(e));
 }
 
+/* ---- interactive serial console ----
+ * A real shell over the mesh service: type a command, Enter runs it, output
+ * appends to the scrollback. Same commands work over USB serial on hardware. */
+#define TERM_MAX   80
+#define TERM_COLS  44
+static char    g_term[TERM_MAX][64];
+static uint8_t g_term_kind[TERM_MAX];   /* 0 dim, 1 cmd, 2 out, 3 err */
+static int     g_term_n;
+static char    g_term_in[TERM_COLS];
+static bool    g_term_seeded;
+
+static void term_put(uint8_t kind, const char *s)
+{
+    if(g_term_n >= TERM_MAX) {           /* scroll the ring up by one */
+        memmove(g_term[0], g_term[1], sizeof(g_term[0]) * (TERM_MAX - 1));
+        memmove(g_term_kind, g_term_kind + 1, TERM_MAX - 1);
+        g_term_n = TERM_MAX - 1;
+    }
+    snprintf(g_term[g_term_n], sizeof g_term[0], "%s", s);
+    g_term_kind[g_term_n] = kind;
+    g_term_n++;
+}
+
+static void term_seed(void)
+{
+    g_term_n = 0;
+    term_put(0, "LimitlezzOS 1.0  -  serial console");
+    term_put(0, "type 'help' for commands");
+    g_term_seeded = true;
+}
+
+static void term_run(const char *cmd)
+{
+    char echo[64];
+    snprintf(echo, sizeof echo, "limitlezz:~$ %s", cmd);
+    term_put(1, echo);
+
+    /* trim leading spaces */
+    while(*cmd == ' ') cmd++;
+
+    if(cmd[0] == 0) {
+        /* blank line */
+    } else if(strcmp(cmd, "help") == 0) {
+        term_put(2, "commands:");
+        term_put(2, "  info     owner, networks, region");
+        term_put(2, "  nodes    heard nodes + SNR");
+        term_put(2, "  airtime  tx / rx / utilization");
+        term_put(2, "  whoami   this node's identity");
+        term_put(2, "  clear    wipe the screen");
+    } else if(strcmp(cmd, "info") == 0 || strcmp(cmd, "mesh --info") == 0) {
+        const lz_identity_t *id = lz_svc_identity();
+        char l[64];
+        snprintf(l, sizeof l, "owner : %s (%s)", id->long_name, id->short_name); term_put(2, l);
+        snprintf(l, sizeof l, "nets  : meshtastic[on] meshcore[%s]",
+                 LZ_MESHCORE_ENABLED ? "on" : "soon"); term_put(2, l);
+        snprintf(l, sizeof l, "nodes : %d reachable", lz_svc_node_count(LZ_NET_MT)); term_put(2, l);
+        term_put(2, "region: US   preset: LONG_FAST");
+    } else if(strcmp(cmd, "nodes") == 0 || strcmp(cmd, "mesh --nodes") == 0) {
+        const lz_node_rt *ns; int n = lz_svc_nodes(&ns);
+        const lz_identity_t *me = lz_svc_identity();
+        int shown = 0;
+        for(int i = 0; i < n; i++) {
+            if(ns[i].net != LZ_NET_MT || ns[i].num == me->num) continue;
+            char l[64];
+            snprintf(l, sizeof l, "%-4s %+5.1f  %-7s %s",
+                     ns[i].shortcode, (double)ns[i].snr, ns[i].role, ns[i].name);
+            term_put(2, l); shown++;
+        }
+        if(!shown) term_put(2, "no nodes heard yet");
+    } else if(strcmp(cmd, "airtime") == 0 || strcmp(cmd, "mesh --airtime") == 0) {
+        lz_radio_stats_t st; lz_svc_radio_stats(&st);
+        char l[64];
+        snprintf(l, sizeof l, "tx %u  rx %u  util %.1f%%",
+                 (unsigned)st.tx_count, (unsigned)st.rx_count, (double)st.util_pct);
+        term_put(2, l);
+    } else if(strcmp(cmd, "whoami") == 0) {
+        const lz_identity_t *id = lz_svc_identity();
+        char l[64];
+        snprintf(l, sizeof l, "%s / %s / %s", id->long_name, id->short_name, id->id);
+        term_put(2, l);
+    } else if(strcmp(cmd, "clear") == 0) {
+        g_term_n = 0;
+    } else {
+        char l[64];
+        snprintf(l, sizeof l, "%s: command not found (try 'help')", cmd);
+        term_put(3, l);
+    }
+}
+
+void lz_term_key(lz_key_t k, char c)
+{
+    if(k == LZ_K_ENTER) {
+        term_run(g_term_in);
+        g_term_in[0] = 0;
+        lz_rebuild();
+    } else if(k == LZ_K_BACK) {
+        if(g_term_in[0]) { g_term_in[strlen(g_term_in) - 1] = 0; lz_rebuild(); }
+        else lz_back();
+    } else if(k == LZ_K_CHAR && c >= 32 && c < 127) {
+        size_t len = strlen(g_term_in);
+        if(len < TERM_COLS - 1) { g_term_in[len] = c; g_term_in[len + 1] = 0; lz_rebuild(); }
+    } else if(k == LZ_K_UP || k == LZ_K_DOWN) {
+        lz_ui_key(k, 0);   /* let the engine scroll the scrollback */
+    }
+}
+
 void lz_scr_terminal(lv_obj_t *root)
 {
+    if(!g_term_seeded) term_seed();
+
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_bg_color(root, LZ_TERM_BG, 0);
 
@@ -395,23 +503,27 @@ void lz_scr_terminal(lv_obj_t *root)
 
     lv_obj_t *body = lz_vflex(root);
     lv_obj_set_style_pad_all(body, 8, 0);
-    lv_obj_set_style_pad_row(body, 4, 0);
+    lv_obj_set_style_pad_row(body, 3, 0);
     lz_nav_set_scroll(body);
 
-    for(int i = 0; i < 12; i++) {
-        lv_color_t c = LZ_TERM_KIND[i] == 0 ? LZ_TERM_DIM
-                     : LZ_TERM_KIND[i] == 1 ? LZ_TERM_CMD : LZ_TERM_GREEN;
-        lz_text(body, LZ_TERM_LINES[i], LZ_F_MONO, c);
+    for(int i = 0; i < g_term_n; i++) {
+        lv_color_t c = g_term_kind[i] == 0 ? LZ_TERM_DIM
+                     : g_term_kind[i] == 1 ? LZ_TERM_CMD
+                     : g_term_kind[i] == 3 ? LZ_SNR_BAD : LZ_TERM_GREEN;
+        lv_obj_t *ln = lz_text(body, g_term[i], LZ_F_MONO, c);
+        lv_label_set_long_mode(ln, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(ln, lv_pct(100));
     }
 
-    /* prompt + blinking block cursor */
+    /* live input line: prompt + typed text + blinking block cursor */
     lv_obj_t *prompt = lz_box(body);
     lv_obj_set_width(prompt, lv_pct(100));
     lv_obj_set_height(prompt, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(prompt, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(prompt, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(prompt, 2, 0);
-    lz_text(prompt, "limitlezz:~$ ", LZ_F_MONO, LZ_TERM_GREEN);
+    lv_obj_set_style_pad_column(prompt, 1, 0);
+    lz_text(prompt, "limitlezz:~$", LZ_F_MONO, LZ_TERM_GREEN);
+    if(g_term_in[0]) lz_text(prompt, g_term_in, LZ_F_MONO, lv_color_hex(0xCFD4DA));
     lv_obj_t *cur = lz_box(prompt);
     lv_obj_set_size(cur, 6, 12);
     lv_obj_set_style_bg_color(cur, LZ_TERM_GREEN, 0);
@@ -419,7 +531,7 @@ void lz_scr_terminal(lv_obj_t *root)
     lv_timer_t *tm = lv_timer_create(blink_cb, 530, cur);
     lv_obj_add_event_cb(cur, blink_del_cb, LV_EVENT_DELETE, tm);
 
-    lz_nav_set(1, 0, NULL);  /* trackball scrolls */
+    lz_nav_set(1, 0, NULL);  /* typing handled by lz_term_key; up/down scroll */
 }
 
 /* ===== Files ===== */

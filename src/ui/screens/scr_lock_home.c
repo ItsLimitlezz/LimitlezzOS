@@ -1,6 +1,7 @@
 /* Lock screen + Home launcher (single iOS-style 4x2 grid per design) */
 #include "../ui.h"
 #include <stdio.h>
+#include <string.h>
 
 /* ===== Lock ===== */
 
@@ -72,13 +73,21 @@ void lz_scr_lock(lv_obj_t *root)
 
 /* ===== Home ===== */
 
+/* apps not usable in this beta are grayed out and inert */
+static bool app_enabled(const char *id)
+{
+    if(strcmp(id, "meshcore") == 0) return LZ_MESHCORE_ENABLED;
+    if(strcmp(id, "appstore") == 0) return false;   /* not wired up yet */
+    return true;
+}
+
 static void home_activate(int idx)
 {
     static const lz_view_t views[8] = {
         LZ_V_MESSAGES, LZ_V_MESHTASTIC, LZ_V_MESHCORE, LZ_V_CONTACTS,
         LZ_V_APPSTORE, LZ_V_TERMINAL, LZ_V_FILES, LZ_V_SETTINGS,
     };
-    if(idx >= 0 && idx < 8) lz_go(views[idx]);
+    if(idx >= 0 && idx < 8 && app_enabled(LZ_APPS[idx].id)) lz_go(views[idx]);
 }
 
 void lz_scr_home(lv_obj_t *root)
@@ -89,6 +98,7 @@ void lz_scr_home(lv_obj_t *root)
     for(int i = 0; i < 8; i++) {
         const lz_app_t *a = &LZ_APPS[i];
         bool foc = (i == S.focus);
+        bool en = app_enabled(a->id);
         int col = i % 4, row = i / 4;
         int cell_x = 12 + col * 75;
         int cell_y = LZ_STATUSBAR_H + 11 + row * (46 + 10 + 4 + 9);
@@ -97,20 +107,35 @@ void lz_scr_home(lv_obj_t *root)
         lv_obj_set_size(tile, 46, 46);
         lv_obj_set_pos(tile, cell_x + (71 - 46) / 2, cell_y);
         lv_obj_set_style_radius(tile, LZ_RADIUS_TILE, 0);
-        lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
+        lv_obj_set_style_bg_color(tile, en ? lz_tile_color(a->hue) : lv_color_hex(0x23272E), 0);
         lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
         if(foc) {
             lv_obj_set_style_outline_width(tile, LZ_FOCUS_RING_W, 0);
             lv_obj_set_style_outline_color(tile, LZ_FOCUS, 0);
             lv_obj_set_style_outline_pad(tile, 1, 0);
         }
-        lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_24, lv_color_white());
+        lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_24,
+                               en ? lv_color_white() : lv_color_hex(0x5A616A));
         lv_obj_center(ic);
 
         lv_obj_t *lbl = lz_text(root, a->name, LZ_F_SMALL,
-                                foc ? LZ_TEXT_BRIGHT : LZ_TEXT_DIMLBL);
+                                !en ? lv_color_hex(0x5A616A)
+                                    : foc ? LZ_TEXT_BRIGHT : LZ_TEXT_DIMLBL);
         lv_obj_update_layout(lbl);
         lv_obj_set_pos(lbl, cell_x + (71 - lv_obj_get_width(lbl)) / 2, cell_y + 46 + 4);
+
+        /* "Soon" chip on locked apps */
+        if(!en) {
+            lv_obj_t *soon = lz_box(tile);
+            lv_obj_set_size(soon, LV_SIZE_CONTENT, 12);
+            lv_obj_set_style_radius(soon, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(soon, lv_color_hex(0x0C0E12), 0);
+            lv_obj_set_style_bg_opa(soon, LV_OPA_COVER, 0);
+            lv_obj_set_style_pad_hor(soon, 4, 0);
+            lv_obj_t *st = lz_text(soon, "SOON", LZ_F_SMALL, lv_color_hex(0x868F99));
+            lv_obj_center(st);
+            lv_obj_align(soon, LV_ALIGN_BOTTOM_MID, 0, 2);
+        }
 
         lz_nav_track(tile, i);
     }

@@ -7,7 +7,7 @@
 #include <string.h>
 
 static void net_toggle_mt(void) { S.net_mt = !S.net_mt; lz_rebuild(); }
-static void net_toggle_mc(void) { S.net_mc = !S.net_mc; lz_rebuild(); }
+static void net_toggle_mc(void) { if(!LZ_MESHCORE_ENABLED) return; S.net_mc = !S.net_mc; lz_rebuild(); }
 static void step_continue(void) { lz_onboard_advance(); }
 
 /* step-2 focus engine: Enter on a network row toggles it, Enter on Continue advances */
@@ -104,8 +104,10 @@ void lz_scr_onboard(lv_obj_t *root)
             { "MeshCore",   S.net_mc, net_toggle_mc, LZ_IDTILE_MC, LZ_I_LAN },
         };
         for(int i = 0; i < 2; i++) {
+            bool locked = (i == 1) && !LZ_MESHCORE_ENABLED;   /* MeshCore: Stage 2 */
             lv_obj_t *row = lz_row(root, S.focus == i);
             lv_obj_set_width(row, 240);
+            if(locked) lv_obj_set_style_opa(row, LV_OPA_50, 0);
             lv_obj_t *tile = lz_box(row);
             lv_obj_set_size(tile, 26, 26);
             lv_obj_set_style_radius(tile, 7, 0);
@@ -116,7 +118,18 @@ void lz_scr_onboard(lv_obj_t *root)
             lv_obj_center(ic);
             lv_obj_t *nm = lz_text(row, rows[i].name, LZ_F_BODY, LZ_TEXT);
             lv_obj_set_flex_grow(nm, 1);
-            lz_toggle(row, rows[i].on, i == 0 ? LZ_TRACK_MT : LZ_TRACK_MC);
+            if(locked) {
+                lv_obj_t *chip = lz_box(row);
+                lv_obj_set_size(chip, LV_SIZE_CONTENT, 16);
+                lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
+                lv_obj_set_style_bg_color(chip, lv_color_hex(0x252A31), 0);
+                lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+                lv_obj_set_style_pad_hor(chip, 7, 0);
+                lv_obj_t *cl = lz_text(chip, "Soon", LZ_F_SMALL, lv_color_hex(0x868F99));
+                lv_obj_center(cl);
+            } else {
+                lz_toggle(row, rows[i].on, i == 0 ? LZ_TRACK_MT : LZ_TRACK_MC);
+            }
             lz_nav_track(row, i);
         }
 

@@ -22,6 +22,7 @@
 #include "lvgl.h"
 #include "ui/ui.h"
 #include "services/mesh.h"
+#include "services/wifi.h"
 
 #define SDCARD_CS  39
 
@@ -198,6 +199,7 @@ void setup()
     if(SD.begin(SDCARD_CS)) datadir = "/sd/limitlezz";
     lz_svc_init(datadir, true);
     lz_svc_set_dirty_cb(lz_rebuild);
+    lz_wifi_init();
 
     lz_ui_init(lv_scr_act());
 }
@@ -236,6 +238,12 @@ void loop()
     }
 
     lz_svc_loop();
+    static int last_wifi = -1;
+    lz_wifi_loop();
+    if(lz_wifi_status() != last_wifi) {
+        last_wifi = lz_wifi_status();
+        if(S.view == LZ_V_WIFI && !S.wifi_pw_mode) lz_rebuild();
+    }
     lv_timer_handler();
     delay(5);
 }

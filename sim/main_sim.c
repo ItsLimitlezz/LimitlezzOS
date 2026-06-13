@@ -96,10 +96,20 @@ static void write_bmp(const char *path)
     fclose(f);
 }
 
+/* pump background services; rebuild when wifi status changes on its screen */
+static void services_tick(void)
+{
+    static int last_wifi = -1;
+    lz_svc_loop();
+    lz_wifi_loop();
+    int w = lz_wifi_status();
+    if(w != last_wifi) { last_wifi = w; if(S.view == LZ_V_WIFI && !S.wifi_pw_mode) lz_rebuild(); }
+}
+
 static void pump(int ms)
 {
     for(int t = 0; t < ms; t += 5) {
-        lz_svc_loop();
+        services_tick();
         lv_timer_handler();
         SDL_Delay(5);   /* advance real wall-clock so tick-based timers fire */
     }
@@ -244,6 +254,38 @@ static void shots(const char *dir)
     pump(60);
     snprintf(path, sizeof path, "%s/25-settings-autoscroll.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
+
+    /* interactive serial console: type a command, get live output */
+    S.view = LZ_V_TERMINAL; S.focus = 0; lz_rebuild();
+    for(const char *p = "nodes"; *p; p++) lz_ui_key(LZ_K_CHAR, *p);
+    lz_ui_key(LZ_K_ENTER, 0);
+    for(const char *p = "info"; *p; p++) lz_ui_key(LZ_K_CHAR, *p);
+    lz_ui_key(LZ_K_ENTER, 0);
+    pump(60);
+    snprintf(path, sizeof path, "%s/26-terminal.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+
+    /* WiFi: enable -> scan list -> pick secured -> password -> connected */
+    S.view = LZ_V_WIFI; S.focus = 0; lz_rebuild();
+    lz_ui_key(LZ_K_ENTER, 0);          /* turn Wi-Fi on -> scanning */
+    pump(800);                         /* scan completes */
+    snprintf(path, sizeof path, "%s/27-wifi-list.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+    lz_ui_key(LZ_K_DOWN, 0);           /* focus first network (Basecamp-2G) */
+    lz_ui_key(LZ_K_ENTER, 0);          /* secured -> password entry */
+    for(const char *p = "trailpass"; *p; p++) lz_ui_key(LZ_K_CHAR, *p);
+    pump(40);
+    snprintf(path, sizeof path, "%s/28-wifi-password.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+    lz_ui_key(LZ_K_ENTER, 0);          /* connect */
+    pump(1500);                        /* connecting -> connected */
+    snprintf(path, sizeof path, "%s/29-wifi-connected.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+
+    /* home with MeshCore + App Store grayed out */
+    S.view = LZ_V_HOME; S.focus = 0; lz_rebuild(); pump(40);
+    snprintf(path, sizeof path, "%s/30-home-grayed.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
 }
 
 /* Codec round-trip verification — proves header framing, AES-CTR symmetry,
@@ -342,6 +384,7 @@ int main(int argc, char **argv)
         system("rm -rf lzdata_shots && mkdir -p lzdata_shots");
     }
     lz_svc_init(datadir, true);
+    lz_wifi_init();
     lz_ui_init(lv_scr_act());
 
     if(headless) {
@@ -383,7 +426,7 @@ int main(int argc, char **argv)
                 m_down = false;
             }
         }
-        lz_svc_loop();
+        services_tick();
         lv_timer_handler();
         SDL_Delay(5);
     }

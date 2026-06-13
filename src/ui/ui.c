@@ -18,7 +18,7 @@ void lz_ui_init(lv_obj_t *root)
     memset(&S, 0, sizeof(S));
     S.view = lz_svc_needs_onboarding() ? LZ_V_ONBOARD : LZ_V_LOCK;
     S.net_mt = true;
-    S.net_mc = true;
+    S.net_mc = LZ_MESHCORE_ENABLED ? true : false;   /* locked off until Stage 2 */
     S.settings.gps = true;
     S.settings.dark = true;
     S.settings.save = true;
@@ -103,6 +103,7 @@ void lz_rebuild(void)
         case LZ_V_SYSTEM:     lz_scr_system(g_root); break;
         case LZ_V_TERMINAL:   lz_scr_terminal(g_root); break;
         case LZ_V_FILES:      lz_scr_files(g_root); break;
+        case LZ_V_WIFI:       lz_scr_wifi(g_root); break;
         default: break;
     }
     if(g_focus_obj && g_scroll) {
@@ -110,8 +111,8 @@ void lz_rebuild(void)
         /* recursive: settings rows sit inside group cards, so the scrollable
          * body is the grandparent, not the direct parent */
         lv_obj_scroll_to_view_recursive(g_focus_obj, LV_ANIM_OFF);
-    } else if(S.view == LZ_V_CONVO && g_scroll) {
-        /* thread opens (and stays) pinned to the latest message */
+    } else if((S.view == LZ_V_CONVO || S.view == LZ_V_TERMINAL) && g_scroll) {
+        /* conversation + console stay pinned to the newest line */
         lv_obj_update_layout(g_scroll);
         lv_obj_scroll_to_y(g_scroll, LV_COORD_MAX, LV_ANIM_OFF);
     }
@@ -238,9 +239,32 @@ static void onboard_key(lz_key_t k, char c)
     }
 }
 
+/* wifi password entry: type into S.draft, Enter connects, Back cancels/edits */
+static void wifi_pw_key(lz_key_t k, char c)
+{
+    if(k == LZ_K_ENTER) {
+        lz_wifi_connect(S.wifi_pw_ssid, S.draft);
+        S.wifi_pw_mode = false; S.draft[0] = 0; S.focus = 0;
+        lz_rebuild();
+        return;
+    }
+    if(k == LZ_K_BACK) {
+        if(S.draft[0]) S.draft[strlen(S.draft) - 1] = 0;
+        else { S.wifi_pw_mode = false; S.focus = 0; }
+        lz_rebuild();
+        return;
+    }
+    if(k == LZ_K_CHAR && c >= 32 && c < 127) {
+        size_t len = strlen(S.draft);
+        if(len < LZ_DRAFT_MAX - 1) { S.draft[len] = c; S.draft[len + 1] = 0; lz_rebuild(); }
+    }
+}
+
 void lz_ui_key(lz_key_t k, char c)
 {
     if(S.view == LZ_V_ONBOARD) { onboard_key(k, c); return; }
+    if(S.view == LZ_V_WIFI && S.wifi_pw_mode) { wifi_pw_key(k, c); return; }
+    if(S.view == LZ_V_TERMINAL) { lz_term_key(k, c); return; }
     switch(k) {
         case LZ_K_UP: case LZ_K_DOWN: case LZ_K_LEFT: case LZ_K_RIGHT:
             move(k);
@@ -263,7 +287,7 @@ void lz_ui_key(lz_key_t k, char c)
                 lz_filter_t f = S.msg_filter;
                 if(c == '1') f = LZ_FILT_ALL;
                 else if(c == '2') f = LZ_FILT_MT;
-                else if(c == '3') f = LZ_FILT_MC;
+                else if(c == '3' && LZ_MESHCORE_ENABLED) f = LZ_FILT_MC;
                 if(f != S.msg_filter) { S.msg_filter = f; S.focus = 0; lz_rebuild(); }
                 return;
             }

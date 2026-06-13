@@ -72,6 +72,8 @@ const char *lz_fmt_hm(uint32_t ts, char *buf, size_t n)
 bool lz_node_messageable(const lz_node_rt *n)
 {
     if(!n) return false;
+    /* MeshCore is locked until Stage 2: nothing on it is messageable yet */
+    if(!LZ_MESHCORE_ENABLED && n->net == LZ_NET_MC) return false;
     /* infrastructure is not a person: Meshtastic Router/Repeater, MeshCore
      * Repeater/Sensor/Room are observable but never DM targets */
     return strcmp(n->role, "Client") == 0 || strcmp(n->role, "Chat") == 0;

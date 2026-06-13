@@ -13,6 +13,7 @@
 #include "data.h"
 #include "theme.h"
 #include "../services/mesh.h"
+#include "../services/wifi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +23,7 @@ typedef enum {
     LZ_V_ONBOARD, LZ_V_LOCK, LZ_V_HOME, LZ_V_MESSAGES, LZ_V_CONVO,
     LZ_V_MESHTASTIC, LZ_V_MESHCORE, LZ_V_APPSTORE,
     LZ_V_CONTACTS, LZ_V_CONTACT, LZ_V_SETTINGS,
-    LZ_V_SYSTEM, LZ_V_TERMINAL, LZ_V_FILES,
+    LZ_V_SYSTEM, LZ_V_TERMINAL, LZ_V_FILES, LZ_V_WIFI,
     LZ_V_COUNT
 } lz_view_t;
 
@@ -55,6 +56,10 @@ typedef struct {
     int  ob_step;                             /* 0 long name, 1 short, 2 nets, 3 done */
     char ob_long[24];
     char ob_short[6];
+
+    /* wifi password entry */
+    bool wifi_pw_mode;
+    char wifi_pw_ssid[33];
 
     int mt_tab;            /* 0 nodes, 1 channels  */
     int mc_tab;            /* 0 contacts, 1 rooms  */
@@ -111,9 +116,13 @@ void lz_scr_settings(lv_obj_t *root);
 void lz_scr_system(lv_obj_t *root);
 void lz_scr_terminal(lv_obj_t *root);
 void lz_scr_files(lv_obj_t *root);
+void lz_scr_wifi(lv_obj_t *root);
 
 /* open a network-bound conversation (Messages rows, Contact detail "Message") */
 void lz_open_convo(lz_thread_rt *t);
+
+/* interactive serial console (Terminal app) keyboard handling */
+void lz_term_key(lz_key_t k, char c);
 
 /* settings helpers shared between key handling and the settings screen */
 bool lz_settings_slider_focused(void);

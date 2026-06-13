@@ -114,9 +114,10 @@ void lz_scr_messages(lv_obj_t *root)
     lz_on_click(filter_chip(filters, "Meshtastic", S.msg_filter == LZ_FILT_MT,
                 LZ_CYAN, true, LZ_CYAN, LZ_ON_CYAN),
                 tap_filter_mt);
-    lz_on_click(filter_chip(filters, "MeshCore", S.msg_filter == LZ_FILT_MC,
-                LZ_AMBER, true, LZ_AMBER, LZ_ON_AMBER),
-                tap_filter_mc);
+    lv_obj_t *mc_chip = filter_chip(filters, "MeshCore", S.msg_filter == LZ_FILT_MC,
+                LZ_AMBER, true, LZ_AMBER, LZ_ON_AMBER);
+    if(LZ_MESHCORE_ENABLED) lz_on_click(mc_chip, tap_filter_mc);
+    else lv_obj_set_style_opa(mc_chip, LV_OPA_40, 0);   /* locked until Stage 2 */
 
     /* list */
     lv_obj_t *body = lz_vflex(root);
@@ -308,16 +309,26 @@ void lz_scr_convo(lv_obj_t *root)
         bool self = msgs[i].self;
         const char *txt = msgs[i].text;
 
+        /* row spanning the width; justify the bubble cluster right for self
+         * (outgoing) and left for incoming — the standard messenger layout */
         lv_obj_t *line = lz_box(body);
         lv_obj_set_width(line, lv_pct(100));
         lv_obj_set_height(line, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(line, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(line, LV_FLEX_ALIGN_START,
+        lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(line, self ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+
+        lv_obj_t *col = lz_box(line);
+        lv_obj_set_width(col, LV_SIZE_CONTENT);
+        lv_obj_set_height(col, LV_SIZE_CONTENT);
+        lv_obj_set_style_max_width(col, (LZ_W * 74) / 100, 0);
+        lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START,
                               self ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START,
                               LV_FLEX_ALIGN_START);
-        lv_obj_set_style_pad_row(line, 2, 0);
+        lv_obj_set_style_pad_row(col, 2, 0);
 
-        lv_obj_t *bub = lz_box(line);
+        lv_obj_t *bub = lz_box(col);
         lv_obj_set_height(bub, LV_SIZE_CONTENT);
         lv_obj_set_width(bub, LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(bub, (LZ_W * 74) / 100, 0);
@@ -338,7 +349,7 @@ void lz_scr_convo(lv_obj_t *root)
         }
 
         char ts[8]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
-        lz_text(line, ts, LZ_F_SMALL, lv_color_hex(0x6B727B));
+        lz_text(col, ts, LZ_F_SMALL, lv_color_hex(0x6B727B));
     }
 
     /* read-only thread (MeshCore in Stage 1, infrastructure): no composer */
