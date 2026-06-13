@@ -115,6 +115,8 @@ void lz_backend_init(void);
 void lz_backend_loop(void);
 bool lz_backend_send(lz_mt_packet_t *p);
 void lz_backend_stats(lz_radio_stats_t *out);
+bool lz_backend_ok(void);            /* radio init succeeded (diagnostics) */
+int  lz_backend_begin_state(void);   /* RadioLib begin() return code */
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);

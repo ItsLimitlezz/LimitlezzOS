@@ -24,18 +24,33 @@
 #include "services/mesh.h"
 #include "services/wifi.h"
 
-#define SDCARD_CS  39
-
-#define BOARD_POWERON      10
+/* All pins verified against LilyGO T-Deck (Xinyuan-LilyGO/T-Deck utilities.h)
+ * and meshtastic/firmware variants/esp32s3/t-deck/variant.h. */
+#define BOARD_POWERON      10    /* master peripheral power rail — HIGH first  */
 #define BOARD_I2C_SDA      18
 #define BOARD_I2C_SCL      8
 #define KEYBOARD_I2C_ADDR  0x55
+
+/* one SPI bus shared by TFT + SD + LoRa */
+#define BOARD_SPI_SCK      40
+#define BOARD_SPI_MOSI     41
+#define BOARD_SPI_MISO     38
+#define BOARD_TFT_CS       12
+#define SDCARD_CS          39
+#define RADIO_CS           9
+
+#define BOARD_BL_PIN       42    /* display backlight (LEDC PWM) */
+#define BL_LEDC_CH         7
+#define BL_LEDC_FREQ       44100
+#define BL_LEDC_BITS       8
+
 #define TRACKBALL_UP       3
 #define TRACKBALL_DOWN     15
 #define TRACKBALL_LEFT     1
 #define TRACKBALL_RIGHT    2
-#define TRACKBALL_CLICK    0
+#define TRACKBALL_CLICK    0     /* shared with BOOT strapping pin */
 #define TOUCH_INT          16
+/* lz_backend_ok / lz_backend_begin_state declared in services/mesh.h */
 
 /* GT911 reports panel-native portrait coordinates (240x320); the display
  * runs landscape (rotation 1). Flip these if touch tracks rotated on a
@@ -147,33 +162,56 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
             data->point.x = sx;
             data->point.y = sy;
             data->state = LV_INDEV_STATE_PRESSED;
+            lz_note_activity();                  /* touch keeps the screen awake */
         }
     }
     gt911_write8(0x814E, 0);                     /* ack: clear buffer status */
 }
 
+/* display backlight via LEDC PWM (Arduino-ESP32 core 2.x API) */
+static void backlight_set(int pct)
+{
+    if(pct < 0) pct = 0; if(pct > 100) pct = 100;
+    ledcWrite(BL_LEDC_CH, (pct * 255) / 100);
+}
+
+static bool kb_present;
+
 void setup()
 {
+    Serial.begin(115200);
+    delay(300);
+    Serial.println("\n=== LimitlezzOS boot ===");
+
+    /* 1) master power rail FIRST — without this the display/SD/radio/keyboard
+     *    are unpowered and the board looks bricked */
     pinMode(BOARD_POWERON, OUTPUT);
-    digitalWrite(BOARD_POWERON, HIGH);   /* power the peripherals first */
+    digitalWrite(BOARD_POWERON, HIGH);
     delay(100);
+    Serial.println("[ok] peripheral power (GPIO10) HIGH");
 
-    Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
+    /* 2) deselect ALL SPI devices before touching the bus (the #1 cause of a
+     *    dead first flash is a floating/low CS corrupting another transfer) */
+    pinMode(BOARD_TFT_CS, OUTPUT); digitalWrite(BOARD_TFT_CS, HIGH);
+    pinMode(SDCARD_CS,    OUTPUT); digitalWrite(SDCARD_CS,    HIGH);
+    pinMode(RADIO_CS,     OUTPUT); digitalWrite(RADIO_CS,     HIGH);
+    pinMode(BOARD_SPI_MISO, INPUT_PULLUP);
 
-    pinMode(TRACKBALL_UP, INPUT_PULLUP);
-    pinMode(TRACKBALL_DOWN, INPUT_PULLUP);
-    pinMode(TRACKBALL_LEFT, INPUT_PULLUP);
-    pinMode(TRACKBALL_RIGHT, INPUT_PULLUP);
-    pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
-    attachInterrupt(TRACKBALL_UP, isr_up, FALLING);
-    attachInterrupt(TRACKBALL_DOWN, isr_down, FALLING);
-    attachInterrupt(TRACKBALL_LEFT, isr_left, FALLING);
-    attachInterrupt(TRACKBALL_RIGHT, isr_right, FALLING);
+    /* 3) one shared SPI bus (SCK, MISO, MOSI) for SD + LoRa; TFT_eSPI runs
+     *    its own instance on the same physical pins */
+    SPI.begin(BOARD_SPI_SCK, BOARD_SPI_MISO, BOARD_SPI_MOSI);
+    Serial.println("[ok] shared SPI bus up (SCK40/MISO38/MOSI41)");
 
-    tft.begin();
-    tft.setRotation(1);                  /* landscape 320x240 */
+    /* 4) backlight PWM, then display */
+    ledcSetup(BL_LEDC_CH, BL_LEDC_FREQ, BL_LEDC_BITS);
+    ledcAttachPin(BOARD_BL_PIN, BL_LEDC_CH);
+    backlight_set(0);                    /* keep dark until the first frame */
+
+    tft.init();
+    tft.setRotation(1);                  /* landscape 320x240, keyboard at bottom */
     tft.setSwapBytes(true);
     tft.fillScreen(TFT_BLACK);
+    Serial.println("[ok] ST7789 display init");
 
     lv_init();
     static lv_disp_draw_buf_t draw_buf;
@@ -186,22 +224,53 @@ void setup()
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
+    /* 5) I2C peripherals: keyboard (0x55) + GT911 touch */
+    Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
+    Wire.requestFrom(KEYBOARD_I2C_ADDR, 1);
+    kb_present = Wire.available() > 0;
+    Wire.read();
+    Serial.printf("[%s] keyboard @0x55\n", kb_present ? "ok" : "--");
+
     pinMode(TOUCH_INT, INPUT);
     gt911_init();
+    Serial.printf("[%s] GT911 touch%s\n", gt911_addr ? "ok" : "--",
+                  gt911_addr ? (gt911_addr == 0x5D ? " @0x5D" : " @0x14") : " (not found)");
     static lv_indev_drv_t touch_drv;
     lv_indev_drv_init(&touch_drv);
     touch_drv.type = LV_INDEV_TYPE_POINTER;
     touch_drv.read_cb = touch_read_cb;
     lv_indev_drv_register(&touch_drv);
 
-    /* SD card hosts the message store; fall back to RAM-only if absent */
+    /* 6) trackball on main-MCU GPIOs (active-low pulse trains) */
+    pinMode(TRACKBALL_UP, INPUT_PULLUP);
+    pinMode(TRACKBALL_DOWN, INPUT_PULLUP);
+    pinMode(TRACKBALL_LEFT, INPUT_PULLUP);
+    pinMode(TRACKBALL_RIGHT, INPUT_PULLUP);
+    pinMode(TRACKBALL_CLICK, INPUT_PULLUP);
+    attachInterrupt(TRACKBALL_UP, isr_up, FALLING);
+    attachInterrupt(TRACKBALL_DOWN, isr_down, FALLING);
+    attachInterrupt(TRACKBALL_LEFT, isr_left, FALLING);
+    attachInterrupt(TRACKBALL_RIGHT, isr_right, FALLING);
+    Serial.println("[ok] trackball + keyboard input");
+
+    /* 7) SD card (shared bus) hosts the message store; RAM-only if absent */
+    digitalWrite(BOARD_TFT_CS, HIGH); digitalWrite(RADIO_CS, HIGH);
     const char *datadir = NULL;
-    if(SD.begin(SDCARD_CS)) datadir = "/sd/limitlezz";
+    if(SD.begin(SDCARD_CS, SPI)) { datadir = "/sd/limitlezz"; SD.mkdir("/sd/limitlezz"); }
+    Serial.printf("[%s] microSD %s\n", datadir ? "ok" : "--",
+                  datadir ? "mounted -> /sd/limitlezz" : "absent (RAM-only this session)");
+
+    /* 8) services: this calls the radio backend's begin() */
+    digitalWrite(BOARD_TFT_CS, HIGH); digitalWrite(SDCARD_CS, HIGH);
+    lz_set_backlight_cb(backlight_set);
     lz_svc_init(datadir, true);
     lz_svc_set_dirty_cb(lz_rebuild);
     lz_wifi_init();
+    Serial.printf("[%s] SX1262 radio (RadioLib begin=%d)\n",
+                  lz_backend_ok() ? "ok" : "FAIL", lz_backend_begin_state());
 
-    lz_ui_init(lv_scr_act());
+    lz_ui_init(lv_scr_act());            /* applies brightness via backlight_set */
+    Serial.println("=== boot complete ===");
 }
 
 static char read_kb(void)
@@ -244,6 +313,7 @@ void loop()
         last_wifi = lz_wifi_status();
         if(S.view == LZ_V_WIFI && !S.wifi_pw_mode) lz_rebuild();
     }
+    lz_idle_tick();                      /* sleep-after: dim + lock when idle */
     lv_timer_handler();
     delay(5);
 }

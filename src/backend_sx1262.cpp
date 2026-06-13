@@ -35,10 +35,12 @@
 #define RF_TX_DBM       22          /* SX1262 PA max; region cap is 30 */
 #define RF_TCXO_V       1.8f
 
+/* shares the global SPI bus that main_tdeck sets up (SCK40/MISO38/MOSI41) */
 static SX1262 radio = new Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_RESET, PIN_LORA_BUSY);
 
 static volatile bool g_rx_flag;
 static bool          g_ok;
+static int           g_begin_state = 0x7FFF;   /* RadioLib begin() return code */
 static lz_radio_stats_t g_stats;
 static uint32_t      g_airtime_ms;        /* cumulative TX airtime */
 static uint32_t      g_boot_ms;
@@ -238,6 +240,7 @@ void lz_backend_init(void)
     g_boot_ms = millis();
     int st = radio.begin(RF_FREQ_MHZ, RF_BW_KHZ, RF_SF, RF_CR,
                          RF_SYNCWORD, RF_TX_DBM, RF_PREAMBLE, RF_TCXO_V);
+    g_begin_state = st;
     if(st != RADIOLIB_ERR_NONE) { g_ok = false; return; }
     radio.setDio2AsRfSwitch(true);
     radio.setCRC(true);                  /* Meshtastic uses hardware CRC */
@@ -245,6 +248,9 @@ void lz_backend_init(void)
     radio.startReceive();
     g_ok = true;
 }
+
+bool lz_backend_ok(void) { return g_ok; }
+int  lz_backend_begin_state(void) { return g_begin_state; }
 
 void lz_backend_loop(void)
 {

@@ -141,11 +141,52 @@ App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
 and the airtime split bar are in place, but MeshCore DMs are intentionally
 read-only until the second radio stack lands on the proven Meshtastic base.
 
-## Hardware notes
+## Flashing & first hardware test
 
-`src/main_tdeck.cpp` powers the peripheral rail (GPIO 10) before init,
-drives the ST7789 via TFT_eSPI (pins in `platformio.ini`), polls the I2C
-keyboard (0x55) and counts trackball pulses with interrupts. Pin map is per
-LilyGO's published T-Deck reference; verify against your board revision on
-first flash. `partitions.csv` is locked per spec §11 — change it only
-before real deployments exist.
+```sh
+pio run -e tdeck -t upload        # build + flash over USB-C
+pio device monitor -b 115200      # watch the boot diagnostics
+```
+
+`setup()` follows the exact init order verified against the LilyGO T-Deck and
+Meshtastic sources, and prints a result line for every subsystem so a single
+flash tells you the whole story:
+
+```
+=== LimitlezzOS boot ===
+[ok] peripheral power (GPIO10) HIGH
+[ok] shared SPI bus up (SCK40/MISO38/MOSI41)
+[ok] ST7789 display init
+[ok] keyboard @0x55
+[ok] GT911 touch @0x5D
+[ok] trackball + keyboard input
+[ok] microSD mounted -> /sd/limitlezz
+[ok] SX1262 radio (RadioLib begin=0)
+=== boot complete ===
+```
+
+If a line shows `--`/`FAIL`, the cause is isolated:
+- **Everything fails at once** → GPIO10 power rail (shouldn't happen; it's first).
+- **SD/radio fail, display works** → a CS pin (the three are driven HIGH before
+  `SPI.begin()` to prevent exactly this) or a swapped MISO/MOSI.
+- **`begin=` is non-zero** → RadioLib error code (e.g. `-2` chip-not-found,
+  `-707` SPI timeout) — points at radio wiring/TCXO, not the OS.
+- **Photo-negative colors** → `TFT_INVERSION_ON` (it's set; flag if your panel rev differs).
+
+Key hardware facts (all in `platformio.ini` / `src/main_tdeck.cpp`, sourced to
+LilyGO `utilities.h` + Meshtastic `variant.h`): shared SPI SCK40/MOSI41/MISO38;
+CS — TFT 12, SD 39, radio 9 (all HIGH at boot); ST7789 landscape rotation 1 with
+inversion; backlight LEDC PWM on GPIO 42 (driven by the Brightness setting);
+I2C SDA18/SCL8 for keyboard (0x55) + GT911 touch; trackball GPIOs up3/down15/
+left1/right2/click0; SX1262 CS9/DIO1-45/BUSY13/RST17, DIO2-as-RF-switch, TCXO 1.8 V.
+
+This is for the standard **T-Deck / T-Deck Plus (ESP32-S3 + SX1262)** — the
+**T-Deck Pro** is a different board with a different pin map. `partitions.csv`
+is locked per spec §11.
+
+## Sleep & power
+
+The **Sleep after** setting (Settings → Display: 15 s / 30 s / 1 m / 5 m /
+Never) idles the screen: after the timeout with no trackball/keyboard/touch
+input, the backlight goes dark and the OS returns to the lock screen; any
+input wakes it. The Brightness slider drives the same LEDC backlight live.
