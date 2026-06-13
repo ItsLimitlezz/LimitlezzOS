@@ -276,14 +276,18 @@ static void onboard_key(lz_key_t k, char c)
     if(S.ob_step == 2) {                       /* networks: focus rows + Continue */
         if(k == LZ_K_UP || k == LZ_K_DOWN) { move(k); return; }
         if(k == LZ_K_ENTER) { activate(); return; }
-        if(k == LZ_K_BACK) { S.ob_step = 1; S.focus = 0;
+        if(k == LZ_K_BACK || k == LZ_K_DEL) { S.ob_step = 1; S.focus = 0;
                              suggest_short(S.ob_long, S.draft, sizeof S.draft); lz_rebuild(); return; }
         return;
     }
     if(k == LZ_K_ENTER) { lz_onboard_advance(); return; }
-    if(k == LZ_K_BACK) {
+    if(k == LZ_K_DEL) {                        /* backspace: delete a char first */
         if(S.draft[0]) { S.draft[strlen(S.draft) - 1] = 0; lz_rebuild(); }
         else if(S.ob_step > 0) { S.ob_step--; lz_rebuild(); }
+        return;
+    }
+    if(k == LZ_K_BACK) {                        /* back: previous step */
+        if(S.ob_step > 0) { S.ob_step--; lz_rebuild(); }
         return;
     }
     if(k == LZ_K_CHAR && c >= 32 && c < 127 && S.ob_step <= 1) {
@@ -305,12 +309,13 @@ static void wifi_pw_key(lz_key_t k, char c)
         lz_rebuild();
         return;
     }
-    if(k == LZ_K_BACK) {
+    if(k == LZ_K_DEL) {                        /* backspace: delete a char */
         if(S.draft[0]) S.draft[strlen(S.draft) - 1] = 0;
         else { S.wifi_pw_mode = false; S.focus = 0; }
         lz_rebuild();
         return;
     }
+    if(k == LZ_K_BACK) { S.wifi_pw_mode = false; S.draft[0] = 0; S.focus = 0; lz_rebuild(); return; }
     if(k == LZ_K_CHAR && c >= 32 && c < 127) {
         size_t len = strlen(S.draft);
         if(len < LZ_DRAFT_MAX - 1) { S.draft[len] = c; S.draft[len + 1] = 0; lz_rebuild(); }
@@ -331,10 +336,21 @@ void lz_ui_key(lz_key_t k, char c)
             if(S.view == LZ_V_CONVO) { convo_send(); return; }
             activate();
             return;
+        case LZ_K_DEL:
+            /* keyboard backspace: in the composer, delete a char; only leave
+             * the thread when the draft is already empty. Everywhere else it
+             * acts as back (the T-Deck has no dedicated back key). */
+            if(S.view == LZ_V_CONVO && S.draft[0]) {
+                S.draft[strlen(S.draft) - 1] = 0;
+                lz_rebuild();
+                return;
+            }
+            if(S.view == LZ_V_LOCK) return;
+            lz_back();
+            return;
         case LZ_K_BACK:
             if(S.view == LZ_V_LOCK) return;
-            /* Back always leaves the conversation in one press; the draft is
-             * discarded (typing a fresh message is cheap, feeling stuck isn't) */
+            /* explicit back (Esc / nav chevron) always leaves the screen */
             lz_back();
             return;
         case LZ_K_CHAR:

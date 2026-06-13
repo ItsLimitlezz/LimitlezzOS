@@ -133,6 +133,40 @@ void lz_svc_add_contact(lz_node_rt *n)
     mark_dirty();
 }
 
+void lz_svc_set_node_num(uint32_t num)
+{
+    g_id.num = num;
+    snprintf(g_id.id, sizeof g_id.id, "!%08x", (unsigned)num);
+}
+
+/* ---- time ---- */
+static bool g_time_synced;
+void lz_svc_set_time(uint32_t epoch)
+{
+    g_epoch_base = epoch - lz_tick_ms() / 1000;
+    g_time_synced = true;
+}
+bool lz_svc_time_synced(void) { return g_time_synced; }
+const char *lz_fmt_now(char *buf, size_t n)
+{
+    if(!g_time_synced) { snprintf(buf, n, "--:--"); return buf; }
+    return lz_fmt_hm(now_epoch(), buf, n);
+}
+
+/* ---- live system info ---- */
+static void (*g_sysinfo_cb)(lz_sysinfo_t *);
+void lz_set_sysinfo_cb(void (*cb)(lz_sysinfo_t *)) { g_sysinfo_cb = cb; }
+void lz_svc_sysinfo(lz_sysinfo_t *out)
+{
+    memset(out, 0, sizeof *out);
+    if(g_sysinfo_cb) { g_sysinfo_cb(out); return; }
+    /* sim / no platform provider: demo values */
+    out->battery_pct = 87; out->battery_v = 3.94f; out->charging = false; out->usb = true;
+    out->cpu_mhz = 240; out->ram_used_kb = 84; out->ram_total_kb = 512;
+    out->flash_used_kb = 6 * 1024 + 200; out->flash_total_kb = 16 * 1024;
+    out->temp_c = 24; out->uptime_s = lz_tick_ms() / 1000;
+}
+
 void lz_svc_set_identity(const char *long_name, const char *short_name)
 {
     if(long_name && long_name[0])
@@ -202,6 +236,7 @@ static lz_thread_rt *ensure_thread(lz_node_rt *n)
     snprintf(t->addr, sizeof t->addr, "%s", n->id);
     snprintf(t->name, sizeof t->name, "%s", n->name);
     t->messageable = lz_node_messageable(n);
+    t->is_channel = false;
     snprintf(t->path, sizeof t->path, "direct");
     return t;
 }
@@ -210,6 +245,26 @@ lz_thread_rt *lz_svc_thread_for_node(lz_node_rt *n)
 {
     lz_thread_rt *t = ensure_thread(n);
     if(t) lz_store_save_threads(g_threads, g_thread_count);
+    return t;
+}
+
+/* The LongFast primary broadcast channel — where you reach everyone nearby.
+ * It's a real channel (created on every device, not demo data): sending here
+ * broadcasts (to = LZ_BROADCAST) and inbound broadcasts land here. */
+lz_thread_rt *lz_svc_channel_thread(void)
+{
+    lz_thread_rt *t = find_thread(LZ_BROADCAST);
+    if(t) return t;
+    if(g_thread_count >= LZ_MAX_THREADS) return NULL;
+    t = &g_threads[g_thread_count++];
+    memset(t, 0, sizeof *t);
+    t->node_num = LZ_BROADCAST;
+    t->net = LZ_NET_MT;
+    snprintf(t->addr, sizeof t->addr, "longfast");
+    snprintf(t->name, sizeof t->name, "LongFast");
+    snprintf(t->path, sizeof t->path, "Primary");
+    t->messageable = true;
+    t->is_channel = true;
     return t;
 }
 
@@ -250,12 +305,12 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
 
     lz_mt_packet_t p;
     memset(&p, 0, sizeof p);
-    p.to = t->node_num;
+    p.to = t->node_num;                  /* LZ_BROADCAST for the channel */
     p.from = g_id.num;
     p.id = lz_tick_ms();
     p.hop_limit = 3;
     p.hop_start = 3;
-    p.want_ack = true;
+    p.want_ack = !t->is_channel;          /* broadcasts are not ACKed */
     p.portnum = 1;             /* TEXT_MESSAGE_APP */
     size_t len = strlen(text);
     if(len > sizeof p.payload) len = sizeof p.payload;
@@ -281,23 +336,32 @@ void lz_core_on_heard(uint32_t from, float snr)
 
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr)
 {
-    bool broadcast = (to == 0xFFFFFFFFu);
+    bool broadcast = (to == LZ_BROADCAST);
     lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);
     if(!isnan(snr)) n->snr = snr;
     n->last_heard = now_epoch();
 
-    lz_thread_rt *t = ensure_thread(n);
-    if(!t) return;                       /* thread table full: drop, never corrupt */
-    if(hops_used <= 0) snprintf(t->path, sizeof t->path, "direct");
-    else snprintf(t->path, sizeof t->path, "%d hop%s", hops_used, hops_used > 1 ? "s" : "");
+    /* broadcasts go to the LongFast channel (a group chat); directed messages
+     * go to that sender's DM thread */
+    lz_thread_rt *t = broadcast ? lz_svc_channel_thread() : ensure_thread(n);
+    if(!t) return;                       /* table full: drop, never corrupt */
+    if(!broadcast) {
+        if(hops_used <= 0) snprintf(t->path, sizeof t->path, "direct");
+        else snprintf(t->path, sizeof t->path, "%d hop%s", hops_used, hops_used > 1 ? "s" : "");
+    }
+
+    /* in a channel, prefix the sender so you can tell who said what */
+    char stored[LZ_TEXT_MAX];
+    if(broadcast) snprintf(stored, sizeof stored, "%s: %s",
+                           n->shortcode[0] ? n->shortcode : n->name, text);
+    else          snprintf(stored, sizeof stored, "%s", text);
 
     uint32_t ts = now_epoch();
     lz_msg_rt m = { .self = false, .ts = ts };
-    snprintf(m.text, sizeof m.text, "%s", text);
+    snprintf(m.text, sizeof m.text, "%s", stored);
     lz_store_append(t->addr, &m);
-    if(g_open == t) tail_push(false, text, ts);
-    touch_thread_meta(t, text, ts, g_open != t);
-    (void)broadcast;
+    if(g_open == t) tail_push(false, stored, ts);
+    touch_thread_meta(t, stored, ts, g_open != t);
 
     reorder_threads();
     lz_store_save_threads(g_threads, g_thread_count);
@@ -356,6 +420,7 @@ void lz_svc_init(const char *datadir, bool seed_demo)
     }
 
     if(seed_demo && g_thread_count == 0) lz_seed_demo();
+    lz_svc_channel_thread();              /* LongFast always present, even on a clean device */
     reorder_threads();
     lz_backend_init();
 }

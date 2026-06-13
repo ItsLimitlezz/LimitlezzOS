@@ -46,16 +46,19 @@ typedef struct {
     bool     contact;            /* purposely added by the user */
 } lz_node_rt;
 
+#define LZ_BROADCAST 0xFFFFFFFFu     /* Meshtastic broadcast addr (primary channel) */
+
 typedef struct {
     char     addr[16];           /* node id string; also the log file key */
     char     name[28];
     lz_net_t net;
-    uint32_t node_num;
+    uint32_t node_num;           /* LZ_BROADCAST for the broadcast channel */
     char     last_text[72];
     uint32_t last_ts;
     int      unread;
-    char     path[12];           /* "2 hops" / "direct" */
+    char     path[12];           /* "2 hops" / "direct" / "broadcast" */
     bool     messageable;
+    bool     is_channel;         /* true = broadcast channel (e.g. LongFast) */
 } lz_thread_rt;
 
 typedef struct {
@@ -83,6 +86,7 @@ int  lz_svc_node_count(lz_net_t net);
 int  lz_svc_thread_count_all(void);
 lz_thread_rt *lz_svc_thread_at(int display_idx);        /* newest-first */
 lz_thread_rt *lz_svc_thread_for_node(lz_node_rt *n);    /* find or create */
+lz_thread_rt *lz_svc_channel_thread(void);              /* LongFast broadcast channel */
 void lz_svc_open_thread(lz_thread_rt *t);               /* load tail, clear unread */
 int  lz_svc_tail(const lz_msg_rt **out);                /* tail of the open thread */
 bool lz_svc_send_text(lz_thread_rt *t, const char *text);
@@ -96,6 +100,27 @@ typedef struct { uint32_t num; char id[16]; char long_name[24]; char short_name[
 const lz_identity_t *lz_svc_identity(void);
 bool lz_svc_needs_onboarding(void);                       /* no saved identity yet */
 void lz_svc_set_identity(const char *long_name, const char *short_name);
+void lz_svc_set_node_num(uint32_t num);                   /* real node id (from MAC); call before init */
+
+/* ---- time ---- */
+void lz_svc_set_time(uint32_t epoch);                     /* a real time source synced us */
+bool lz_svc_time_synced(void);
+const char *lz_fmt_now(char *buf, size_t n);              /* current HH:MM, or "--:--" if unsynced */
+
+/* ---- live system info (real hardware values; the sim uses demo numbers) ---- */
+typedef struct {
+    int      battery_pct;     /* -1 if unknown */
+    float    battery_v;       /* 0 if unknown   */
+    bool     charging;
+    bool     usb;             /* on USB power   */
+    int      cpu_mhz;
+    int      ram_used_kb, ram_total_kb;
+    int      flash_used_kb, flash_total_kb;
+    int      temp_c;          /* -1000 if unknown */
+    uint32_t uptime_s;
+} lz_sysinfo_t;
+void lz_svc_sysinfo(lz_sysinfo_t *out);
+void lz_set_sysinfo_cb(void (*cb)(lz_sysinfo_t *out));    /* platform provides real values */
 
 /* ---- formatting helpers ---- */
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n);   /* "now" "2m" "1h" "3d" */

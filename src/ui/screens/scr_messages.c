@@ -27,9 +27,7 @@ void lz_open_convo(lz_thread_rt *t)
 
 static void messages_activate(int idx)
 {
-    if(S.msg_tab == LZ_TAB_DMS && idx < vis_thread_count)
-        lz_open_convo(vis_threads[idx]);
-    /* channel rows: no-op (matches prototype) */
+    if(idx >= 0 && idx < vis_thread_count) lz_open_convo(vis_threads[idx]);
 }
 
 static lv_obj_t *filter_chip(lv_obj_t *parent, const char *label,
@@ -132,6 +130,7 @@ void lz_scr_messages(lv_obj_t *root)
         vis_thread_count = 0;
         for(int i = 0; i < tn; i++) {
             lz_thread_rt *th = lz_svc_thread_at(i);   /* newest-first */
+            if(th->is_channel) continue;              /* channels live on the other tab */
             if(filter_match(th->net)) vis_threads[vis_thread_count++] = th;
         }
 
@@ -219,22 +218,26 @@ void lz_scr_messages(lv_obj_t *root)
         }
         lz_nav_set(1, vis_thread_count, messages_activate);
     } else {
-        int n = 0;
-        for(int i = 0; i < 4; i++) {
-            const lz_chan_t *c = &LZ_CHANS[i];
-            if(!filter_match(c->net)) continue;
-            int idx = n++;
-            (void)idx;
-            lv_obj_t *row = lz_row(body, false);   /* channels are display-only for now */
+        /* Channels = broadcast channels (LongFast). Real, openable: tap to
+         * read + send broadcast to everyone nearby. */
+        int tn = lz_svc_thread_count_all();
+        vis_thread_count = 0;
+        for(int i = 0; i < tn; i++) {
+            lz_thread_rt *th = lz_svc_thread_at(i);
+            if(th->is_channel) vis_threads[vis_thread_count++] = th;
+        }
+        for(int i = 0; i < vis_thread_count; i++) {
+            lz_thread_rt *t = vis_threads[i];
+            char ago[8]; lz_fmt_ago(t->last_ts, ago, sizeof ago);
+            lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
-            if(!net_on(c->net)) lv_obj_set_style_opa(row, LV_OPA_40, 0);
 
             lv_obj_t *tile = lz_box(row);
             lv_obj_set_size(tile, 33, 33);
             lv_obj_set_style_radius(tile, 9, 0);
-            lv_obj_set_style_bg_color(tile, lz_tile_color(c->net == LZ_NET_MT ? 205 : 72), 0);
+            lv_obj_set_style_bg_color(tile, lz_tile_color(205), 0);
             lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-            lv_obj_t *ic = lz_icon(tile, c->icon, &lz_icons_18, lv_color_white());
+            lv_obj_t *ic = lz_icon(tile, LZ_I_TAG, &lz_icons_18, lv_color_white());
             lv_obj_center(ic);
 
             lv_obj_t *colm = lz_box(row);
@@ -248,14 +251,16 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_set_height(top, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lz_text(top, c->name, LZ_F_BODY, LZ_TEXT);
-            lz_text(top, c->t, LZ_F_SMALL, LZ_TEXT_META);
-            lz_text(colm, c->sub, LZ_F_SMALL, lv_color_hex(0x838A93));
-            lv_obj_t *last = lz_text(colm, c->text, LZ_F_SMALL, LZ_TEXT_VALUE);
+            lz_text(top, t->name, LZ_F_BODY, LZ_TEXT);
+            lz_text(top, t->last_ts ? ago : "", LZ_F_SMALL, LZ_TEXT_META);
+            lz_text(colm, "Primary - broadcast to everyone", LZ_F_SMALL, lv_color_hex(0x838A93));
+            lv_obj_t *last = lz_text(colm, t->last_text[0] ? t->last_text : "Tap to open the channel",
+                                     LZ_F_SMALL, LZ_TEXT_VALUE);
             lv_label_set_long_mode(last, LV_LABEL_LONG_DOT);
             lv_obj_set_width(last, lv_pct(100));
+            lz_nav_track(row, i);
         }
-        lz_nav_set(1, 0, NULL);   /* channels list is display-only (scroll) */
+        lz_nav_set(1, vis_thread_count, messages_activate);
     }
 }
 

@@ -221,6 +221,33 @@ static void backlight_set(int pct)
 
 static bool kb_present;
 
+/* real system info for the System screen + status bar (no fake 87%) */
+#define BATTERY_PIN     4        /* ADC1 GPIO4, 2:1 divider (Meshtastic T-Deck) */
+#define BATTERY_MULT    2.11f
+extern "C" uint8_t temprature_sens_read();   /* legacy fallback */
+static void tdeck_sysinfo(lz_sysinfo_t *o)
+{
+    memset(o, 0, sizeof *o);
+    /* battery via ADC; T-Deck has no charge-detect line, so report voltage */
+    int mv = analogReadMilliVolts(BATTERY_PIN);
+    float v = (mv / 1000.0f) * BATTERY_MULT;
+    o->battery_v = v;
+    /* Li-ion 3.3V(0%)..4.2V(100%) rough curve */
+    int pct = (int)((v - 3.3f) / (4.2f - 3.3f) * 100.0f);
+    if(pct < 0) pct = 0; if(pct > 100) pct = 100;
+    o->battery_pct = (v > 2.5f) ? pct : -1;       /* <2.5V => no/over-USB, unknown */
+    o->usb = (v < 2.5f) || (v > 4.3f);
+    o->charging = false;
+    o->cpu_mhz = getCpuFrequencyMhz();
+    uint32_t heap_total = ESP.getHeapSize(), heap_free = ESP.getFreeHeap();
+    o->ram_total_kb = heap_total / 1024;
+    o->ram_used_kb  = (heap_total - heap_free) / 1024;
+    o->flash_total_kb = ESP.getFlashChipSize() / 1024;
+    o->flash_used_kb  = ESP.getSketchSize() / 1024;
+    o->temp_c = (int)temperatureRead();           /* on-die temp (approx) */
+    o->uptime_s = millis() / 1000;
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -315,14 +342,22 @@ void setup()
     Serial.printf("[%s] microSD %s\n", datadir ? "ok" : "--",
                   datadir ? "mounted -> /sd/limitlezz" : "absent (RAM-only this session)");
 
-    /* 8) services: this calls the radio backend's begin() */
+    /* 8) services. Real device: node id from the chip MAC (low 4 bytes, like
+     * Meshtastic), real system info, and NO demo seed — start empty and fill
+     * from actual radio traffic. */
     digitalWrite(BOARD_TFT_CS, HIGH); digitalWrite(SDCARD_CS, HIGH);
+    uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    uint32_t nodenum = ((uint32_t)mac[2] << 24) | ((uint32_t)mac[3] << 16) |
+                       ((uint32_t)mac[4] << 8)  |  (uint32_t)mac[5];
+    lz_svc_set_node_num(nodenum);
     lz_set_backlight_cb(backlight_set);
-    lz_svc_init(datadir, true);
+    lz_set_sysinfo_cb(tdeck_sysinfo);
+    lz_svc_init(datadir, false);          /* false = no demo contacts/messages */
     lz_svc_set_dirty_cb(lz_rebuild);
     lz_wifi_init();
     Serial.printf("[%s] SX1262 radio (RadioLib begin=%d)\n",
                   lz_backend_ok() ? "ok" : "FAIL", lz_backend_begin_state());
+    Serial.printf("[ok] node id !%08x\n", (unsigned)nodenum);
 
     lz_ui_init(lv_scr_act());            /* applies brightness via backlight_set */
     Serial.println("=== boot complete ===");
@@ -357,7 +392,7 @@ void loop()
         last_kb = millis();
         char c = read_kb();
         if(c == '\r' || c == '\n') lz_ui_key(LZ_K_ENTER, 0);
-        else if(c == 8 || c == 127) lz_ui_key(LZ_K_BACK, 0);
+        else if(c == 8 || c == 127) lz_ui_key(LZ_K_DEL, 0);   /* backspace = delete char / back */
         else if(c) lz_ui_key(LZ_K_CHAR, c);
     }
 

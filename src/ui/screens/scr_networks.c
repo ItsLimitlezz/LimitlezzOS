@@ -14,6 +14,8 @@ static void open_contact(int idx)
     }
 }
 
+static void open_longfast(int idx) { (void)idx; lz_open_convo(lz_svc_channel_thread()); }
+
 static lv_obj_t *colored_navbar(lv_obj_t *root, const char *title, lv_color_t bg,
                                 lv_color_t hairline, bool status_on)
 {
@@ -193,23 +195,25 @@ void lz_scr_meshtastic(lv_obj_t *root)
         }
         lz_nav_set(1, vis_count, open_contact);
     } else {
-        int n = 0;
-        for(int i = 0; i < 4; i++) {
-            const lz_chan_t *c = &LZ_CHANS[i];
-            if(c->net != LZ_NET_MT) continue;
-            n++;
-            lv_obj_t *row = lz_row(body, false);   /* channel rows are display-only */
+        /* LongFast (Primary) is the live broadcast channel — tap to open it
+         * and message everyone nearby. Emergency is shown but not yet wired. */
+        const char *names[2] = { "LongFast", "Emergency" };
+        const char *subs[2]  = { "Primary - broadcast to everyone", "Encrypted - 12 nodes" };
+        for(int i = 0; i < 2; i++) {
+            bool primary = (i == 0);
+            lv_obj_t *row = lz_row(body, primary && S.focus == 0);
             lv_obj_set_style_radius(row, 10, 0);
             lv_obj_set_style_pad_column(row, 8, 0);
-            lz_icon(row, c->icon, &lz_icons_18, cyan_lt);
+            if(!primary) lv_obj_set_style_opa(row, LV_OPA_50, 0);
+            lz_icon(row, primary ? LZ_I_TAG : LZ_I_CAMPAIGN, &lz_icons_18, cyan_lt);
             lv_obj_t *cl = lz_box(row);
             lv_obj_set_flex_grow(cl, 1);
             lv_obj_set_height(cl, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
             lv_obj_set_style_pad_row(cl, 1, 0);
-            lz_text(cl, c->name, LZ_F_BODY, LZ_TEXT);
-            lz_text(cl, c->sub, LZ_F_SMALL, lv_color_hex(0x838A93));
-            if(strcmp(c->id, "longfast") == 0) {
+            lz_text(cl, names[i], LZ_F_BODY, LZ_TEXT);
+            lz_text(cl, subs[i], LZ_F_SMALL, lv_color_hex(0x838A93));
+            if(primary) {
                 lv_obj_t *b = lz_box(row);
                 lv_obj_set_size(b, LV_SIZE_CONTENT, 15);
                 lv_obj_set_style_radius(b, 5, 0);
@@ -218,9 +222,10 @@ void lz_scr_meshtastic(lv_obj_t *root)
                 lv_obj_set_style_pad_hor(b, 6, 0);
                 lv_obj_t *bl = lz_text(b, "PRIMARY", LZ_F_SMALL, cyan_lt);
                 lv_obj_center(bl);
+                lz_nav_track(row, 0);
             }
         }
-        lz_nav_set(1, 0, NULL);   /* display-only */
+        lz_nav_set(1, 1, open_longfast);   /* only the primary channel is openable */
     }
 }
 

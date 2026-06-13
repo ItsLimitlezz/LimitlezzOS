@@ -29,7 +29,8 @@ typedef enum {
 
 typedef enum {
     LZ_K_UP, LZ_K_DOWN, LZ_K_LEFT, LZ_K_RIGHT,
-    LZ_K_ENTER, LZ_K_BACK, LZ_K_CHAR
+    LZ_K_ENTER, LZ_K_BACK, LZ_K_CHAR,
+    LZ_K_DEL    /* keyboard backspace: delete a char in text fields, else back */
 } lz_key_t;
 
 typedef enum { LZ_TAB_DMS, LZ_TAB_CHANNELS } lz_msg_tab_t;

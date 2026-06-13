@@ -284,6 +284,20 @@ static void shots(const char *dir)
     snprintf(path, sizeof path, "%s/29-wifi-connected.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
 
+    /* LongFast broadcast channel: open from the Channels tab, send a broadcast,
+     * then simulate an inbound broadcast from another node */
+    S.view = LZ_V_MESSAGES; S.msg_tab = LZ_TAB_CHANNELS; S.focus = 0; lz_rebuild();
+    pump(40);
+    snprintf(path, sizeof path, "%s/31-channels-tab.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+    lz_ui_key(LZ_K_ENTER, 0);              /* open LongFast */
+    for(const char *p = "anyone on the ridge?"; *p; p++) lz_ui_key(LZ_K_CHAR, *p);
+    lz_ui_key(LZ_K_ENTER, 0);              /* broadcast it */
+    pump(60);
+    lz_core_on_text(0x336699cc, 0xFFFFFFFFu, "copy, heading up now", 2, -8.0f);
+    pump(60);
+    snprintf(path, sizeof path, "%s/32-longfast-convo.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
 }
 
 /* Codec round-trip verification — proves header framing, AES-CTR symmetry,
@@ -403,7 +417,8 @@ int main(int argc, char **argv)
                 else if(k == SDLK_RIGHT)    lz_ui_key(LZ_K_RIGHT, 0);
                 else if(k == SDLK_PAGEUP)   lz_ui_key(LZ_K_ENTER, 0);  /* trackball press */
                 else if(k == SDLK_RETURN)   lz_ui_key(LZ_K_ENTER, 0);
-                else if(k == SDLK_ESCAPE || k == SDLK_BACKSPACE) lz_ui_key(LZ_K_BACK, 0);
+                else if(k == SDLK_ESCAPE)    lz_ui_key(LZ_K_BACK, 0);   /* nav back */
+                else if(k == SDLK_BACKSPACE) lz_ui_key(LZ_K_DEL, 0);    /* delete char / back */
             }
             else if(e.type == SDL_TEXTINPUT) {
                 for(const char *p = e.text.text; *p; p++)

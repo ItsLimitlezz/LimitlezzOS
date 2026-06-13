@@ -479,9 +479,11 @@ void lz_term_key(lz_key_t k, char c)
         term_run(g_term_in);
         g_term_in[0] = 0;
         lz_rebuild();
-    } else if(k == LZ_K_BACK) {
+    } else if(k == LZ_K_DEL) {               /* backspace: delete a char, else back */
         if(g_term_in[0]) { g_term_in[strlen(g_term_in) - 1] = 0; lz_rebuild(); }
         else lz_back();
+    } else if(k == LZ_K_BACK) {
+        lz_back();
     } else if(k == LZ_K_CHAR && c >= 32 && c < 127) {
         size_t len = strlen(g_term_in);
         if(len < TERM_COLS - 1) { g_term_in[len] = c; g_term_in[len + 1] = 0; lz_rebuild(); }
