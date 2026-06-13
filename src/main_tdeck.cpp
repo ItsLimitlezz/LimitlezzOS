@@ -259,10 +259,12 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
                 g_cal_px = tx; g_cal_py = ty; g_cal_pending = true;
             }
             g_touch_down = true;
+            bool was_asleep = lz_is_dimmed();    /* first tap only wakes (no unlock) */
             lz_note_activity();                  /* touch keeps the screen awake */
             /* don't deliver calibration taps (or the lingering post-cal press)
-             * to the UI — they would otherwise click whatever's underneath */
-            if(!cal && !g_ignore_touch) {
+             * to the UI — they would otherwise click whatever's underneath; and
+             * a tap that only woke the screen must not also act on the UI */
+            if(!cal && !g_ignore_touch && !was_asleep) {
                 last_x = sx;
                 last_y = sy;
                 data->point.x = sx;

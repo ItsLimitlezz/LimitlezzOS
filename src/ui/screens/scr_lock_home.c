@@ -17,40 +17,27 @@ void lz_scr_lock(lv_obj_t *root)
     lv_obj_set_style_bg_color(root, lv_color_hex(0x0B0E13), 0);
     lz_on_click(root, lock_tap);
 
-    /* top inset row: active networks left, battery right */
-    lv_obj_t *hub = lz_icon(root, LZ_I_HUB, &lz_icons_14, LZ_CYAN);
-    lv_obj_align(hub, LV_ALIGN_TOP_LEFT, 13, 11);
-    if(LZ_MESHCORE_ENABLED) {
-        lv_obj_t *lan = lz_icon(root, LZ_I_LAN, &lz_icons_14, LZ_AMBER);
-        lv_obj_align(lan, LV_ALIGN_TOP_LEFT, 31, 11);
-        lv_obj_t *nets = lz_text(root, "2 networks", LZ_F_SMALL, lv_color_hex(0x7F868F));
-        lv_obj_align(nets, LV_ALIGN_TOP_LEFT, 50, 14);
-    } else {
-        lv_obj_t *nets = lz_text(root, "Meshtastic", LZ_F_SMALL, lv_color_hex(0x7F868F));
-        lv_obj_align(nets, LV_ALIGN_TOP_LEFT, 31, 14);
+    /* top inset row: just the enabled-network icons (left), battery (right) —
+     * Meshtastic (cyan hub) and/or MeshCore (amber lan), or nothing if idle */
+    int ix = 13;
+    if(S.net_mt) {
+        lv_obj_t *mt = lz_icon(root, LZ_I_HUB, &lz_icons_14, LZ_CYAN);
+        lv_obj_align(mt, LV_ALIGN_TOP_LEFT, ix, 12);
+        ix += 20;
+    }
+    if(S.net_mc) {
+        lv_obj_t *mc = lz_icon(root, LZ_I_LAN, &lz_icons_14, LZ_AMBER);
+        lv_obj_align(mc, LV_ALIGN_TOP_LEFT, ix, 12);
     }
 
     lz_sysinfo_t si; lz_svc_sysinfo(&si);
     if(si.battery_pct >= 0) {
         char pb[8]; snprintf(pb, sizeof pb, "%d%%", si.battery_pct);
         lv_obj_t *pct = lz_text(root, pb, LZ_F_SMALL, lv_color_hex(0xAEB6BF));
-        lv_obj_align(pct, LV_ALIGN_TOP_RIGHT, -36, 14);
-    } else {
-        lv_obj_t *pct = lz_text(root, "USB", LZ_F_SMALL, lv_color_hex(0xAEB6BF));
-        lv_obj_align(pct, LV_ALIGN_TOP_RIGHT, -36, 14);
+        lv_obj_align(pct, LV_ALIGN_TOP_RIGHT, -42, 13);
     }
-    lv_obj_t *batt = lz_box(root);
-    lv_obj_set_size(batt, 17, 9);
-    lv_obj_set_style_radius(batt, 2, 0);
-    lv_obj_set_style_border_width(batt, 1, 0);
-    lv_obj_set_style_border_color(batt, lv_color_hex(0x767D86), 0);
-    lv_obj_align(batt, LV_ALIGN_TOP_RIGHT, -13, 14);
-    int lpct = si.battery_pct < 0 ? 100 : si.battery_pct;
-    lv_obj_t *fill = lz_box(batt);
-    lv_obj_set_size(fill, 1 + (13 * lpct) / 100, 5);
-    lv_obj_set_style_bg_color(fill, (lpct <= 15 && !si.usb) ? lv_color_hex(0xE0564E) : LZ_GREEN_BRIGHT, 0);
-    lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
-    lv_obj_align(fill, LV_ALIGN_LEFT_MID, 1, 0);
+    lv_obj_t *bw = lz_battery_glyph(root);   /* shared iPhone-style battery */
+    lv_obj_align(bw, LV_ALIGN_TOP_RIGHT, -11, 13);
 
     /* clock + date (real time once synced, otherwise --:-- + a hint) */
     char clk[12]; lz_fmt_now(clk, sizeof clk);
@@ -60,45 +47,48 @@ void lz_scr_lock(lv_obj_t *root)
     lv_obj_t *date = lz_text(root, dbuf, LZ_F_BODY, LZ_TEXT_VALUE);
     lv_obj_align(date, LV_ALIGN_CENTER, 0, -4);
 
-    /* unlock pill */
-    lv_obj_t *pill = lz_box(root);
-    lv_obj_set_size(pill, LV_SIZE_CONTENT, 28);
-    lv_obj_set_style_radius(pill, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(pill, LZ_CHIP_BG, 0);
-    lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(pill, 1, 0);
-    lv_obj_set_style_border_color(pill, lv_color_hex(0x262B33), 0);
-    lv_obj_set_style_pad_hor(pill, 14, 0);
-    lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(pill, 7, 0);
-    /* trackball: a proper round ball primitive */
-    lv_obj_t *ball = lz_box(pill);
-    lv_obj_set_size(ball, 12, 12);
-    lv_obj_set_style_radius(ball, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(ball, 1, 0);
-    lv_obj_set_style_border_color(ball, lv_color_hex(0x3A414B), 0);
-    lv_obj_set_style_bg_color(ball, lv_color_hex(0x20242B), 0);
-    lv_obj_set_style_bg_opa(ball, LV_OPA_COVER, 0);
-    lv_obj_t *core = lz_dot(ball, 6, LZ_MINT);
-    lv_obj_center(core);
-    lz_text(pill, "Click trackball or press Enter", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
-    lv_obj_align(pill, LV_ALIGN_CENTER, 0, 36);
-
-    /* new-message notification: tap to open it (clears unread on view) */
+    /* When there's a new message, the notification card becomes the focal
+     * element (centered) and the trackball hint hides — so it reads like an
+     * iPhone lock screen. With nothing waiting, the unlock hint is shown. */
     g_notif_t = lz_svc_top_unread();
-    if(g_notif_t) {
+    if(!g_notif_t) {
+        /* unlock pill */
+        lv_obj_t *pill = lz_box(root);
+        lv_obj_set_size(pill, LV_SIZE_CONTENT, 28);
+        lv_obj_set_style_radius(pill, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(pill, LZ_CHIP_BG, 0);
+        lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(pill, 1, 0);
+        lv_obj_set_style_border_color(pill, lv_color_hex(0x262B33), 0);
+        lv_obj_set_style_pad_hor(pill, 14, 0);
+        lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(pill, 7, 0);
+        /* trackball: a proper round ball primitive */
+        lv_obj_t *ball = lz_box(pill);
+        lv_obj_set_size(ball, 12, 12);
+        lv_obj_set_style_radius(ball, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_border_width(ball, 1, 0);
+        lv_obj_set_style_border_color(ball, lv_color_hex(0x3A414B), 0);
+        lv_obj_set_style_bg_color(ball, lv_color_hex(0x20242B), 0);
+        lv_obj_set_style_bg_opa(ball, LV_OPA_COVER, 0);
+        lv_obj_t *core = lz_dot(ball, 6, LZ_MINT);
+        lv_obj_center(core);
+        lz_text(pill, "Click trackball or press Enter", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
+        lv_obj_align(pill, LV_ALIGN_CENTER, 0, 40);
+    } else {
+        /* centered new-message notification; tap to open it (clears unread on view) */
         lv_obj_t *card = lz_box(root);
-        lv_obj_set_size(card, 268, LV_SIZE_CONTENT);
-        lv_obj_set_style_radius(card, 12, 0);
+        lv_obj_set_size(card, 272, LV_SIZE_CONTENT);
+        lv_obj_set_style_radius(card, 14, 0);
         lv_obj_set_style_bg_color(card, lv_color_hex(0x171C24), 0);
         lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(card, 1, 0);
         lv_obj_set_style_border_color(card, lv_color_hex(0x2A313B), 0);
-        lv_obj_set_style_pad_all(card, 9, 0);
+        lv_obj_set_style_pad_all(card, 10, 0);
         lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(card, 2, 0);
-        lv_obj_align(card, LV_ALIGN_CENTER, 0, 74);
+        lv_obj_set_style_pad_row(card, 3, 0);
+        lv_obj_align(card, LV_ALIGN_CENTER, 0, 46);
 
         lv_obj_t *hrow = lz_box(card);
         lv_obj_set_width(hrow, lv_pct(100));
@@ -118,6 +108,14 @@ void lz_scr_lock(lv_obj_t *root)
         lv_obj_set_width(snip, lv_pct(100));
         lv_label_set_long_mode(snip, LV_LABEL_LONG_DOT);
         lz_on_click(card, notif_tap);
+
+        /* iPhone-style stack count: "+N more" beneath the newest notification */
+        int more = lz_svc_unread_count() - 1;
+        if(more > 0) {
+            char mb[16]; snprintf(mb, sizeof mb, "+%d more", more);
+            lv_obj_t *ml = lz_text(root, mb, LZ_F_SMALL, lv_color_hex(0x8A929C));
+            lv_obj_align_to(ml, card, LV_ALIGN_OUT_BOTTOM_MID, 0, 7);
+        }
     }
 
     lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.41", LZ_F_SMALL, lv_color_hex(0x5A616A));

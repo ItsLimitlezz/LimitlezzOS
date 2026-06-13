@@ -1,7 +1,13 @@
 /* Network stack managers: Meshtastic (cyan) and MeshCore (amber) */
 #include "../ui.h"
+#include "../vlist.h"
 #include <stdio.h>
 #include <string.h>
+
+/* node list row metrics (fixed, for virtualization) */
+#define MT_HEADER_H 50   /* companion-mode toggle row band */
+#define MT_ROW_H    44
+#define MT_STRIDE   48
 
 static lz_node_rt *vis_nodes[LZ_MAX_NODES];
 static int vis_count;
@@ -67,8 +73,8 @@ static lv_obj_t *colored_navbar(lv_obj_t *root, const char *title, lv_color_t bg
     return bar;
 }
 
-static void tap_mt_nodes(void)    { if(S.mt_tab != 0) { S.mt_tab = 0; S.focus = 0; lz_rebuild(); } }
-static void tap_mt_channels(void) { if(S.mt_tab != 1) { S.mt_tab = 1; S.focus = 0; lz_rebuild(); } }
+static void tap_mt_nodes(void)    { if(S.mt_tab != 0) { S.mt_tab = 0; S.focus = 0; lz_vlist_reset_scroll(); lz_rebuild(); } }
+static void tap_mt_channels(void) { if(S.mt_tab != 1) { S.mt_tab = 1; S.focus = 0; lz_vlist_reset_scroll(); lz_rebuild(); } }
 static void tap_mc_contacts(void) { if(S.mc_tab != 0) { S.mc_tab = 0; S.focus = 0; lz_rebuild(); } }
 static void tap_mc_rooms(void)    { if(S.mc_tab != 1) { S.mc_tab = 1; S.focus = 0; lz_rebuild(); } }
 
@@ -98,6 +104,77 @@ static void role_badge(lv_obj_t *parent, const char *role, lv_color_t fg)
     lv_obj_set_style_pad_hor(b, 5, 0);
     lv_obj_t *l = lz_text(b, role, LZ_F_SMALL, fg);
     lv_obj_center(l);
+}
+
+/* one virtualized node row (built on demand by lz_vlist as it scrolls) */
+static lv_obj_t *mt_node_row_cb(lv_obj_t *content, int index, int y, bool focused, void *ctx)
+{
+    (void)ctx;
+    lz_node_rt *n = vis_nodes[index];
+    char ago[8], snrs[8];
+    lz_fmt_ago(n->last_heard, ago, sizeof ago);
+    snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
+    lv_obj_t *row = lz_row(content, focused);
+    lv_obj_set_height(row, MT_ROW_H);
+    lv_obj_set_y(row, y);
+    lv_obj_set_style_radius(row, 10, 0);
+    lv_obj_set_style_pad_column(row, 8, 0);
+
+    lv_obj_t *sc = lz_box(row);
+    lv_obj_set_size(sc, 30, 30);
+    lv_obj_set_style_radius(sc, 8, 0);
+    lv_obj_set_style_bg_color(sc, lv_color_hex(0x161B22), 0);
+    lv_obj_set_style_bg_opa(sc, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(sc, 1, 0);
+    lv_obj_set_style_border_color(sc, lv_color_hex(0x262B33), 0);
+    lv_obj_t *scl = lz_text(sc, n->shortcode, LZ_F_SMALL, LZ_MT_BADGE_TXT);
+    lv_obj_center(scl);
+
+    lv_obj_t *cl = lz_box(row);
+    lv_obj_set_flex_grow(cl, 1);
+    lv_obj_set_height(cl, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(cl, 1, 0);
+    lv_obj_t *top = lz_box(cl);
+    lv_obj_set_size(top, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(top, 5, 0);
+    lz_text(top, n->name, LZ_F_BODY, LZ_TEXT);
+    role_badge(top, n->role, lv_color_hex(0x8B939C));
+    char meta[56];
+    snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, ago);
+    lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x838A93));
+
+    lv_obj_t *r = lz_box(row);
+    lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
+    lz_text(r, "SNR", LZ_F_SMALL, LZ_TEXT_3);
+    lz_nav_track(row, index + 1);   /* focus 0 is the companion toggle */
+    return row;
+}
+
+/* companion-mode toggle, drawn into the vlist content panel at the top (focus 0) */
+static void mt_companion_header(lv_obj_t *content)
+{
+    lv_obj_t *crow = lz_row(content, 0 == S.focus);
+    lv_obj_set_height(crow, MT_HEADER_H - 4);
+    lv_obj_set_y(crow, 0);
+    lv_obj_set_style_radius(crow, 10, 0);
+    lv_obj_set_style_pad_column(crow, 8, 0);
+    lz_icon(crow, LZ_I_LAN, &lz_icons_16f, LZ_CYAN);
+    lv_obj_t *cc = lz_box(crow);
+    lv_obj_set_flex_grow(cc, 1);
+    lv_obj_set_height(cc, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cc, LV_FLEX_FLOW_COLUMN);
+    lz_text(cc, "Companion mode", LZ_F_BODY, LZ_TEXT);
+    lz_text(cc, lz_mtc_active() ? "USB is driving the Meshtastic app"
+                                : "Pair with the Meshtastic app over USB",
+            LZ_F_SMALL, lv_color_hex(0x838A93));
+    lz_toggle(crow, lz_mtc_active(), LZ_TOGGLE_ON);
+    lz_nav_track(crow, 0);
 }
 
 /* ===== Meshtastic ===== */
@@ -170,7 +247,6 @@ void lz_scr_meshtastic(lv_obj_t *root)
     lv_obj_set_style_pad_hor(body, 7, 0);
     lv_obj_set_style_pad_bottom(body, 8, 0);
     lv_obj_set_style_pad_row(body, 3, 0);
-    lz_nav_set_scroll(body);
 
     if(S.mt_tab == 0) {
         const lz_node_rt *nodes;
@@ -181,69 +257,15 @@ void lz_scr_meshtastic(lv_obj_t *root)
             if(nodes[i].net == LZ_NET_MT && nodes[i].num != me->num)
                 vis_nodes[vis_count++] = (lz_node_rt *)&nodes[i];
 
-        /* companion mode toggle (focus 0): USB acts as a Meshtastic-app radio */
-        {
-            lv_obj_t *crow = lz_row(body, 0 == S.focus);
-            lv_obj_set_style_radius(crow, 10, 0);
-            lv_obj_set_style_pad_column(crow, 8, 0);
-            lz_icon(crow, LZ_I_LAN, &lz_icons_16f, LZ_CYAN);
-            lv_obj_t *cc = lz_box(crow);
-            lv_obj_set_flex_grow(cc, 1);
-            lv_obj_set_height(cc, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(cc, LV_FLEX_FLOW_COLUMN);
-            lz_text(cc, "Companion mode", LZ_F_BODY, LZ_TEXT);
-            lz_text(cc, lz_mtc_active() ? "USB is driving the Meshtastic app"
-                                        : "Pair with the Meshtastic app over USB",
-                    LZ_F_SMALL, lv_color_hex(0x838A93));
-            lz_toggle(crow, lz_mtc_active(), LZ_TOGGLE_ON);
-            lz_nav_track(crow, 0);
-        }
-
-        for(int i = 0; i < vis_count; i++) {
-            lz_node_rt *n = vis_nodes[i];
-            char ago[8], snrs[8];
-            lz_fmt_ago(n->last_heard, ago, sizeof ago);
-            snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
-            lv_obj_t *row = lz_row(body, i + 1 == S.focus);
-            lv_obj_set_style_radius(row, 10, 0);
-            lv_obj_set_style_pad_column(row, 8, 0);
-
-            lv_obj_t *sc = lz_box(row);
-            lv_obj_set_size(sc, 30, 30);
-            lv_obj_set_style_radius(sc, 8, 0);
-            lv_obj_set_style_bg_color(sc, lv_color_hex(0x161B22), 0);
-            lv_obj_set_style_bg_opa(sc, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_width(sc, 1, 0);
-            lv_obj_set_style_border_color(sc, lv_color_hex(0x262B33), 0);
-            lv_obj_t *scl = lz_text(sc, n->shortcode, LZ_F_SMALL, cyan_lt);
-            lv_obj_center(scl);
-
-            lv_obj_t *cl = lz_box(row);
-            lv_obj_set_flex_grow(cl, 1);
-            lv_obj_set_height(cl, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
-            lv_obj_set_style_pad_row(cl, 1, 0);
-            lv_obj_t *top = lz_box(cl);
-            lv_obj_set_size(top, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
-            lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lv_obj_set_style_pad_column(top, 5, 0);
-            lz_text(top, n->name, LZ_F_BODY, LZ_TEXT);
-            role_badge(top, n->role, lv_color_hex(0x8B939C));
-            char meta[56];
-            snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, ago);
-            lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x838A93));
-
-            lv_obj_t *r = lz_box(row);
-            lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
-            lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-            lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
-            lz_text(r, "SNR", LZ_F_SMALL, LZ_TEXT_3);
-            lz_nav_track(row, i + 1);   /* focus 0 is the companion toggle */
-        }
+        /* Virtualized: only the on-screen rows (+2 buffer above/below) are ever
+         * built as LVGL objects, recycled in place as the list scrolls — so a
+         * large mesh can't exhaust the object pool. focus 0 = companion header. */
+        lv_obj_t *content = lz_vlist(body, MT_HEADER_H, vis_count, MT_STRIDE,
+                                     1, mt_node_row_cb, NULL);
+        mt_companion_header(content);
         lz_nav_set(1, vis_count + 1, mt_nodes_activate);
     } else {
+        lz_nav_set_scroll(body);
         /* LongFast (Primary) is the live broadcast channel — tap to open it
          * and message everyone nearby. Emergency is shown but not yet wired. */
         const char *names[2] = { "LongFast", "Emergency" };

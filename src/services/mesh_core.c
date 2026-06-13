@@ -357,6 +357,16 @@ lz_thread_rt *lz_svc_top_unread(void)
     return best;
 }
 
+/* how many conversations currently have unread messages (muted excluded) —
+ * the lock screen shows the newest in full and "+N more" for the rest */
+int lz_svc_unread_count(void)
+{
+    int n = 0;
+    for(int i = 0; i < g_thread_count; i++)
+        if(g_threads[i].unread > 0 && !g_threads[i].muted) n++;
+    return n;
+}
+
 lz_thread_rt *lz_svc_thread_at(int display_idx)
 {
     if(display_idx < 0 || display_idx >= g_thread_count) return NULL;

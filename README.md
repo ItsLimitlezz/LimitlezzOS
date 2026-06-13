@@ -5,18 +5,21 @@ A mesh-native handheld OS for the **LilyGO T-Deck** (ESP32-S3, SX1262 LoRa,
 **MeshCore** into a single network-tagged inbox, driven entirely by the
 trackball.
 
-It is a working **Alpha 0.1**: real LVGL 8.3 firmware (display via LovyanGFX),
+It is a working **Alpha 0.41**: real LVGL 8.3 firmware (display via LovyanGFX),
 a desktop SDL2 simulator sharing the exact same UI code, and a live Meshtastic
 radio stack on the SX1262 — flashed and tested on real T-Deck hardware. The UI
 follows the design handoff (`docs/design/`) exactly as the master spec
 prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
-font tables, no images, no gradients, no alpha layering.
+font tables, no images, no gradients, no alpha layering — now moving toward an
+iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 
-> ⚠️ **This is an ALPHA TEST (0.41).** It runs on real hardware and the core
-> Meshtastic experience is usable, but some features are still unfinished (see
-> below). The near-term goal is to make this a great **Meshtastic** OS — on par
-> with the official device UI (MUI) — before fully building out **MeshCore**.
-> Status reflects hands-on hardware testing as of **2026-06-13**.
+> 🚀 **This is the first public Alpha release (Alpha 0.41).** It runs on real
+> hardware and the core **Meshtastic** experience is genuinely usable — encrypted
+> DMs both ways, channel messaging, a USB companion bridge, lock-screen
+> notifications — but some features are still unfinished (see below). The
+> near-term goal is to make this a great Meshtastic OS, on par with the official
+> device UI (MUI), before fully building out **MeshCore**. Status reflects
+> hands-on hardware testing as of **2026-06-13**.
 
 ## Alpha status
 
@@ -39,32 +42,42 @@ font tables, no images, no gradients, no alpha layering.
 - **Sleep & power saving** — idle dim/sleep, CPU down-clock.
 - **MeshCore self-advert (TX)** — signed Ed25519 advert broadcasts (flood + zero-hop); persistent identity; Advertise buttons only shown when MeshCore is on.
 - **Split airtime (TDM)** — both networks on → SX1262 alternates MC↔MT every 500 ms; one on → 100%.
+- **Companion bridge (Meshtastic over USB)** — pair the official Meshtastic app over
+  USB serial (Nodes tab → Companion mode): full handshake, live node DB, and
+  send/receive through the T-Deck's own radio. Hardware-verified.
+- **Lock-screen notifications** — a centered new-message card; tap it to open the chat
+  (clears once you view it); **"+N more"** when several conversations are unread.
+- **Tap-to-wake, then tap-to-unlock** — the first touch/key only lights the screen; a
+  second one unlocks, so a bump in your pocket can't open it.
+- **Virtualized lists** — the node list renders only the on-screen rows (+2 buffer) and
+  recycles them as you scroll, so a large mesh can't exhaust memory.
+- **iPhone-style dark UI** — status bar (time on the left; signal bars + Wi-Fi + a white
+  battery glyph on the right), grouped Settings cards with hairline dividers, and
+  enabled-network icons on the lock screen.
 - **Serial console** — USB-CDC command shell for control + diagnostics (`help`, `time`, `tz`, `net`, `rf`, `mc`, `companion`, `touch`, …).
 
 ### 🧪 In testing
-- **Companion bridge (Meshtastic over USB)** — protocol self-test passes on-device,
-  but **not yet connecting to the official app** (needs the Config/ModuleConfig
-  messages the app waits for).
 - **MeshCore (whole network path)** — adverts transmit + remote nodes decode, but
   **receiving is not working yet**: no Public channel, can't see/send/receive
-  MeshCore messages.
+  MeshCore messages. The MeshCore app + settings are gated "Coming soon" for this Alpha.
 
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
   status** (green sending / blue delivered / red failed + long-press to resend).
 - ✅ **0.4** — **USB companion** for Meshtastic: enable in the Meshtastic app (Nodes
-  tab → Companion mode), then connect the official app over USB serial. Handshake
-  (my_info, metadata, config, channel, node DB, config_complete) self-test passes.
-- ✅ **0.41** — **lock-screen notifications**: a new-message card on the lock screen;
-  tap it to open the chat, and it clears once you view the message. → **release** here.
+  tab → Companion mode), then connect the official app over USB serial.
+- 🚀 **0.41 — this release** — **lock-screen notifications** (centered card + "+N more"),
+  **tap-to-wake/unlock**, **virtualized node list** (fixes the big-mesh crash), the
+  **iPhone-style dark UI** pass, and the USB companion **confirmed working on hardware**.
 - **0.42** — highlight chats with unread messages.
 - **0.43** — iPhone-style unread **counter badge** on the Messages icon (1–9, then "+").
 - **0.44** — **silence** public/group chats (no notification, excluded from the badge).
+- **0.45** — responsiveness pass (Settings, chat log, keyboard input latency).
 - **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly).
 
 ### 🔭 Later
 - **MeshCore** — receive + default Public channel, then a MeshCore companion bridge (currently "Coming soon").
-- **List virtualization** — node/message lists recycle off-screen rows for big DBs.
+- **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
 - **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
@@ -283,5 +296,7 @@ is locked per spec §11.
 
 The **Sleep after** setting (Settings → Display: 15 s / 30 s / 1 m / 5 m /
 Never) idles the screen: after the timeout with no trackball/keyboard/touch
-input, the backlight goes dark and the OS returns to the lock screen; any
-input wakes it. The Brightness slider drives the same LEDC backlight live.
+input, the backlight goes dark and the OS returns to the lock screen. Waking is
+two-step — the **first** touch/key/click only lights the screen (still locked),
+and a **second** one unlocks — so a bump in your pocket can't open the device.
+The Brightness slider drives the same LEDC backlight live.

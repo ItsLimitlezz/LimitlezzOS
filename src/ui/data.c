@@ -77,7 +77,7 @@ const lz_file_t LZ_FILES[7] = {
 };
 
 const char *LZ_TERM_LINES[12] = {
-    "LimitlezzOS Alpha 0.1  -  serial console",
+    "LimitlezzOS Alpha 0.41  -  serial console",
     "limitlezz:~$ mesh --info",
     "owner : Jess (JESS)",
     "nets  : meshtastic[on] meshcore[on]",

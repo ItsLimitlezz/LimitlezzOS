@@ -124,7 +124,7 @@ static void send_channel_primary(void)
 static void send_metadata(void)
 {
     uint8_t m[48]; int n = 0;
-    n += pb_str(m + n, 1, "0.4.0-limitlezz");         /* firmware_version */
+    n += pb_str(m + n, 1, "0.41.0-limitlezz");        /* firmware_version */
     n += pb_uint(m + n, 7, 0);                        /* role = CLIENT */
     n += pb_uint(m + n, 9, 50);                       /* hw_model = T_DECK */
     send_fromradio(13, m, n);

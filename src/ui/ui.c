@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "vlist.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -31,6 +32,8 @@ void lz_apply_brightness(void)
 {
     if(g_backlight_cb && !g_dimmed) g_backlight_cb(S.settings.bright);
 }
+
+bool lz_is_dimmed(void) { return g_dimmed; }
 
 void lz_note_activity(void)
 {
@@ -151,6 +154,7 @@ void lz_nav_track(lv_obj_t *obj, int idx)
 void lz_rebuild(void)
 {
     g_cols = 1; g_count = 0; g_activate = NULL; g_scroll = NULL; g_focus_obj = NULL; g_skip = NULL;
+    lz_vlist_invalidate();   /* body about to be deleted; drop vlist's pointers */
     lv_obj_clean(g_root);
     /* screens style the root itself (flex flow, bg) — reset it fully so
      * layout from the previous screen can't leak into the next build */
@@ -198,6 +202,7 @@ void lz_go(lz_view_t v)
         S.nav_stack[S.nav_depth++] = S.view;
     S.view = v;
     S.focus = 0;
+    lz_vlist_reset_scroll();    /* fresh screen starts at the top */
     lz_rebuild();
 }
 
@@ -208,6 +213,7 @@ void lz_back(void)
     if(v == LZ_V_LOCK) v = LZ_V_HOME;
     S.view = v;
     S.focus = 0;
+    lz_vlist_reset_scroll();
     lz_rebuild();
 }
 
@@ -241,7 +247,7 @@ static void move(lz_key_t dir)
         if(S.view == LZ_V_MESHTASTIC) {
             int t = S.mt_tab + d;
             if(d < 0 && t < 0) { if(confirm_left_back()) lz_back(); return; }
-            if(t >= 0 && t <= 1 && t != S.mt_tab) { S.mt_tab = t; S.focus = 0; lz_rebuild(); }
+            if(t >= 0 && t <= 1 && t != S.mt_tab) { S.mt_tab = t; S.focus = 0; lz_vlist_reset_scroll(); lz_rebuild(); }
             return;
         }
         if(S.view == LZ_V_MESHCORE) {
@@ -369,7 +375,11 @@ static void wifi_pw_key(lz_key_t k, char c)
 
 void lz_ui_key(lz_key_t k, char c)
 {
+    bool was_asleep = g_dimmed;
     lz_note_activity();                  /* any input wakes the screen + resets idle */
+    /* tap/key to wake, then tap/key to act: the first input after sleep only
+     * lights the screen (so a pocket bump can't unlock or trigger anything) */
+    if(was_asleep) return;
     if(S.view == LZ_V_ONBOARD) { onboard_key(k, c); return; }
     if(S.view == LZ_V_WIFI && S.wifi_pw_mode) { wifi_pw_key(k, c); return; }
     if(S.view == LZ_V_SETTIME) { lz_settime_key(k, c); return; }
@@ -549,65 +559,89 @@ void lz_status_bar(lv_obj_t *parent)
     lv_obj_set_style_border_width(bar, 1, 0);
     lv_obj_set_style_border_color(bar, lv_color_hex(0x0A0D11), 0);
 
-    lv_color_t mint = lv_color_hex(0x5FE3B3);
+    lv_color_t white = lv_color_hex(0xF2F4F6);
+    lv_color_t dim   = lv_color_hex(0x3D434B);
 
-    lv_obj_t *hub = lz_icon(bar, LZ_I_HUB, &lz_icons_14, mint);
-    lv_obj_align(hub, LV_ALIGN_LEFT_MID, 9, 0);
-    int nn = lz_svc_node_count(LZ_NET_MT) +
-             (LZ_MESHCORE_ENABLED ? lz_svc_node_count(LZ_NET_MC) : 0);
-    char ntxt[16]; snprintf(ntxt, sizeof ntxt, "%d node%s", nn, nn == 1 ? "" : "s");
-    lv_obj_t *nodes = lz_text(bar, ntxt, LZ_F_MONO, lv_color_hex(0xAEB6BF));
-    lv_obj_align(nodes, LV_ALIGN_LEFT_MID, 27, 0);
+    /* LEFT: time, iPhone-style (no AM/PM in the status bar) */
+    char clk[12]; lz_fmt_now(clk, sizeof clk);  /* real time, or "--:--" if unsynced */
+    char *sp = strchr(clk, ' '); if(sp) *sp = '\0';
+    lv_obj_t *time_l = lz_text(bar, clk, LZ_F_HEAD, white);
+    lv_obj_align(time_l, LV_ALIGN_LEFT_MID, 12, 0);
 
-    /* right cluster: [signal bars] [clock] [battery] laid out by flex so
-     * nothing can overlap */
+    /* RIGHT cluster: [signal bars] [wifi] [battery], flex so nothing overlaps */
     lv_obj_t *right = lz_box(bar);
     lv_obj_set_size(right, LV_SIZE_CONTENT, LZ_STATUSBAR_H - 1);
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(right, 7, 0);
-    lv_obj_align(right, LV_ALIGN_RIGHT_MID, -9, 0);
+    lv_obj_set_style_pad_column(right, 6, 0);
+    lv_obj_align(right, LV_ALIGN_RIGHT_MID, -10, 0);
 
+    /* signal bars — lit count from the strongest heard link (RSSI/SNR) */
+    const lz_node_rt *ns; int nc = lz_svc_nodes(&ns);
+    const lz_identity_t *me = lz_svc_identity();
+    float best = -1000.0f; bool any = false;
+    for(int i = 0; i < nc; i++) {
+        if(ns[i].num == me->num || ns[i].net != LZ_NET_MT) continue;
+        float s = ns[i].snr;
+        if(s == s) { any = true; if(s > best) best = s; }   /* s==s skips NAN */
+    }
+    int lit = !any ? 0 : best >= 5.0f ? 4 : best >= -2.0f ? 3 : best >= -8.0f ? 2 : 1;
     lv_obj_t *bars = lz_box(right);
     lv_obj_set_size(bars, 4 * 3 + 3 * 2, 11);
-    static const int hs[4] = { 4, 6, 8, 11 };
+    static const int hs[4] = { 5, 7, 9, 11 };
     for(int i = 0; i < 4; i++) {
         lv_obj_t *b = lz_box(bars);
         lv_obj_set_size(b, 3, hs[i]);
         lv_obj_set_style_radius(b, 1, 0);
-        lv_obj_set_style_bg_color(b, i < 3 ? mint : lv_color_hex(0x3D434B), 0);
+        lv_obj_set_style_bg_color(b, i < lit ? white : dim, 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, i * 5, 0);
     }
 
-    char clk[12]; lz_fmt_now(clk, sizeof clk);  /* real time, or "--:--" if unsynced */
-    lz_text(right, clk, LZ_F_MONO, lv_color_hex(0xCDD3DA));
+    /* wifi: bright when joined, dim when on-but-unjoined, hidden when off */
+    if(lz_wifi_enabled())
+        lz_icon(right, LZ_I_WIFI, &lz_icons_18,
+                lz_wifi_connected() ? white : dim);
 
-    /* battery from real sysinfo: outline + fill scaled to %, or a USB mark */
+    /* battery (shared iPhone-style glyph, also used on the lock screen) */
+    lz_battery_glyph(right);
+}
+
+/* iPhone-style battery: white rounded outline + white inner fill + nub, red
+ * when critically low off-charger, a charging bolt on USB. Caller positions it
+ * (it's a 25x12 box; inside a flex row it just flows). */
+lv_obj_t *lz_battery_glyph(lv_obj_t *parent)
+{
+    lv_color_t white = lv_color_hex(0xF2F4F6);
     lz_sysinfo_t si; lz_svc_sysinfo(&si);
-    lv_obj_t *bwrap = lz_box(right);
-    lv_obj_set_size(bwrap, 21, 9);
-    lv_obj_t *batt = lz_box(bwrap);
-    lv_obj_set_size(batt, 18, 9);
-    lv_obj_set_style_radius(batt, 2, 0);
-    lv_obj_set_style_border_width(batt, 1, 0);
-    lv_obj_set_style_border_color(batt, lv_color_hex(0x767D86), 0);
     int pct = si.battery_pct < 0 ? 100 : si.battery_pct;
-    lv_color_t bc = si.usb ? mint : (pct <= 15 ? lv_color_hex(0xE0564E) : mint);
-    lv_obj_t *fill = lz_box(batt);
-    lv_obj_set_size(fill, 2 + (14 * pct) / 100, 5);
+    lv_color_t bc = (!si.usb && pct <= 15) ? lv_color_hex(0xE0564E) : white;
+    lv_obj_t *bwrap = lz_box(parent);
+    lv_obj_set_size(bwrap, 25, 12);
+    lv_obj_t *body = lz_box(bwrap);
+    lv_obj_set_size(body, 22, 11);
+    lv_obj_align(body, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_radius(body, 3, 0);
+    lv_obj_set_style_border_width(body, 1, 0);
+    lv_obj_set_style_border_color(body, white, 0);
+    int fw = (18 * pct) / 100; if(fw < 1 && pct > 0) fw = 1;
+    lv_obj_t *fill = lz_box(body);
+    lv_obj_set_size(fill, fw, 7);
+    lv_obj_set_style_radius(fill, 1, 0);
     lv_obj_set_style_bg_color(fill, bc, 0);
     lv_obj_set_style_bg_opa(fill, LV_OPA_COVER, 0);
-    lv_obj_align(fill, LV_ALIGN_LEFT_MID, 1, 0);
+    lv_obj_align(fill, LV_ALIGN_LEFT_MID, 2, 0);
     lv_obj_t *nub = lz_box(bwrap);
     lv_obj_set_size(nub, 2, 4);
-    lv_obj_set_style_bg_color(nub, lv_color_hex(0x767D86), 0);
+    lv_obj_set_style_radius(nub, 1, 0);
+    lv_obj_set_style_bg_color(nub, white, 0);
     lv_obj_set_style_bg_opa(nub, LV_OPA_COVER, 0);
     lv_obj_align(nub, LV_ALIGN_RIGHT_MID, 0, 0);
     if(si.usb) {   /* charging/USB bolt over the battery */
-        lv_obj_t *bolt = lz_icon(bwrap, LZ_I_BOLT, &lz_icons_14, lv_color_hex(0x0B0E12));
-        lv_obj_align(bolt, LV_ALIGN_CENTER, -1, 0);
+        lv_obj_t *bolt = lz_icon(bwrap, LZ_I_BOLT, &lz_icons_18, lv_color_hex(0x0B0E12));
+        lv_obj_align(bolt, LV_ALIGN_LEFT_MID, 3, 0);
     }
+    return bwrap;
 }
 
 /* derive a 4-char Meshtastic short tag from the long name (alnum, uppercased) */

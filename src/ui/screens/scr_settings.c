@@ -111,17 +111,27 @@ static void settings_activate(int f)
     lz_rebuild();
 }
 
+/* iPhone-style grouped list: a gray rounded card with the rows laid inside it,
+ * separated by light-gray hairline dividers. Colors are local to Settings so we
+ * can dial in the iOS look here before rolling it across the rest of the OS. */
+#define LZ_IOS_GROUP_BG  lv_color_hex(0x1A1E25)   /* gray menu-group fill        */
+#define LZ_IOS_DIVIDER   lv_color_hex(0x2C313A)   /* light-gray hairline divider */
+#define LZ_IOS_ROW_SEL   lv_color_hex(0x272D38)   /* highlighted (focused) row   */
+
 static lv_obj_t *group_card(lv_obj_t *body, const char *title)
 {
-    lv_obj_t *hd = lz_text(body, title, LZ_F_SMALL, LZ_TEXT_3);
-    lv_obj_set_style_pad_left(hd, 4, 0);
-    lv_obj_set_style_pad_top(hd, 4, 0);
+    if(title) {
+        lv_obj_t *hd = lz_text(body, title, LZ_F_SMALL, LZ_TEXT_3);
+        lv_obj_set_style_pad_left(hd, 6, 0);
+        lv_obj_set_style_pad_top(hd, 4, 0);
+    }
     lv_obj_t *card = lz_box(body);
     lv_obj_set_width(card, lv_pct(100));
     lv_obj_set_height(card, LV_SIZE_CONTENT);
-    lv_obj_set_style_radius(card, LZ_RADIUS_CARD, 0);
-    lv_obj_set_style_border_width(card, 1, 0);
-    lv_obj_set_style_border_color(card, LZ_CARD_BORDER, 0);
+    lv_obj_set_style_radius(card, 12, 0);
+    lv_obj_set_style_bg_color(card, LZ_IOS_GROUP_BG, 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_clip_corner(card, true, 0);   /* rows stay inside the radius */
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     return card;
 }
@@ -131,21 +141,22 @@ static lv_obj_t *setting_row_base(lv_obj_t *card, bool focused, bool last)
     lv_obj_t *row = lz_box(card);
     lv_obj_set_width(row, lv_pct(100));
     lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_color(row, focused ? LZ_ROW_FOCUS_BG : LZ_ROW_BG, 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     if(focused) {
+        lv_obj_set_style_bg_color(row, LZ_IOS_ROW_SEL, 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(row, 2, 0);
         lv_obj_set_style_border_color(row, LZ_FOCUS, 0);
     } else if(!last) {
+        /* transparent over the group gray, with a light hairline divider */
         lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
         lv_obj_set_style_border_width(row, 1, 0);
-        lv_obj_set_style_border_color(row, lv_color_hex(0x1E232A), 0);
+        lv_obj_set_style_border_color(row, LZ_IOS_DIVIDER, 0);
     }
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(row, 10, 0);
-    lv_obj_set_style_pad_ver(row, 7, 0);
-    lv_obj_set_style_pad_column(row, 9, 0);
+    lv_obj_set_style_pad_hor(row, 12, 0);
+    lv_obj_set_style_pad_ver(row, 9, 0);
+    lv_obj_set_style_pad_column(row, 11, 0);
     return row;
 }
 
@@ -333,12 +344,12 @@ void lz_scr_settings(lv_obj_t *root)
         lv_obj_set_height(r, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_hor(r, 10, 0);
-        lv_obj_set_style_pad_ver(r, 7, 0);
+        lv_obj_set_style_pad_hor(r, 12, 0);
+        lv_obj_set_style_pad_ver(r, 9, 0);
         if(i == 0) {
             lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(r, 1, 0);
-            lv_obj_set_style_border_color(r, lv_color_hex(0x1E232A), 0);
+            lv_obj_set_style_border_color(r, LZ_IOS_DIVIDER, 0);
         }
         lz_text(r, ks[i], LZ_F_SMALL, lv_color_hex(0x8B939C));
         lz_text(r, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);

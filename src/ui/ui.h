@@ -107,6 +107,7 @@ lv_obj_t *lz_dot(lv_obj_t *parent, int size, lv_color_t color);
 lv_obj_t *lz_toggle(lv_obj_t *parent, bool on, lv_color_t on_color);
 lv_obj_t *lz_vflex(lv_obj_t *parent);                     /* scrollable column body */
 void      lz_status_bar(lv_obj_t *parent);
+lv_obj_t *lz_battery_glyph(lv_obj_t *parent);   /* iPhone-style battery; caller aligns */
 
 /* --- screen builders (screens/) --- */
 void lz_scr_onboard(lv_obj_t *root);
@@ -148,6 +149,7 @@ void lz_term_key(lz_key_t k, char c);
  * dims (via the backlight cb) and the OS returns to the lock screen. */
 void lz_note_activity(void);
 void lz_idle_tick(void);
+bool lz_is_dimmed(void);    /* true while asleep (first tap should only wake) */
 void lz_set_backlight_cb(void (*fn)(int pct));   /* hardware backlight control */
 void lz_apply_brightness(void);                  /* push the brightness setting now */
 
