@@ -10,6 +10,18 @@ Status labels:
 - Planned: specified in README/design docs but not implemented in code.
 - Needs validation: implementation exists but was not hardware-verified during this audit.
 
+## Versioned Beta Milestone Mapping
+
+| Version | Author milestone | Inventory areas touched |
+| --- | --- | --- |
+| V0.5 | BLE companion for Meshtastic | Meshtastic companion bridge |
+| V0.6 | MeshCore public chat and split airtime config | MeshCore public channels, TDM, Settings airtime controls |
+| V0.7 | MeshCore DMs and private chats | MeshCore private messaging, contacts, delivery status |
+| V0.8 | MeshCore USB companion and MeshCore BLE companion | MeshCore companion bridge |
+| V0.9 | Code review, optimization, and emoji polish | Build, memory, UI responsiveness, chat rendering |
+| V0.95 | Basic app SDK/infrastructure and expandable Home UI | App runtime, Home launcher, multiple Home screens |
+| V0.96 | Upgraded Wi-Fi password storage | Wi-Fi credential hardening |
+
 ## Build And Hardware Platform
 
 | Feature | Status | Evidence | Gap / Next Action |
@@ -37,7 +49,7 @@ Status labels:
 | Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, bubble status colors | ACK timeout/status is RAM-tail only and not persisted. |
 | Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend` | No persisted retry queue; immediate backend failures not reflected. |
 | Managed flood rebroadcast | Functional, needs validation | `rebroadcast` in `backend_sx1262.cpp` | Needs airtime/backoff validation in busy meshes. |
-| USB companion bridge | Functional, needs validation | `mt_companion.cpp`, serial commands, UI toggle | Config coverage is minimal; BLE companion is not started. |
+| USB companion bridge | Functional, needs validation | `mt_companion.cpp`, serial commands, UI toggle | Config coverage is minimal; Meshtastic BLE companion is V0.5. |
 | Position/telemetry decode | Planned | README lists as still ahead | Needed for maps, weather, and richer node detail. |
 | Emergency channel/beacon | Prototype/Planned | Emergency row appears but is disabled; design spec covers SOS | Implement after feedback manager and dual-network send. |
 
@@ -50,9 +62,9 @@ Status labels:
 | MeshCore RF profile | Partial, needs validation | 910.525 MHz / 62.5 kHz / SF7 / CR4/5 profile | Confirm target regions and RF compatibility with real MeshCore devices. |
 | MeshCore ADVERT RX | Partial, needs validation | `mc_parse`, `mc_advert_decode`, `lz_core_on_mc_node` | Only ADVERTs are decoded; encrypted payloads are ignored. |
 | MeshCore self-advert TX | Partial, needs validation | Ed25519 identity, self-advert builder, serial/UI advert commands | Needs interop proof with real MeshCore nodes. |
-| MeshCore public channel / rooms | Planned | README says receive/default Public channel still ahead | Implement group text decode/send and room model. |
-| MeshCore DMs | Planned | MeshCore contacts are non-messageable while gated | Implement key/session model, send path, ACKs, and UI routing. |
-| MeshCore companion bridge | Planned | README lists as later | Build only after MeshCore messaging is stable. |
+| MeshCore public channel / rooms | Planned | README says receive/default Public channel still ahead | V0.6: implement group text decode/send, room model, and split airtime config. |
+| MeshCore DMs | Planned | MeshCore contacts are non-messageable while gated | V0.7: implement key/session model, send path, ACKs, and UI routing. |
+| MeshCore companion bridge | Planned | README lists as later | V0.8: build MeshCore USB and BLE companions after MeshCore messaging is stable. |
 
 ## User Interface
 
@@ -60,7 +72,7 @@ Status labels:
 | --- | --- | --- | --- |
 | First-boot onboarding | Functional | `scr_onboard.c`, identity persistence | MeshCore network row is visible but locked. |
 | Lock screen | Functional | clock, battery, network icons, notification card | Add per-network badges once MeshCore is active. |
-| Home launcher | Partial | 4x2 app grid | App Store and MeshCore are disabled; Terminal is too prominent for non-developers. |
+| Home launcher | Partial | 4x2 app grid | V0.95: support added apps and multiple Home screens; Terminal should move behind Developer Mode. |
 | Unified inbox | Functional/Partial | Messages tabs, filters, unread badges, channel tab | MeshCore filter is gated; unread icon badge is roadmap. |
 | Conversation view | Functional/Partial | compose, bubbles, status colors, resend long-press | Long drafts handled, but delivery persistence is incomplete. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, companion toggle | Emergency channel row is disabled. |
@@ -80,7 +92,7 @@ Status labels:
 | Lua sandbox | Planned | Design spec section 9 | Choose Lua/eLua/minimal interpreter after memory profiling. |
 | App manifest | Planned | Design spec manifest schema | Define stable manifest format and validator. |
 | App permissions | Planned | Design spec API namespaces | Implement least-privilege API injection. |
-| Local app scanner | Planned | `appfs` partition and design spec | First useful App Store milestone: scan `/apps` on SD/appfs. |
+| Local app scanner | Planned | `appfs` partition and design spec | V0.95: first useful App SDK milestone is scanning `/apps` on SD/appfs. |
 | Network app catalog | Planned | Wi-Fi service notes; design spec | Fetch `index.json`, verify TLS/metadata, cache results. |
 | App download/install/update | Planned | App Store prototype only | SHA256 verify, extract, version updates, rollback failed installs. |
 | Optional map app | Planned | Store data includes maps; maintainer notes prefer maps as optional | Keep maps out of the base firmware. |
@@ -92,11 +104,11 @@ Status labels:
 | --- | --- | --- | --- |
 | Device PIN/password | Planned | README later/security section | Needed before encrypted local data UX. |
 | Encrypted local store | Planned | README hardening section | Encrypt messages, keys, identity, and app data when password is set. |
-| Wi-Fi credential hardening | Planned | `wifi.cfg` plaintext in `store.c` | Move to NVS or encrypted store. |
+| Wi-Fi credential hardening | Planned | `wifi.cfg` plaintext in `store.c` | V0.96: move to NVS or encrypted store with migration. |
 | OTA firmware update | Planned | Partition table and design spec | Implement download, hash verify, inactive-slot write, rollback UX. |
 | Feedback Manager | Planned | Design spec section 8 | Centralize LED, buzzer, keyboard/display feedback and DND. |
 | Emergency beacon | Planned | Design spec section 12, disabled Emergency UI row | Requires Feedback Manager and dual-network messaging. |
-| BLE companion | Planned | README 0.5 beta | Add after USB companion and core messaging are stable. |
+| BLE companion | Planned | Author V0.5 beta milestone | Add Meshtastic BLE companion after USB companion and core Meshtastic messaging are stable. |
 | CI and release checks | Planned | No `.github` workflows | Add tdeck build, simulator/selftest where available, artifact/size reporting. |
 
 ## Completion Criteria

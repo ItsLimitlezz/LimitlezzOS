@@ -28,6 +28,20 @@ The firmware is complete when:
 9. Hardware feedback, notifications, DND, and emergency behavior are consistent.
 10. CI, simulator checks, hardware smoke tests, and release docs prove each release.
 
+## Author Beta Milestones
+
+These maintainer-provided beta labels are the canonical near-term sequence. The broader phases below preserve that order, then add post-V0.96 completion work for OTA, the full App Store, security, feedback, emergency, and release hardening.
+
+| Version | Milestone |
+| --- | --- |
+| V0.5 | BLE companion for Meshtastic |
+| V0.6 | MeshCore public chat and split airtime config |
+| V0.7 | MeshCore DMs and private chats |
+| V0.8 | MeshCore USB companion and MeshCore BLE companion |
+| V0.9 | Code review, optimization, and emoji polish |
+| V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens |
+| V0.96 | Upgraded Wi-Fi password storage |
+
 ## Phase 0 - Stabilize The Baseline
 
 Goal: make Alpha 0.41 trustworthy to build, test, and describe.
@@ -79,9 +93,27 @@ Exit criteria:
 - A non-technical user can onboard, send/receive LongFast, send/receive encrypted DMs, see delivery state, manage Wi-Fi/time/sleep, and recover from normal failures without using the terminal.
 - Terminal is not part of the default consumer flow.
 
-## Phase 2 - MeshCore End To End
+## Phase 2 - V0.5 Meshtastic BLE Companion
 
-Goal: turn the current MeshCore groundwork into a real second network without regressing Meshtastic.
+Goal: let the official Meshtastic app connect wirelessly to the T-Deck radio after the USB companion path is stable.
+
+Deliverables:
+
+- Add BLE transport for the Meshtastic companion protocol.
+- Reuse the USB companion handshake/model where possible so node DB, channel, config, and packet forwarding behavior stay consistent.
+- Add clear UI state for USB companion, BLE companion, and normal serial console mode.
+- Define what happens when USB and BLE companion clients compete for the radio.
+- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical.
+- Hardware-test pairing, reconnect, send, receive, and disconnect flows with the official app.
+
+Exit criteria:
+
+- A phone can pair over BLE, see the T-Deck as a Meshtastic companion radio, and send/receive through the T-Deck without USB.
+- Normal on-device messaging still works when BLE companion is off.
+
+## Phase 3 - V0.6 MeshCore Public Chat And Split Airtime Config
+
+Goal: make MeshCore visible in the real product through public chat first, while giving users a simple way to understand and control split airtime.
 
 Deliverables:
 
@@ -91,28 +123,78 @@ Deliverables:
   - Meshtastic delivery impact while MeshCore is enabled
   - MeshCore delivery impact while Meshtastic is enabled
 - Confirm target MeshCore RF profiles by region and define how they coexist with the LongFast-only product goal.
+- Build the split airtime config UI around simple choices, not raw radio parameters.
 - Finish MeshCore packet handling:
   - ADVERT interop with real MeshCore nodes
   - public/default channel receive
   - group/room text receive
-  - DM receive
-  - ACK/routing model
-  - encrypted payload support
 - Add MeshCore send path through the same `lz_svc_send_text` service boundary.
-- Wire MeshCore contacts, rooms, and threads into the unified inbox.
-- Make MeshCore network toggle active only after the full path passes tests.
-- Add lock-screen and launcher unread badges that count both networks correctly.
-- Add MeshCore companion bridge only after native MeshCore messaging is stable.
+- Wire MeshCore public chat and rooms into the unified inbox.
+- Make the MeshCore network toggle active for public chat only after the path passes tests.
+- Add lock-screen and launcher unread badges that count both networks correctly for public threads.
 
 Exit criteria:
 
-- With both networks enabled, the T-Deck receives and sends Meshtastic and MeshCore messages in the same session.
-- Disabling either network gives the other 100 percent airtime and preserves conversation history.
-- The user can always tell which network a message came from and which network a reply will use.
+- With both networks enabled, the T-Deck receives and sends Meshtastic messages and MeshCore public chat in the same session.
+- Split airtime settings are understandable to a non-expert and preserve the "just works" default.
+- Disabling either network gives the other full airtime and preserves conversation history.
 
-## Phase 3 - App Runtime And Local Apps
+## Phase 4 - V0.7 MeshCore DMs And Private Chats
 
-Goal: make "apps" real before adding network catalog complexity.
+Goal: complete private MeshCore messaging after the public-chat path has proven the radio scheduler and inbox integration.
+
+Deliverables:
+
+- Implement MeshCore private chat receive.
+- Implement MeshCore private chat send through the mesh service boundary.
+- Add key/session handling, ACK/routing behavior, retry limits, and failure status for MeshCore private messages.
+- Keep reply routing unambiguous in the conversation header and composer.
+- Make MeshCore contacts messageable only when the node role and key/session state support it.
+- Add serial diagnostics for private-chat state and delivery failures.
+
+Exit criteria:
+
+- MeshCore DMs/private chats can be sent and received with real MeshCore peers.
+- Meshtastic DM behavior does not regress while MeshCore private messaging is enabled.
+
+## Phase 5 - V0.8 MeshCore USB And BLE Companions
+
+Goal: expose MeshCore companion functionality only after native MeshCore messaging is stable.
+
+Deliverables:
+
+- Define the MeshCore companion protocol surface for node DB, public chat, private chats, and send/receive forwarding.
+- Implement MeshCore USB companion mode.
+- Implement MeshCore BLE companion mode.
+- Add UI and serial commands that distinguish Meshtastic companion from MeshCore companion.
+- Decide whether one companion session or one network can own the external-app bridge at a time.
+- Hardware-test pairing, reconnect, send, receive, and disconnect flows.
+
+Exit criteria:
+
+- MeshCore companion works over USB and BLE without breaking on-device messaging or Meshtastic companion behavior.
+
+## Phase 6 - V0.9 Code Review, Optimization, And Emoji Polish
+
+Goal: pause feature expansion long enough to make the firmware smaller, faster, easier to review, and nicer in everyday chats.
+
+Deliverables:
+
+- Full code review of the hardware, radio, service, storage, and UI boundaries.
+- Optimize slow screens, keyboard input latency, radio loop timing, and memory hot spots.
+- Add size and memory budgets to CI/release notes.
+- Clean up dead demo data and stale comments that no longer match product state.
+- Add basic emoji rendering/input support appropriate for the T-Deck screen and memory budget.
+- Re-run hardware dogfood tests on Meshtastic-only, MeshCore-only, and split-airtime modes.
+
+Exit criteria:
+
+- No known P0/P1 regressions remain from V0.5-V0.8.
+- Firmware memory and flash usage are measured and documented before app SDK work starts.
+
+## Phase 7 - V0.95 Basic App SDK, Infrastructure, And Home UI
+
+Goal: make "apps" real at the OS level before adding full network catalog complexity.
 
 Deliverables:
 
@@ -123,6 +205,8 @@ Deliverables:
   - optional assets
   - per-app data directory
 - Implement local app scanner for `/apps`.
+- Fix the Home UI so installed apps can be added as launcher icons.
+- Add multiple Home screens/pages so the built-in app grid can grow without cluttering the first screen.
 - Add app launcher integration for installed apps.
 - Enforce foreground-only app lifecycle.
 - Enforce memory cap through the runtime allocator or equivalent guard.
@@ -148,7 +232,24 @@ Exit criteria:
 - A user can copy an app to SD/appfs, see it in the launcher/store, open it, use it, leave it, and have it terminate cleanly.
 - A broken app cannot crash the OS, access another app's files, or touch radio hardware directly.
 
-## Phase 4 - Network App Store
+## Phase 8 - V0.96 Upgraded Wi-Fi Password Storage
+
+Goal: replace plaintext Wi-Fi password storage with a safer storage path that still feels invisible to normal users.
+
+Deliverables:
+
+- Move saved Wi-Fi credentials out of plaintext SD files.
+- Prefer NVS or an encrypted storage layer that can survive reboot and common SD-card workflows.
+- Add migration from the existing `wifi.cfg` format.
+- Keep the current "remember one network, auto-connect, forget" UX working.
+- Add diagnostics for stored network state that never print the password.
+
+Exit criteria:
+
+- A remembered Wi-Fi password is no longer readable as plaintext from the SD card.
+- Existing users can upgrade without losing the saved network when migration succeeds.
+
+## Phase 9 - Post-V0.96 Network App Store
 
 Goal: let users install and update apps from a repository.
 
@@ -171,7 +272,7 @@ Exit criteria:
 - GET/UPDATE/OPEN reflects real package state.
 - Failed downloads or verification failures leave the prior app intact.
 
-## Phase 5 - OTA Firmware Updates
+## Phase 10 - Post-V0.96 OTA Firmware Updates
 
 Goal: update the OS without USB flashing.
 
@@ -190,7 +291,7 @@ Exit criteria:
 
 - A device can update from one release to the next over Wi-Fi and recover safely from a failed update.
 
-## Phase 6 - Feedback, Notifications, And Emergency
+## Phase 11 - Post-V0.96 Feedback, Notifications, And Emergency
 
 Goal: make physical feedback coherent and safety-oriented.
 
@@ -217,7 +318,7 @@ Exit criteria:
 - Screen, LED, buzzer, and keyboard backlight agree about message, warning, and emergency state.
 - Emergency behavior is hard to trigger accidentally but impossible to miss once triggered.
 
-## Phase 7 - Security And Privacy
+## Phase 12 - Post-V0.96 Security And Privacy
 
 Goal: protect the user's local data without making setup hard.
 
@@ -230,7 +331,7 @@ Deliverables:
   - Meshtastic PKI key
   - MeshCore key
   - app data
-- Move Wi-Fi credentials to NVS or encrypted storage.
+- Build on the V0.96 Wi-Fi credential migration so the remaining local secrets are protected consistently.
 - Add migration from plaintext store.
 - Add "forgot password" recovery language that is honest about data loss.
 - Consider secure boot/flash encryption as an advanced build option after the app/update path stabilizes.
@@ -239,14 +340,13 @@ Exit criteria:
 
 - A lost SD card does not reveal messages, identity, keys, or Wi-Fi credentials when the user has enabled protection.
 
-## Phase 8 - Beta And Complete Firmware Release
+## Phase 13 - Complete Firmware Release
 
 Goal: finish the repo-listed feature set and make releases dependable.
 
 Deliverables:
 
-- BLE companion for Meshtastic.
-- MeshCore companion if still product-relevant after native MeshCore support.
+- Close remaining gaps from the audit and feature inventory.
 - Full docs:
   - user guide
   - app developer guide
