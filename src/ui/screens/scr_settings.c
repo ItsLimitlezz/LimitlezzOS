@@ -19,7 +19,7 @@ typedef struct {
  * mode toggle; Wi-Fi opens its own setup screen) */
 /* Meshtastic is fixed to US / LongFast (no Region or Modem-preset options) and
  * MeshCore to its single public profile, so neither is configurable here. */
-static const srow_t SROWS[10] = {
+static const srow_t SROWS[] = {   /* unsized: never drops a row when one is added */
     { "TX power",         LZ_I_CELL_TOWER, ROW_VALUE  },  /* f=2  */
     { "Wi-Fi",            LZ_I_WIFI,       ROW_NAV    },  /* f=3  */
     { "GPS",              LZ_I_LOCATION,   ROW_TOGGLE },  /* f=4  */
@@ -321,7 +321,7 @@ void lz_scr_settings(lv_obj_t *root)
     /* --- ABOUT (static) --- */
     lv_obj_t *about = group_card(body, "ABOUT");
     const char *ks[2] = { "Device", "Firmware" };
-    const char *vs[2] = { "LilyGo T-Deck", "LimitlezzOS Alpha 0.1" };
+    const char *vs[2] = { "LilyGo T-Deck", "LimitlezzOS Alpha 0.2" };
     for(int i = 0; i < 2; i++) {
         lv_obj_t *r = lz_box(about);
         lv_obj_set_width(r, lv_pct(100));

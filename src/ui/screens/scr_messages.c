@@ -436,7 +436,7 @@ void lz_scr_convo(lv_obj_t *root)
     char tail[LZ_DRAFT_MAX + 4];
     if(has_draft) {
         shown = S.draft;
-        int maxw = LZ_W - 92;                    /* usable px inside the pill */
+        int maxw = LZ_W - 80;                    /* usable px inside the pill */
         lv_point_t sz;
         lv_txt_get_size(&sz, S.draft, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
         if(sz.x > maxw) {

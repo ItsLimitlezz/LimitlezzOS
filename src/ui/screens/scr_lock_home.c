@@ -80,7 +80,7 @@ void lz_scr_lock(lv_obj_t *root)
     lz_text(pill, "Click trackball or press Enter", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
     lv_obj_align(pill, LV_ALIGN_CENTER, 0, 36);
 
-    lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.1", LZ_F_SMALL, lv_color_hex(0x5A616A));
+    lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.2", LZ_F_SMALL, lv_color_hex(0x5A616A));
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     lz_nav_set(1, 1, NULL);  /* Enter unlocks (handled in engine) */
