@@ -82,14 +82,15 @@ void lz_scr_meshtastic(lv_obj_t *root)
 
     colored_navbar(root, "Meshtastic", LZ_NAV_MT, lv_color_hex(0x06242B), S.net_mt);
 
-    /* identity */
+    /* identity — the real onboarded name + MAC node id, not a placeholder */
+    const lz_identity_t *me = lz_svc_identity();
     lv_obj_t *id = identity_card(root, lv_color_hex(0x0F1822), lv_color_hex(0x18222C));
     lv_obj_t *tile = lz_box(id);
     lv_obj_set_size(tile, 34, 34);
     lv_obj_set_style_radius(tile, 10, 0);
     lv_obj_set_style_bg_color(tile, LZ_IDTILE_MT, 0);
     lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-    lv_obj_t *jes = lz_text(tile, "JES", LZ_F_BODY, LZ_ON_CYAN);
+    lv_obj_t *jes = lz_text(tile, me->short_name, LZ_F_BODY, LZ_ON_CYAN);
     lv_obj_center(jes);
 
     lv_obj_t *colm = lz_box(id);
@@ -101,9 +102,11 @@ void lz_scr_meshtastic(lv_obj_t *root)
     lv_obj_set_size(nrow, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(nrow, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(nrow, 4, 0);
-    lz_text(nrow, "Jess -", LZ_F_BODY, LZ_TEXT);
-    lz_text(nrow, "JESS", LZ_F_BODY, cyan_lt);
-    lz_text(colm, "!7c3af1d0 - Region US - LongFast", LZ_F_SMALL, LZ_TEXT_2);
+    char nm[28]; snprintf(nm, sizeof nm, "%s -", me->long_name);
+    lz_text(nrow, nm, LZ_F_BODY, LZ_TEXT);
+    lz_text(nrow, me->short_name, LZ_F_BODY, cyan_lt);
+    char idline[40]; snprintf(idline, sizeof idline, "%s - Region US - LongFast", me->id);
+    lz_text(colm, idline, LZ_F_SMALL, LZ_TEXT_2);
 
     lv_obj_t *right = lz_box(id);
     lv_obj_set_size(right, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -258,9 +261,9 @@ void lz_scr_meshcore(lv_obj_t *root)
     lv_obj_set_flex_flow(nrow, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(nrow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(nrow, 5, 0);
-    lz_text(nrow, "Jess", LZ_F_BODY, LZ_TEXT);
+    lz_text(nrow, lz_svc_identity()->long_name, LZ_F_BODY, LZ_TEXT);
     role_badge(nrow, "Companion", lv_color_hex(0x9A8F7A));
-    lz_text(colm, "MC-2a9f-e41c - ed25519", LZ_F_SMALL, lv_color_hex(0x988E7C));
+    lz_text(colm, "MeshCore - ed25519", LZ_F_SMALL, lv_color_hex(0x988E7C));
 
     lv_obj_t *right = lz_box(id);
     lv_obj_set_size(right, LV_SIZE_CONTENT, LV_SIZE_CONTENT);

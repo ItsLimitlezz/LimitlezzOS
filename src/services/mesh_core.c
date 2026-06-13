@@ -31,7 +31,8 @@ static lz_msg_rt     g_tail[LZ_TAIL_MAX];
 static int           g_tail_count;
 static lz_thread_rt *g_open;
 static void        (*g_dirty)(void);
-static lz_identity_t g_id = { 0x7c3af1d0, "!7c3af1d0", "Jess", "JESS" };
+/* placeholder until onboarding sets the real name (and MAC sets the num) */
+static lz_identity_t g_id = { 0x7c3af1d0, "!7c3af1d0", "Node", "NODE" };
 static bool          g_have_identity;            /* false until onboarding done */
 static uint32_t      g_epoch_base = 1718200980;  /* maps tick 0 -> a wall clock */
 

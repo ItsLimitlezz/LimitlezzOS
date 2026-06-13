@@ -182,8 +182,10 @@ void lz_scr_settings(lv_obj_t *root)
         lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(cl, 1, 0);
         lz_text(cl, is_mt ? "Meshtastic" : "MeshCore", LZ_F_BODY, LZ_TEXT);
+        char mtsub[40];
+        snprintf(mtsub, sizeof mtsub, "Node %s - US - LongFast", lz_svc_identity()->short_name);
         const char *sub = is_mt
-            ? (mt ? "Node JESS - US - LongFast" : "Disabled - history kept")
+            ? (mt ? mtsub : "Disabled - history kept")
             : (locked ? "Coming soon" : mc ? "Companion - 5 contacts" : "Disabled - history kept");
         lz_text(cl, sub, LZ_F_SMALL, is_mt ? LZ_TEXT_2 : lv_color_hex(0x988E7C));
         if(locked) {
