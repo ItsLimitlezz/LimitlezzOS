@@ -44,6 +44,8 @@ typedef struct {
     char     dist[12];           /* "4.2 km" or "-" */
     uint32_t last_heard;         /* epoch seconds */
     bool     contact;            /* purposely added by the user */
+    uint8_t  pubkey[32];         /* Meshtastic X25519 public key (PKI DMs) */
+    bool     has_key;            /* pubkey known (learned from NodeInfo this session) */
 } lz_node_rt;
 
 #define LZ_BROADCAST 0xFFFFFFFFu     /* Meshtastic broadcast addr (primary channel) */
@@ -176,6 +178,9 @@ void lz_core_on_ack(uint32_t request_id);
 /* MeshCore: learn a node from a (signed, unencrypted) ADVERT.
  * adv_type: 1=Chat 2=Repeater 3=Room 4=Sensor */
 void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, float snr);
+/* Meshtastic PKI: learn a node's X25519 public key (from its NodeInfo) */
+void lz_core_on_pubkey(uint32_t from, const uint8_t *pub32);
+bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32]);   /* true if known */
 
 #ifdef __cplusplus
 }

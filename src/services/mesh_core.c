@@ -539,6 +539,24 @@ void lz_core_on_battery(uint32_t from, int batt)
     if(n) { n->batt = batt; mark_dirty(); }
 }
 
+/* Meshtastic PKI: store a node's X25519 public key learned from its NodeInfo.
+ * Kept in RAM only (re-learned each session); not persisted to nodes.db. */
+void lz_core_on_pubkey(uint32_t from, const uint8_t *pub32)
+{
+    lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);
+    if(!n) return;
+    memcpy(n->pubkey, pub32, 32);
+    n->has_key = true;
+}
+
+bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32])
+{
+    lz_node_rt *n = find_node(num);
+    if(!n || !n->has_key) return false;
+    memcpy(out32, n->pubkey, 32);
+    return true;
+}
+
 void lz_core_on_ack(uint32_t request_id) { (void)request_id; }
 
 /* ---------- demo seed (matches the design's sample data) ---------- */

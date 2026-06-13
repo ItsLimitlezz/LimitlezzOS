@@ -227,9 +227,10 @@ static void cmd_nodes(void)
     for(int i = 0; i < n; i++) {
         const lz_node_rt *nd = &nodes[i];
         lz_fmt_ago(nd->last_heard, ago, sizeof ago);
-        Serial.printf("  %-10s %-16s %s  SNR %.1f  %s%s\n",
+        Serial.printf("  %-10s %-16s %s  SNR %.1f  %s%s%s\n",
                       nd->id, nd->name, nd->net == LZ_NET_MC ? "MC" : "MT",
-                      nd->snr, ago, nd->contact ? "  *contact" : "");
+                      nd->snr, ago, nd->has_key ? "  key" : "",
+                      nd->contact ? "  *contact" : "");
     }
 }
 

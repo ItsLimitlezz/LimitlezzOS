@@ -134,6 +134,7 @@ static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)
 {
     char id[16] = {0}, longn[24] = {0}, shortn[6] = {0};
     int hw = 0, pos = 0;
+    const uint8_t *pubkey = NULL;   /* User.public_key (field 8), 32 bytes */
     while(pos < len) {
         if(pos >= len) break;
         uint8_t tag = b[pos++];
@@ -149,6 +150,7 @@ static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)
             if(field == 1) snprintf(id, sizeof id, "%.*s", li < 15 ? li : 15, s);
             else if(field == 2) snprintf(longn, sizeof longn, "%.*s", li < 23 ? li : 23, s);
             else if(field == 3) snprintf(shortn, sizeof shortn, "%.*s", li < 5 ? li : 5, s);
+            else if(field == 8 && li == 32) pubkey = b + pos;   /* X25519 public key */
             pos += li;
         } else if(wire == 0) {
             uint64_t v = 0; int sh = 0;
@@ -160,6 +162,7 @@ static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)
     }
     lz_core_on_nodeinfo(from, id[0] ? id : NULL, longn[0] ? longn : NULL,
                         shortn[0] ? shortn : NULL, 0, NULL, snr);
+    if(pubkey) lz_core_on_pubkey(from, pubkey);   /* remember key for PKI DMs */
     (void)hw;
 }
 
@@ -217,12 +220,20 @@ static void handle_rx_mt(void)
 
     lz_core_on_heard(f.from, snr);
 
-    /* only decode if it's on our channel (hash hint) */
+    /* recover the plaintext Data: PSK channel crypt (our channel hash), or a
+     * PKI DM addressed to us (channel byte 0, decrypt with the sender's key) */
+    uint8_t dec[251];
+    int dl = -1;
     if(f.channel_hash == mt_channel_hash() && f.plen > 0) {
-        uint8_t dec[251];
-        int dl = f.plen;
+        dl = f.plen;
         memcpy(dec, f.payload, dl);
-        mt_crypt(dec, dl, f.from, f.id);         /* CTR: decrypt == encrypt */
+        mt_crypt(dec, dl, f.from, f.id);             /* CTR: decrypt == encrypt */
+    } else if(f.channel_hash == 0 && f.to == me && f.plen > 12) {
+        uint8_t sender_pub[32];
+        if(lz_mtpki_ready() && lz_svc_node_pubkey(f.from, sender_pub))
+            dl = lz_mtpki_decrypt(sender_pub, f.from, f.id, f.payload, f.plen, dec, sizeof dec);
+    }
+    if(dl > 0) {
         mt_data_t d;
         if(mt_data_decode(dec, dl, &d)) {
             int hops_used = (int)f.hop_start - (int)f.hop_limit;
@@ -236,8 +247,7 @@ static void handle_rx_mt(void)
                 int tl = d.plen < (int)sizeof text - 1 ? d.plen : (int)sizeof text - 1;
                 memcpy(text, d.payload, tl);
                 text[tl] = 0;
-                uint32_t to = f.to;
-                lz_core_on_text(f.from, to, text, hops_used, snr);
+                lz_core_on_text(f.from, f.to, text, hops_used, snr);
             } else if(d.portnum == MT_PORT_NODEINFO) {
                 parse_user(d.payload, d.plen, f.from, snr);
             }
@@ -280,15 +290,19 @@ static uint32_t g_last_nodeinfo;
 static void broadcast_nodeinfo(void)
 {
     const lz_identity_t *id = lz_svc_identity();
-    uint8_t user[64];
+    uint8_t user[112];
     int n = 0;
-    /* User{ id=field1 str, long_name=field2 str, short_name=field3 str } */
+    /* User{ id=1 str, long_name=2 str, short_name=3 str, public_key=8 bytes } */
     user[n++] = (1 << 3) | 2; user[n++] = (uint8_t)strlen(id->id);
     memcpy(user + n, id->id, strlen(id->id)); n += strlen(id->id);
     user[n++] = (2 << 3) | 2; user[n++] = (uint8_t)strlen(id->long_name);
     memcpy(user + n, id->long_name, strlen(id->long_name)); n += strlen(id->long_name);
     user[n++] = (3 << 3) | 2; user[n++] = (uint8_t)strlen(id->short_name);
     memcpy(user + n, id->short_name, strlen(id->short_name)); n += strlen(id->short_name);
+    if(lz_mtpki_ready()) {                       /* advertise our X25519 key for PKI DMs */
+        user[n++] = (8 << 3) | 2; user[n++] = 32;
+        memcpy(user + n, lz_mtpki_pubkey(), 32); n += 32;
+    }
 
     mt_data_t d;
     memset(&d, 0, sizeof d);
@@ -481,20 +495,39 @@ bool lz_backend_send(lz_mt_packet_t *p)
     uint8_t plain[251];
     int pn = mt_data_encode(plain, sizeof plain, &d);
     if(pn < 0) return false;
-    mt_crypt(plain, pn, p->from, p->id);
 
     mt_frame_t f;
     memset(&f, 0, sizeof f);
     f.to = p->to; f.from = p->from; f.id = p->id;
     f.hop_limit = p->hop_limit; f.hop_start = p->hop_start ? p->hop_start : p->hop_limit;
     f.want_ack = p->want_ack;
-    f.channel_hash = mt_channel_hash();
 
     uint8_t frame[256];
-    if(MT_HEADER_LEN + pn > (int)sizeof frame) return false;
-    mt_header_write(frame, &f);
-    memcpy(frame + MT_HEADER_LEN, plain, pn);
-    return tx_frame(frame, MT_HEADER_LEN + pn);
+    int payload_len;
+
+    /* DM to a node whose public key we know -> PKI-encrypt (channel byte 0).
+     * Otherwise (broadcast/channel, or no key yet) -> legacy PSK channel crypt. */
+    uint8_t peer_pub[32];
+    bool pki = p->to != MT_BROADCAST && p->to != p->from &&
+               lz_mtpki_ready() && lz_svc_node_pubkey(p->to, peer_pub);
+    if(pki) {
+        uint8_t blob[251];
+        int bl = lz_mtpki_encrypt(peer_pub, p->from, p->id, plain, pn, blob, sizeof blob);
+        if(bl < 0) return false;
+        f.channel_hash = 0;                              /* PKI DM sentinel */
+        if(MT_HEADER_LEN + bl > (int)sizeof frame) return false;
+        mt_header_write(frame, &f);
+        memcpy(frame + MT_HEADER_LEN, blob, bl);
+        payload_len = bl;
+    } else {
+        mt_crypt(plain, pn, p->from, p->id);             /* AES-CTR with the channel PSK */
+        f.channel_hash = mt_channel_hash();
+        if(MT_HEADER_LEN + pn > (int)sizeof frame) return false;
+        mt_header_write(frame, &f);
+        memcpy(frame + MT_HEADER_LEN, plain, pn);
+        payload_len = pn;
+    }
+    return tx_frame(frame, MT_HEADER_LEN + payload_len);
 }
 
 void lz_backend_stats(lz_radio_stats_t *out)
