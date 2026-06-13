@@ -22,8 +22,8 @@
 extern "C" {
 #endif
 
-#define LZ_MAX_NODES    32
-#define LZ_MAX_THREADS  16
+#define LZ_MAX_NODES    250    /* matches the official Meshtastic device-ui (MUI) */
+#define LZ_MAX_THREADS  48
 #define LZ_TAIL_MAX     32
 #define LZ_TEXT_MAX     200
 

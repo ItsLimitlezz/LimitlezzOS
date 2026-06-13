@@ -27,6 +27,7 @@ extern "C" void lz_touch_set_transform(int swap, int invx, int invy) __attribute
 extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
 extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
 extern "C" int  lz_mtpki_selftest(char *buf, int n)       __attribute__((weak));
+extern "C" void lz_backend_set_rxlog(bool on)             __attribute__((weak));
 
 static char    g_line[160];
 static uint8_t g_len;
@@ -320,6 +321,11 @@ static void dispatch(char *line)
     else if(!strcmp(line, "companion")) cmd_companion(args);
     else if(!strcmp(line, "touch"))   cmd_touch(args);
     else if(!strcmp(line, "dm"))      cmd_dm(args);
+    else if(!strcmp(line, "rxlog")) {
+        bool on = !(args && strcmp(args, "off") == 0);
+        if(lz_backend_set_rxlog) lz_backend_set_rxlog(on);
+        Serial.printf("[ok] rx logging %s\n", on ? "on" : "off");
+    }
     else if(!strcmp(line, "nodes"))   cmd_nodes();
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();

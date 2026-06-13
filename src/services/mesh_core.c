@@ -181,8 +181,19 @@ static lz_node_rt *ensure_node(uint32_t num, const char *id, lz_net_t net)
 {
     lz_node_rt *n = find_node(num);
     if(n) return n;
-    if(g_node_count >= LZ_MAX_NODES) return NULL;
-    n = &g_nodes[g_node_count++];
+    if(g_node_count < LZ_MAX_NODES) {
+        n = &g_nodes[g_node_count++];
+    } else {
+        /* table full: evict the stalest non-contact node so new nodes keep
+         * appearing (a busy mesh has more nodes than slots) */
+        int oldest = -1; uint32_t best = 0xFFFFFFFFu;
+        for(int i = 0; i < g_node_count; i++) {
+            if(g_nodes[i].contact || g_nodes[i].num == g_id.num) continue;
+            if(g_nodes[i].last_heard <= best) { best = g_nodes[i].last_heard; oldest = i; }
+        }
+        if(oldest < 0) return NULL;        /* every slot is a saved contact */
+        n = &g_nodes[oldest];
+    }
     memset(n, 0, sizeof *n);
     n->num = num;
     n->net = net;
@@ -471,14 +482,13 @@ void lz_core_on_heard(uint32_t from, float snr)
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr)
 {
     bool broadcast = (to == LZ_BROADCAST);
-    lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);
-    if(!isnan(snr)) n->snr = snr;
-    n->last_heard = now_epoch();
+    lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);   /* may be NULL only if every slot is a saved contact */
+    if(n) { if(!isnan(snr)) n->snr = snr; n->last_heard = now_epoch(); }
 
     /* broadcasts go to the LongFast channel (a group chat); directed messages
-     * go to that sender's DM thread */
-    lz_thread_rt *t = broadcast ? lz_svc_channel_thread() : ensure_thread(n);
-    if(!t) return;                       /* table full: drop, never corrupt */
+     * go to that sender's DM thread (which needs the node) */
+    lz_thread_rt *t = broadcast ? lz_svc_channel_thread() : (n ? ensure_thread(n) : NULL);
+    if(!t) return;                       /* no thread (DM w/o node, or table full): drop, never corrupt */
     if(!broadcast) {
         if(hops_used <= 0) snprintf(t->path, sizeof t->path, "direct");
         else snprintf(t->path, sizeof t->path, "%d hop%s", hops_used, hops_used > 1 ? "s" : "");
@@ -486,9 +496,13 @@ void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used
 
     /* in a channel, prefix the sender so you can tell who said what */
     char stored[LZ_TEXT_MAX];
-    if(broadcast) snprintf(stored, sizeof stored, "%s: %s",
-                           n->shortcode[0] ? n->shortcode : n->name, text);
-    else          snprintf(stored, sizeof stored, "%s", text);
+    if(broadcast) {
+        char who[12];
+        if(n && n->shortcode[0])  snprintf(who, sizeof who, "%s", n->shortcode);
+        else if(n && n->name[0])  snprintf(who, sizeof who, "%s", n->name);
+        else                      snprintf(who, sizeof who, "%04x", (unsigned)(from & 0xFFFF));
+        snprintf(stored, sizeof stored, "%s: %s", who, text);
+    } else          snprintf(stored, sizeof stored, "%s", text);
 
     uint32_t ts = now_epoch();
     lz_msg_rt m = { .self = false, .ts = ts };

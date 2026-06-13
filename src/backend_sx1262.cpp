@@ -199,6 +199,9 @@ static void rebroadcast(uint8_t *frame, int len, mt_frame_t *f)
     tx_frame(frame, len);
 }
 
+static volatile bool g_rxlog;     /* serial: log inbound MT packet metadata + decode */
+extern "C" void lz_backend_set_rxlog(bool on) { g_rxlog = on; }
+
 /* ---- Meshtastic RX (active profile == PROF_MT) ---- */
 static void handle_rx_mt(void)
 {
@@ -222,6 +225,11 @@ static void handle_rx_mt(void)
 
     lz_core_on_heard(f.from, snr);
 
+    if(g_rxlog)
+        Serial.printf("[rx] ch=0x%02x from=!%08x to=!%08x id=%08x plen=%d%s\n",
+                      f.channel_hash, (unsigned)f.from, (unsigned)f.to, (unsigned)f.id,
+                      f.plen, f.to == me ? " <-US" : "");
+
     /* recover the plaintext Data: PSK channel crypt (our channel hash), or a
      * PKI DM addressed to us (channel byte 0, decrypt with the sender's key) */
     uint8_t dec[251];
@@ -232,12 +240,16 @@ static void handle_rx_mt(void)
         mt_crypt(dec, dl, f.from, f.id);             /* CTR: decrypt == encrypt */
     } else if(f.channel_hash == 0 && f.to == me && f.plen > 12) {
         uint8_t sender_pub[32];
-        if(lz_mtpki_ready() && lz_svc_node_pubkey(f.from, sender_pub))
-            dl = lz_mtpki_decrypt(sender_pub, f.from, f.id, f.payload, f.plen, dec, sizeof dec);
+        bool have = lz_mtpki_ready() && lz_svc_node_pubkey(f.from, sender_pub);
+        if(have) dl = lz_mtpki_decrypt(sender_pub, f.from, f.id, f.payload, f.plen, dec, sizeof dec);
+        if(g_rxlog) Serial.printf("[rx]   PKI DM to us: have_key=%d decrypt=%s\n",
+                                  have, dl > 0 ? "OK" : "FAIL");
     }
     if(dl > 0) {
         mt_data_t d;
         if(mt_data_decode(dec, dl, &d)) {
+            if(g_rxlog) Serial.printf("[rx]   decoded portnum=%d len=%d%s\n",
+                                      d.portnum, d.plen, d.want_response ? " want_response" : "");
             int hops_used = (int)f.hop_start - (int)f.hop_limit;
             if(hops_used < 0) hops_used = 0;
             /* companion mode: hand the whole decoded packet to the phone app */
@@ -305,6 +317,7 @@ static void send_nodeinfo(uint32_t to, bool want_response)
     memcpy(user + n, id->long_name, strlen(id->long_name)); n += strlen(id->long_name);
     user[n++] = (3 << 3) | 2; user[n++] = (uint8_t)strlen(id->short_name);
     memcpy(user + n, id->short_name, strlen(id->short_name)); n += strlen(id->short_name);
+    user[n++] = (5 << 3) | 0; user[n++] = 50;    /* hw_model = T_DECK (so peers show the right model) */
     if(lz_mtpki_ready()) {                       /* advertise our X25519 key for PKI DMs */
         user[n++] = (8 << 3) | 2; user[n++] = 32;
         memcpy(user + n, lz_mtpki_pubkey(), 32); n += 32;
