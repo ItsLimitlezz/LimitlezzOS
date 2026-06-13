@@ -335,12 +335,31 @@ void setup()
     attachInterrupt(TRACKBALL_RIGHT, isr_right, FALLING);
     Serial.println("[ok] trackball + keyboard input");
 
-    /* 7) SD card (shared bus) hosts the message store; RAM-only if absent */
+    /* 7) SD card (shared bus) hosts the message store; RAM-only if absent.
+     * The Arduino SD lib is rooted at the card (VFS mount "/sd"), so mkdir is
+     * SD-relative ("/limitlezz") while POSIX fopen uses the VFS path
+     * ("/sd/limitlezz/..."). Getting this wrong = writes silently fail and
+     * messages vanish on reopen. */
     digitalWrite(BOARD_TFT_CS, HIGH); digitalWrite(RADIO_CS, HIGH);
     const char *datadir = NULL;
-    if(SD.begin(SDCARD_CS, SPI, 4000000U)) { datadir = "/sd/limitlezz"; SD.mkdir("/sd/limitlezz"); }
+    if(SD.begin(SDCARD_CS, SPI, 4000000U)) {
+        if(SD.exists("/limitlezz") || SD.mkdir("/limitlezz")) datadir = "/sd/limitlezz";
+        else datadir = "/sd";                 /* fall back to the card root */
+    }
     Serial.printf("[%s] microSD %s\n", datadir ? "ok" : "--",
-                  datadir ? "mounted -> /sd/limitlezz" : "absent (RAM-only this session)");
+                  datadir ? datadir : "absent (RAM-only this session)");
+
+    /* persistence probe: write then read a file so the boot log proves the
+     * message store actually round-trips on this card */
+    if(datadir) {
+        char probe[64]; snprintf(probe, sizeof probe, "%s/.probe", datadir);
+        FILE *pf = fopen(probe, "wb");
+        bool wrote = pf && fwrite("LZ", 1, 2, pf) == 2; if(pf) fclose(pf);
+        char rb[3] = {0}; FILE *rf = fopen(probe, "rb");
+        bool read_ok = rf && fread(rb, 1, 2, rf) == 2 && rb[0] == 'L' && rb[1] == 'Z';
+        if(rf) fclose(rf);
+        Serial.printf("[%s] message store read/write\n", (wrote && read_ok) ? "ok" : "FAIL");
+    }
 
     /* 8) services. Real device: node id from the chip MAC (low 4 bytes, like
      * Meshtastic), real system info, and NO demo seed — start empty and fill

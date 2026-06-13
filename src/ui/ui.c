@@ -485,6 +485,9 @@ lv_obj_t *lz_vflex(lv_obj_t *parent)
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_scroll_dir(body, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
+    /* no rubber-band overscroll past the content (like a real messaging app) */
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     return body;
 }
 
