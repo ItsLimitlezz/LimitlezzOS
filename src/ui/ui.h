@@ -125,6 +125,14 @@ void lz_open_convo(lz_thread_rt *t);
 /* interactive serial console (Terminal app) keyboard handling */
 void lz_term_key(lz_key_t k, char c);
 
+/* screen-timeout ("Sleep after"): the platform loop calls lz_idle_tick()
+ * each frame; any input calls lz_note_activity(). On timeout the screen
+ * dims (via the backlight cb) and the OS returns to the lock screen. */
+void lz_note_activity(void);
+void lz_idle_tick(void);
+void lz_set_backlight_cb(void (*fn)(int pct));   /* hardware backlight control */
+void lz_apply_brightness(void);                  /* push the brightness setting now */
+
 /* settings helpers shared between key handling and the settings screen */
 bool lz_settings_slider_focused(void);
 void lz_settings_bright_adjust(int delta);

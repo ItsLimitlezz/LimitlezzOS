@@ -2,6 +2,48 @@
 #include <string.h>
 #include <stdio.h>
 
+extern uint32_t lz_tick_ms(void);
+
+/* ---- screen timeout / backlight ---- */
+static uint32_t g_last_activity;
+static bool     g_dimmed;
+static void   (*g_backlight_cb)(int pct);
+
+/* Sleep-after options mirror Settings: 15s / 30s / 1m / 5m / Never */
+static const uint32_t TIMEOUT_MS[5] = { 15000, 30000, 60000, 300000, 0 };
+
+void lz_set_backlight_cb(void (*fn)(int pct)) { g_backlight_cb = fn; }
+
+void lz_apply_brightness(void)
+{
+    if(g_backlight_cb && !g_dimmed) g_backlight_cb(S.settings.bright);
+}
+
+void lz_note_activity(void)
+{
+    g_last_activity = lz_tick_ms();
+    if(g_dimmed) {                       /* woke from sleep: restore brightness */
+        g_dimmed = false;
+        if(g_backlight_cb) g_backlight_cb(S.settings.bright);
+    }
+}
+
+void lz_idle_tick(void)
+{
+    if(S.view == LZ_V_ONBOARD) return;            /* don't sleep mid-setup */
+    uint32_t to = TIMEOUT_MS[S.settings.timeout < 5 ? S.settings.timeout : 1];
+    if(to == 0 || g_dimmed) return;               /* "Never" or already asleep */
+    if(lz_tick_ms() - g_last_activity < to) return;
+    g_dimmed = true;
+    if(g_backlight_cb) g_backlight_cb(0);          /* screen off */
+    if(S.view != LZ_V_LOCK) {                      /* lock so a key wakes to lock */
+        S.nav_depth = 0;
+        S.view = LZ_V_LOCK;
+        S.focus = 0;
+        lz_rebuild();
+    }
+}
+
 lz_state_t S;
 
 static lv_obj_t *g_root;
@@ -29,6 +71,8 @@ void lz_ui_init(lv_obj_t *root)
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, LZ_W, LZ_H);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lz_note_activity();
+    lz_apply_brightness();
     lz_rebuild();
 }
 
@@ -275,6 +319,7 @@ static void wifi_pw_key(lz_key_t k, char c)
 
 void lz_ui_key(lz_key_t k, char c)
 {
+    lz_note_activity();                  /* any input wakes the screen + resets idle */
     if(S.view == LZ_V_ONBOARD) { onboard_key(k, c); return; }
     if(S.view == LZ_V_WIFI && S.wifi_pw_mode) { wifi_pw_key(k, c); return; }
     if(S.view == LZ_V_TERMINAL) { lz_term_key(k, c); return; }
@@ -546,4 +591,5 @@ void lz_settings_bright_adjust(int delta)
     if(b < 5) b = 5;
     if(b > 100) b = 100;
     S.settings.bright = b;
+    lz_apply_brightness();               /* live backlight update on hardware */
 }

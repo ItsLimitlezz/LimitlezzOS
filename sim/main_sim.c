@@ -102,6 +102,7 @@ static void services_tick(void)
     static int last_wifi = -1;
     lz_svc_loop();
     lz_wifi_loop();
+    if(!g_headless) lz_idle_tick();   /* screen-timeout / sleep-after */
     int w = lz_wifi_status();
     if(w != last_wifi) { last_wifi = w; if(S.view == LZ_V_WIFI && !S.wifi_pw_mode) lz_rebuild(); }
 }
@@ -416,6 +417,7 @@ int main(int argc, char **argv)
                 m_x = e.button.x / SCALE;
                 m_y = e.button.y / SCALE;
                 m_down = true;
+                lz_note_activity();         /* touch counts as activity */
             }
             else if(e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
                 m_x = e.button.x / SCALE;
