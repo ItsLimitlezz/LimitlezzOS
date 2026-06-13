@@ -51,7 +51,16 @@ void lz_scr_lock(lv_obj_t *root)
     lv_obj_set_flex_flow(pill, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(pill, 7, 0);
-    lz_icon(pill, LZ_I_LOCK, &lz_icons_14, LZ_MINT);
+    /* trackball: a proper round ball primitive */
+    lv_obj_t *ball = lz_box(pill);
+    lv_obj_set_size(ball, 12, 12);
+    lv_obj_set_style_radius(ball, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(ball, 1, 0);
+    lv_obj_set_style_border_color(ball, lv_color_hex(0x3A414B), 0);
+    lv_obj_set_style_bg_color(ball, lv_color_hex(0x20242B), 0);
+    lv_obj_set_style_bg_opa(ball, LV_OPA_COVER, 0);
+    lv_obj_t *core = lz_dot(ball, 6, LZ_MINT);
+    lv_obj_center(core);
     lz_text(pill, "Click trackball or press Enter", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
     lv_obj_align(pill, LV_ALIGN_CENTER, 0, 36);
 

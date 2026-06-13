@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static const lz_node_t *vis_nodes[9];
+static lz_node_rt *vis_nodes[LZ_MAX_NODES];
 static int vis_count;
 
 static void open_contact(int idx)
@@ -139,12 +139,19 @@ void lz_scr_meshtastic(lv_obj_t *root)
     lz_nav_set_scroll(body);
 
     if(S.mt_tab == 0) {
+        const lz_node_rt *nodes;
+        int nn = lz_svc_nodes(&nodes);
+        const lz_identity_t *me = lz_svc_identity();
         vis_count = 0;
-        for(int i = 0; i < 9; i++)
-            if(LZ_NODES[i].net == LZ_NET_MT) vis_nodes[vis_count++] = &LZ_NODES[i];
+        for(int i = 0; i < nn; i++)
+            if(nodes[i].net == LZ_NET_MT && nodes[i].num != me->num)
+                vis_nodes[vis_count++] = (lz_node_rt *)&nodes[i];
 
         for(int i = 0; i < vis_count; i++) {
-            const lz_node_t *n = vis_nodes[i];
+            lz_node_rt *n = vis_nodes[i];
+            char ago[8], snrs[8];
+            lz_fmt_ago(n->last_heard, ago, sizeof ago);
+            snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
             lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 10, 0);
             lv_obj_set_style_pad_column(row, 8, 0);
@@ -171,15 +178,15 @@ void lz_scr_meshtastic(lv_obj_t *root)
             lv_obj_set_style_pad_column(top, 5, 0);
             lz_text(top, n->name, LZ_F_BODY, LZ_TEXT);
             role_badge(top, n->role, lv_color_hex(0x8B939C));
-            char meta[48];
-            snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, n->last);
+            char meta[56];
+            snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, ago);
             lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x838A93));
 
             lv_obj_t *r = lz_box(row);
             lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
             lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-            lz_text(r, n->snr_s, LZ_F_SMALL, lz_snr_color(n->snr));
+            lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
             lz_text(r, "SNR", LZ_F_SMALL, LZ_TEXT_3);
             lz_nav_track(row, i);
         }
@@ -285,17 +292,20 @@ void lz_scr_meshcore(lv_obj_t *root)
     lv_obj_set_style_pad_row(body, 3, 0);
     lz_nav_set_scroll(body);
 
+    const lz_node_rt *nodes;
+    int nn = lz_svc_nodes(&nodes);
     vis_count = 0;
-    for(int i = 0; i < 9; i++) {
-        const lz_node_t *n = &LZ_NODES[i];
+    for(int i = 0; i < nn; i++) {
+        const lz_node_rt *n = &nodes[i];
         if(n->net != LZ_NET_MC) continue;
         bool is_room = strcmp(n->role, "Room") == 0;
         if((S.mc_tab == 1) != is_room) continue;
-        vis_nodes[vis_count++] = n;
+        vis_nodes[vis_count++] = (lz_node_rt *)n;
     }
 
     for(int i = 0; i < vis_count; i++) {
-        const lz_node_t *n = vis_nodes[i];
+        lz_node_rt *n = vis_nodes[i];
+        char ago[8]; lz_fmt_ago(n->last_heard, ago, sizeof ago);
         lv_obj_t *row = lz_row(body, i == S.focus);
         lv_obj_set_style_radius(row, 10, 0);
         lv_obj_set_style_pad_column(row, 8, 0);
@@ -326,11 +336,11 @@ void lz_scr_meshcore(lv_obj_t *root)
         lv_obj_set_style_pad_column(top, 5, 0);
         lz_text(top, n->name, LZ_F_BODY, LZ_TEXT);
         role_badge(top, n->role, lv_color_hex(0xB0A48D));
-        char meta[48];
-        snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, n->last);
+        char meta[56];
+        snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, ago);
         lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x8A8475));
 
-        bool online = strcmp(n->last, "now") == 0 || strchr(n->last, 'm') != NULL;
+        bool online = strcmp(ago, "now") == 0 || strchr(ago, 'm') != NULL;
         lz_dot(row, 7, online ? LZ_GREEN : lv_color_hex(0x4A515B));
         lz_nav_track(row, i);
     }

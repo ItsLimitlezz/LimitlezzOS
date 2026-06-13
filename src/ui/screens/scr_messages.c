@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static const lz_thread_t *vis_threads[6];
+static lz_thread_rt *vis_threads[LZ_MAX_THREADS];
 static int vis_thread_count;
 
 static bool net_on(lz_net_t n) { return n == LZ_NET_MT ? S.net_mt : S.net_mc; }
@@ -16,11 +16,12 @@ static bool filter_match(lz_net_t n)
            (S.msg_filter == LZ_FILT_MC && n == LZ_NET_MC);
 }
 
-void lz_open_convo(const lz_thread_t *t)
+void lz_open_convo(lz_thread_rt *t)
 {
+    if(!t) return;                       /* thread table full: stay put */
     S.convo = t;
-    S.sent_count = 0;
     S.draft[0] = 0;
+    lz_svc_open_thread(t);
     lz_go(LZ_V_CONVO);
 }
 
@@ -126,12 +127,16 @@ void lz_scr_messages(lv_obj_t *root)
     lz_nav_set_scroll(body);
 
     if(S.msg_tab == LZ_TAB_DMS) {
+        int tn = lz_svc_thread_count_all();
         vis_thread_count = 0;
-        for(int i = 0; i < 6; i++)
-            if(filter_match(LZ_THREADS[i].net)) vis_threads[vis_thread_count++] = &LZ_THREADS[i];
+        for(int i = 0; i < tn; i++) {
+            lz_thread_rt *th = lz_svc_thread_at(i);   /* newest-first */
+            if(filter_match(th->net)) vis_threads[vis_thread_count++] = th;
+        }
 
         for(int i = 0; i < vis_thread_count; i++) {
-            const lz_thread_t *t = vis_threads[i];
+            lz_thread_rt *t = vis_threads[i];
+            char ago[8]; lz_fmt_ago(t->last_ts, ago, sizeof ago);
             lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
             if(!net_on(t->net)) lv_obj_set_style_opa(row, LV_OPA_40, 0);
@@ -162,14 +167,14 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             lv_obj_t *name = lz_text(top, t->name, LZ_F_BODY, LZ_TEXT);
             lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
-            lz_text(top, t->t, LZ_F_SMALL, LZ_TEXT_META);
+            lz_text(top, ago, LZ_F_SMALL, LZ_TEXT_META);
 
             lv_obj_t *bot = lz_box(colm);
             lv_obj_set_width(bot, lv_pct(100));
             lv_obj_set_height(bot, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(bot, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(bot, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lv_obj_t *snip = lz_text(bot, t->text, LZ_F_SMALL,
+            lv_obj_t *snip = lz_text(bot, t->last_text, LZ_F_SMALL,
                                      t->unread ? lv_color_hex(0xCFD4DA) : lv_color_hex(0x838A93));
             lv_label_set_long_mode(snip, LV_LABEL_LONG_DOT);
             lv_obj_set_flex_grow(snip, 1);
@@ -252,7 +257,9 @@ void lz_scr_messages(lv_obj_t *root)
 
 void lz_scr_convo(lv_obj_t *root)
 {
-    const lz_thread_t *t = S.convo ? S.convo : &LZ_THREADS[0];
+    lz_thread_rt *t = S.convo;
+    if(!t) t = lz_svc_thread_at(0);
+    if(!t) return;
     lv_color_t net = lz_net_color(t->net);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
 
@@ -279,8 +286,8 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_style_pad_column(sub, 4, 0);
     lz_dot(sub, 5, net);
     lz_text(sub, lz_net_name(t->net), LZ_F_SMALL, net);
-    char path[24]; snprintf(path, sizeof path, "- %s", t->path);
-    lz_text(sub, path, LZ_F_SMALL, LZ_TEXT_META);
+    char pathb[24]; snprintf(pathb, sizeof pathb, "- %s", t->path);
+    lz_text(sub, pathb, LZ_F_SMALL, LZ_TEXT_META);
     lv_obj_align(sub, LV_ALIGN_BOTTOM_MID, 0, -1);
 
     /* thread */
@@ -295,16 +302,11 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_width(caption, lv_pct(100));
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
 
-    const lz_msg_t *msgs = NULL; int mc = 0;
-    static lz_msg_t fallback;
-    if(strcmp(t->id, "ava") == 0)         { msgs = LZ_MSGS_AVA;    mc = 5; }
-    else if(strcmp(t->id, "dmitri") == 0) { msgs = LZ_MSGS_DMITRI; mc = 4; }
-    else { fallback.self = false; fallback.text = t->text; msgs = &fallback; mc = 1; }
-
-    int total = mc + S.sent_count;
+    const lz_msg_rt *msgs;
+    int total = lz_svc_tail(&msgs);
     for(int i = 0; i < total; i++) {
-        bool self = i < mc ? msgs[i].self : true;
-        const char *txt = i < mc ? msgs[i].text : S.sent[i - mc];
+        bool self = msgs[i].self;
+        const char *txt = msgs[i].text;
 
         lv_obj_t *line = lz_box(body);
         lv_obj_set_width(line, lv_pct(100));
@@ -335,8 +337,26 @@ void lz_scr_convo(lv_obj_t *root)
             lv_obj_set_width(bl, maxw);
         }
 
-        char ts[8]; snprintf(ts, sizeof ts, "14:2%d", i % 10);
+        char ts[8]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
         lz_text(line, ts, LZ_F_SMALL, lv_color_hex(0x6B727B));
+    }
+
+    /* read-only thread (MeshCore in Stage 1, infrastructure): no composer */
+    if(!t->messageable) {
+        lv_obj_t *ro = lz_box(root);
+        lv_obj_set_size(ro, LZ_W, 35);
+        lv_obj_set_style_bg_color(ro, lv_color_hex(0x0F141B), 0);
+        lv_obj_set_style_bg_opa(ro, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_side(ro, LV_BORDER_SIDE_TOP, 0);
+        lv_obj_set_style_border_width(ro, 1, 0);
+        lv_obj_set_style_border_color(ro, lv_color_hex(0x1A212A), 0);
+        const char *msg = t->net == LZ_NET_MC
+            ? "MeshCore replies arrive in a later update"
+            : "This node can be observed, not messaged";
+        lv_obj_t *rl = lz_text(ro, msg, LZ_F_SMALL, lv_color_hex(0x6B727B));
+        lv_obj_center(rl);
+        lz_nav_set(1, 0, NULL);
+        return;
     }
 
     /* compose bar: input pill + network-tagged send */
@@ -369,17 +389,14 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_width(itxt, lv_pct(100));
     lv_obj_align(itxt, LV_ALIGN_LEFT_MID, 11, 0);
 
+    /* send: paper plane only — the nav bar already names the network */
     lv_obj_t *send = lz_box(compose);
-    lv_obj_set_size(send, LV_SIZE_CONTENT, 24);
+    lv_obj_set_size(send, 34, 24);
     lv_obj_set_style_radius(send, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(send, t->net == LZ_NET_MT ? LZ_SEND_MT : LZ_SEND_MC, 0);
     lv_obj_set_style_bg_opa(send, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_hor(send, 10, 0);
-    lv_obj_set_flex_flow(send, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(send, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(send, 3, 0);
-    lz_text(send, lz_net_name(t->net), LZ_F_SMALL, lv_color_white());
-    lz_icon(send, LZ_I_SEND, &lz_icons_14, lv_color_white());
+    lv_obj_t *si = lz_icon(send, LZ_I_SEND, &lz_icons_14, lv_color_white());
+    lv_obj_center(si);
     lz_on_click(send, tap_send);
 
     lz_nav_set(1, 0, NULL);  /* no focusables: up/down scroll, Enter sends */

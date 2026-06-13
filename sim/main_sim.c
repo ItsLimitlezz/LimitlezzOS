@@ -16,6 +16,8 @@
  */
 #include "lvgl.h"
 #include "ui/ui.h"
+#include "services/mesh.h"
+#include "services/mtproto.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +32,11 @@ static SDL_Renderer *ren;
 static SDL_Texture *tex;
 
 uint32_t lz_tick_ms(void) { return SDL_GetTicks(); }
+
+static bool g_headless;
+/* incoming radio data → rebuild the current screen (live and headless alike);
+ * lz_rebuild pins an open conversation to the newest message */
+static void on_dirty(void) { lz_rebuild(); }
 
 /* mouse = touchscreen */
 static int32_t m_x, m_y;
@@ -60,6 +67,7 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 
 static void write_bmp(const char *path)
 {
+    lv_refr_now(NULL);          /* force a synchronous redraw into fb */
     /* RGB565 -> 24-bit BMP */
     FILE *f = fopen(path, "wb");
     if(!f) return;
@@ -91,8 +99,9 @@ static void write_bmp(const char *path)
 static void pump(int ms)
 {
     for(int t = 0; t < ms; t += 5) {
+        lz_svc_loop();
         lv_timer_handler();
-        SDL_Delay(5);
+        SDL_Delay(5);   /* advance real wall-clock so tick-based timers fire */
     }
 }
 
@@ -118,11 +127,32 @@ static void shots(const char *dir)
         { LZ_V_FILES, "13-files" },
     };
     char path[512];
+
+    /* onboarding shots first (fresh boot has no identity) */
+    if(lz_svc_needs_onboarding()) {
+        S.view = LZ_V_ONBOARD; S.ob_step = 0; S.draft[0] = 0; lz_rebuild(); pump(30);
+        snprintf(path, sizeof path, "%s/00a-onboard-name.bmp", dir);
+        write_bmp(path); printf("wrote %s\n", path);
+        for(const char *p = "Jess"; *p; p++) lz_ui_key(LZ_K_CHAR, *p);
+        lz_ui_key(LZ_K_ENTER, 0); pump(30);             /* -> short tag step, prefilled */
+        snprintf(path, sizeof path, "%s/00b-onboard-tag.bmp", dir);
+        write_bmp(path); printf("wrote %s\n", path);
+        lz_ui_key(LZ_K_ENTER, 0); pump(30);             /* -> networks */
+        snprintf(path, sizeof path, "%s/00c-onboard-nets.bmp", dir);
+        write_bmp(path); printf("wrote %s\n", path);
+        lz_ui_key(LZ_K_ENTER, 0); pump(30);             /* Continue -> done */
+        snprintf(path, sizeof path, "%s/00d-onboard-done.bmp", dir);
+        write_bmp(path); printf("wrote %s\n", path);
+        lz_ui_key(LZ_K_ENTER, 0); pump(30);             /* finish -> inbox */
+    }
+
+    lz_node_rt *ava = lz_svc_node_by_name("Ava Reyes");
     for(unsigned i = 0; i < sizeof(SHOTS) / sizeof(SHOTS[0]); i++) {
         S.view = SHOTS[i].v;
         S.focus = 0;
-        if(SHOTS[i].v == LZ_V_CONVO) { S.convo = &LZ_THREADS[0]; S.sent_count = 0; S.draft[0] = 0; }
-        if(SHOTS[i].v == LZ_V_CONTACT) S.contact_sel = &LZ_NODES[2];
+        if(SHOTS[i].v == LZ_V_CONVO) { S.convo = lz_svc_thread_at(0);   /* newest = Ava */
+                                       lz_svc_open_thread(S.convo); S.draft[0] = 0; }
+        if(SHOTS[i].v == LZ_V_CONTACT) S.contact_sel = ava;
         lz_rebuild();
         pump(60);
         snprintf(path, sizeof path, "%s/%s.bmp", dir, SHOTS[i].name);
@@ -152,9 +182,11 @@ static void shots(const char *dir)
     snprintf(path, sizeof path, "%s/16-messages-filter-mc.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
 
-    /* type a draft and send it */
-    S.view = LZ_V_CONVO; S.convo = &LZ_THREADS[0]; S.sent_count = 0; S.draft[0] = 0;
-    S.msg_filter = LZ_FILT_ALL; lz_rebuild();
+    /* type a draft and send it through the service */
+    S.msg_filter = LZ_FILT_ALL; S.msg_tab = LZ_TAB_DMS;
+    { lz_node_rt *a = lz_svc_node_by_name("Ava Reyes");
+      S.convo = a ? lz_svc_thread_for_node(a) : lz_svc_thread_at(0); }
+    lz_svc_open_thread(S.convo); S.draft[0] = 0; S.view = LZ_V_CONVO; lz_rebuild();
     for(const char *p = "on my way up now"; *p; p++) lz_ui_key(LZ_K_CHAR, *p);
     pump(60);
     snprintf(path, sizeof path, "%s/17-convo-draft.bmp", dir);
@@ -162,6 +194,10 @@ static void shots(const char *dir)
     lz_ui_key(LZ_K_ENTER, 0);
     pump(60);
     snprintf(path, sizeof path, "%s/18-convo-sent.bmp", dir);
+    write_bmp(path); printf("wrote %s\n", path);
+    /* the simulated peer auto-replies ~2.2s later -> full RX pipeline */
+    pump(2600);
+    snprintf(path, sizeof path, "%s/18b-convo-reply.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
 
     /* App Store install: GET -> "..." -> OPEN */
@@ -210,9 +246,63 @@ static void shots(const char *dir)
     write_bmp(path); printf("wrote %s\n", path);
 }
 
+/* Codec round-trip verification — proves header framing, AES-CTR symmetry,
+ * channel hash, and Data protobuf are internally consistent. Interop with
+ * real Meshtastic additionally depends on the constants matching firmware,
+ * which they are sourced to. Returns 0 on success. */
+static int codec_selftest(void)
+{
+    int fails = 0;
+    #define CHECK(cond, msg) do { if(!(cond)) { printf("FAIL: %s\n", msg); fails++; } \
+                                  else printf("ok  : %s\n", msg); } while(0)
+
+    /* 1. default LongFast channel hash must be 0x08 */
+    CHECK(mt_channel_hash() == 0x08, "channel hash(LongFast,defaultPSK) == 0x08");
+
+    /* 2. text frame round-trip: build -> parse header -> decrypt -> decode */
+    const char *msg = "hello mesh, this is limitlezzOS";
+    uint32_t from = 0x7c3af1d0, to = 0xa1b2c3d4, id = 0x12345678;
+    uint8_t frame[256];
+    int flen = mt_build_text(frame, sizeof frame, from, to, id, 3, true, msg);
+    CHECK(flen > MT_HEADER_LEN, "mt_build_text produced a frame");
+
+    mt_frame_t f;
+    CHECK(mt_header_read(frame, flen, &f), "header parses");
+    CHECK(f.to == to && f.from == from && f.id == id, "header to/from/id round-trip");
+    CHECK(f.hop_limit == 3 && f.hop_start == 3 && f.want_ack, "header flags round-trip");
+    CHECK(f.channel_hash == 0x08, "frame carries channel hash 0x08");
+
+    uint8_t dec[251];
+    memcpy(dec, f.payload, f.plen);
+    mt_crypt(dec, f.plen, from, id);          /* decrypt (CTR symmetric) */
+    mt_data_t d;
+    CHECK(mt_data_decode(dec, f.plen, &d), "Data protobuf decodes");
+    CHECK(d.portnum == MT_PORT_TEXT, "portnum == TEXT_MESSAGE_APP");
+    CHECK((int)d.plen == (int)strlen(msg) && memcmp(d.payload, msg, d.plen) == 0,
+          "decrypted text matches original");
+
+    /* 3. ciphertext must differ from plaintext (encryption actually ran) */
+    CHECK(memcmp(frame + MT_HEADER_LEN, msg, strlen(msg)) != 0, "payload is encrypted");
+
+    /* 4. Data encode/decode with request_id (fixed32 path) */
+    mt_data_t e; memset(&e, 0, sizeof e);
+    e.portnum = MT_PORT_ROUTING; e.request_id = 0xdeadbeef; e.plen = 0;
+    uint8_t pb[64]; int pl = mt_data_encode(pb, sizeof pb, &e);
+    mt_data_t back;
+    CHECK(pl > 0 && mt_data_decode(pb, pl, &back), "routing Data encodes/decodes");
+    CHECK(back.request_id == 0xdeadbeef, "request_id (fixed32) round-trips");
+
+    #undef CHECK
+    printf(fails ? "\nCODEC SELFTEST: %d FAILURE(S)\n" : "\nCODEC SELFTEST: all passed\n", fails);
+    return fails;
+}
+
 int main(int argc, char **argv)
 {
+    if(argc >= 2 && strcmp(argv[1], "--selftest") == 0) return codec_selftest();
+
     bool headless = argc >= 3 && strcmp(argv[1], "--shots") == 0;
+    g_headless = headless;
 
     SDL_Init(headless ? 0 : SDL_INIT_VIDEO);
     lv_init();
@@ -242,6 +332,16 @@ int main(int argc, char **argv)
                                 SDL_TEXTUREACCESS_STREAMING, LZ_W, LZ_H);
     }
 
+    /* persistent store on disk so history survives restarts. Headless uses a
+     * dedicated dir wiped first, so seeded history persists within the run
+     * (the conversation shows full threads) yet shots stay deterministic. */
+    lz_svc_set_dirty_cb(on_dirty);
+    const char *datadir = "lzdata";
+    if(headless) {
+        datadir = "lzdata_shots";
+        system("rm -rf lzdata_shots && mkdir -p lzdata_shots");
+    }
+    lz_svc_init(datadir, true);
     lz_ui_init(lv_scr_act());
 
     if(headless) {
@@ -283,6 +383,7 @@ int main(int argc, char **argv)
                 m_down = false;
             }
         }
+        lz_svc_loop();
         lv_timer_handler();
         SDL_Delay(5);
     }

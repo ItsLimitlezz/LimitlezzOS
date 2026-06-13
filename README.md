@@ -16,19 +16,64 @@ gradients, no alpha layering.
 ## Layout
 
 ```
-platformio.ini        two envs: tdeck (ESP32-S3 firmware) + native (SDL2 sim)
-partitions.csv        OTA_0 / OTA_1 / otadata / config / appfs  (locked early, spec §11)
-include/lv_conf.h     LVGL 8.3.11, aggressively stripped (spec §4.4)
-src/ui/theme.h        design tokens (colors computed from the design's oklch values)
-src/ui/theme_colors.h generated oklch -> hex table
-src/ui/data.{h,c}     mock data model = the seam where the radio backend plugs in
-src/ui/ui.{h,c}       state machine, nav stack, trackball focus engine, shared widgets
-src/ui/screens/       the 13 screens
-src/ui/fonts/         Material Symbols Rounded subsets baked to LVGL C arrays
-src/main_tdeck.cpp    hardware bring-up: ST7789, I2C keyboard @0x55, trackball GPIOs
-sim/main_sim.c        SDL2 simulator + headless screenshot mode
-docs/design/          the original design handoff bundle (source of truth)
+platformio.ini         two envs: tdeck (ESP32-S3 firmware) + native (SDL2 sim)
+partitions.csv         OTA_0 / OTA_1 / otadata / config / appfs  (locked early, spec §11)
+include/lv_conf.h      LVGL 8.3.11, aggressively stripped (spec §4.4)
+src/ui/theme*.h        design tokens (colors computed from the design's oklch values)
+src/ui/ui.{h,c}        state machine, nav stack, trackball focus engine, shared widgets
+src/ui/screens/        the 13 screens (read live data from the mesh service)
+src/ui/fonts/          Material Symbols Rounded subsets baked to LVGL C arrays
+src/services/mesh.{h,c}  mesh service: node table, thread index, send/receive API
+src/services/store.c   persistent message store (append-only logs + thread index)
+src/services/mtproto.* Meshtastic wire codec: header, AES-CTR, channel hash, protobuf
+src/services/aes_min.h portable AES-128/256-CTR for the simulator
+src/services/mesh_seed.c demo mesh (matches the design's sample data)
+src/backend_sx1262.cpp real Meshtastic radio over SX1262 (RadioLib) — T-Deck
+sim/backend_sim.c      simulated radio (auto-reply) for the desktop sim
+src/main_tdeck.cpp     hardware bring-up: ST7789, GT911 touch, keyboard, trackball, SD
+sim/main_sim.c         SDL2 simulator + headless screenshots + --selftest
+docs/design/           the original design handoff bundle (source of truth)
 ```
+
+## Architecture: UI ↔ service ↔ radio
+
+The UI never touches the radio. It reads nodes/threads/messages from the
+**mesh service** (`src/services/`), which owns the node table and the
+persistent message store and talks to a **radio backend** through one small
+contract (`lz_backend_*` / `lz_core_on_*` in `mesh.h`). Two backends implement
+that contract:
+
+- **`backend_sx1262.cpp`** (T-Deck): real Meshtastic over the SX1262. Speaks
+  the actual wire protocol on the default LongFast channel, so LimitlezzOS
+  interoperates with stock Meshtastic devices: 16-byte `PacketHeader`,
+  AES-128-CTR with the public default PSK, the `xor(name)^xor(psk)` channel
+  hash (= `0x08` for LongFast), and the `Data` protobuf. Receives, decrypts,
+  decodes text + NodeInfo, dedups, and does managed-flood rebroadcast.
+- **`backend_sim.c`** (desktop): a fake radio that delivers sends and produces
+  canned replies, so the whole receive pipeline is exercisable without hardware.
+
+All RF/protocol constants are sourced to the Meshtastic firmware (master) and
+cited in `mtproto.c`. `program --selftest` round-trips the codec
+(header + AES-CTR + protobuf) and asserts the LongFast channel hash.
+
+### First-boot onboarding
+
+On a device with no saved identity, the OS opens a three-step onboarding
+(spec §5): your **long name** ("What should people call you?"), a **short
+4-character tag** (auto-derived from the long name, editable — this is the
+Meshtastic short name), then the **networks** chooser (both on by default,
+Continue focused so one click proceeds). The identity persists to the store
+and is what the radio broadcasts as the node's Meshtastic `User`. Subsequent
+boots skip straight to the lock screen.
+
+### Messages, contacts, and roles
+
+Contacts are people you **purposely add** — not every node ever heard. A node's
+**role** decides whether it can be messaged: only `Client` (Meshtastic) and
+`Chat` (MeshCore) get a Message button; `Router`, `Repeater`, `Sensor`, and
+`Room` are observable but show **Add contact / Trace** instead. The unified
+inbox lists conversations newest-first; history is kept when a network is
+disabled (spec §6.5) and persists across reboots via the SD-backed store.
 
 ## Build & run
 
@@ -38,10 +83,12 @@ docs/design/          the original design handoff bundle (source of truth)
 pio run -e native
 .pio/build/native/program                      # interactive, 2x scale window
 .pio/build/native/program --shots out/         # dump every screen as BMP
+.pio/build/native/program --selftest           # verify the Meshtastic codec
 ```
 
-Keys: arrows = trackball roll · Enter = ball click · Esc/Backspace = back ·
-1/2/3 = Messages network filter · typing goes into the conversation composer.
+Keys: arrows = trackball roll · Page Up = trackball press · Enter = select/send ·
+Esc/Backspace = back · 1/2/3 = Messages network filter · mouse = touchscreen ·
+typing goes into the conversation composer.
 
 **T-Deck firmware**:
 
@@ -49,7 +96,9 @@ Keys: arrows = trackball roll · Enter = ball click · Esc/Backspace = back ·
 pio run -e tdeck -t upload                     # flash over USB-C
 ```
 
-Current footprint: 582 KB flash (11% of the 5 MB OTA slot), 147 KB static RAM.
+Current footprint: 682 KB flash (13% of the 5 MB OTA slot), 167 KB static RAM.
+Message history lives on the SD card (`/sd/limitlezz`); without a card the OS
+runs RAM-only and seeds the demo mesh.
 
 ## What's implemented (UI portion of spec Stage 1/2)
 
@@ -78,13 +127,19 @@ Current footprint: 582 KB flash (11% of the 5 MB OTA slot), 147 KB static RAM.
   System & battery page (arc gauge + stat bars).
 - **Terminal / Files** — mono console with blinking cursor; /sdcard listing.
 
-## What's *not* here (backend phases of the master spec)
+## Status against the master-spec roadmap
 
-Radio HAL + TDM scheduler, the actual Meshtastic/MeshCore stacks, Lua app
-VM/sandbox, App Store networking, OTA logic, Feedback Manager (LED/buzzer/
-backlight), onboarding flow. `src/ui/data.c` is the seam: replace its
-constants with the Messaging service and the UI carries over unchanged
-(spec phases 1.3, 1.6, 2.2–2.3).
+Stage 1 (Meshtastic-only) is the focus, per the spec's hard staging rule
+(get Meshtastic rock-solid before adding MeshCore + TDM). Done so far: the full
+UI, the messaging data model wired to a real Meshtastic stack, persistent
+history, and the SX1262 radio backend (text + NodeInfo, dedup, managed flood).
+
+Still ahead: on-hardware RF validation against a stock node, ACK/routing
+(ROUTING_APP) and retransmit, position/telemetry decode, the Lua app sandbox,
+App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
+**MeshCore + the TDM airtime arbiter are Stage 2** — the amber side of the UI
+and the airtime split bar are in place, but MeshCore DMs are intentionally
+read-only until the second radio stack lands on the proven Meshtastic base.
 
 ## Hardware notes
 

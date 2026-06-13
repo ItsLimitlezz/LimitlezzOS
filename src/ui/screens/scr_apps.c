@@ -127,12 +127,17 @@ void lz_scr_appstore(lv_obj_t *root)
     lz_nav_set(1, 8, store_activate);
 }
 
-/* ===== Contacts ===== */
+/* ===== Contacts =====
+ * Only people the user purposely added — not every node ever heard. Add a
+ * contact from its detail page (reached via the network managers). */
+
+static lz_node_rt *contact_list[LZ_MAX_NODES];
+static int contact_n;
 
 static void contacts_activate(int idx)
 {
-    if(idx >= 0 && idx < 9) {
-        S.contact_sel = &LZ_NODES[idx];
+    if(idx >= 0 && idx < contact_n) {
+        S.contact_sel = contact_list[idx];
         lz_go(LZ_V_CONTACT);
     }
 }
@@ -142,6 +147,12 @@ void lz_scr_contacts(lv_obj_t *root)
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lz_navbar(root, "Contacts", NULL);
 
+    const lz_node_rt *nodes;
+    int nn = lz_svc_nodes(&nodes);
+    contact_n = 0;
+    for(int i = 0; i < nn; i++)
+        if(nodes[i].contact) contact_list[contact_n++] = (lz_node_rt *)&nodes[i];
+
     lv_obj_t *body = lz_vflex(root);
     lv_obj_set_style_pad_top(body, 5, 0);
     lv_obj_set_style_pad_hor(body, 7, 0);
@@ -149,8 +160,22 @@ void lz_scr_contacts(lv_obj_t *root)
     lv_obj_set_style_pad_row(body, 3, 0);
     lz_nav_set_scroll(body);
 
-    for(int i = 0; i < 9; i++) {
-        const lz_node_t *n = &LZ_NODES[i];
+    if(contact_n == 0) {
+        lv_obj_t *empty = lz_text(body,
+            "No contacts yet.\nOpen a node in Meshtastic or MeshCore\nand tap Add contact.",
+            LZ_F_SMALL, LZ_TEXT_3);
+        lv_obj_set_width(empty, lv_pct(100));
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_top(empty, 60, 0);
+        lz_nav_set(1, 0, NULL);
+        return;
+    }
+
+    for(int i = 0; i < contact_n; i++) {
+        lz_node_rt *n = contact_list[i];
+        char ago[8], snrs[8];
+        lz_fmt_ago(n->last_heard, ago, sizeof ago);
+        snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
         lv_obj_t *row = lz_row(body, i == S.focus);
         lv_obj_set_style_radius(row, 10, 0);
 
@@ -177,37 +202,41 @@ void lz_scr_contacts(lv_obj_t *root)
         lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-        lz_text(r, n->last, LZ_F_SMALL, LZ_TEXT_META);
-        lz_text(r, n->snr_s, LZ_F_SMALL, lz_snr_color(n->snr));
+        lz_text(r, ago, LZ_F_SMALL, LZ_TEXT_META);
+        lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
         lz_nav_track(row, i);
     }
-    lz_nav_set(1, 9, contacts_activate);
+    lz_nav_set(1, contact_n, contacts_activate);
 }
 
 /* ===== Contact detail ===== */
 
 static void contact_activate(int idx)
 {
-    const lz_node_t *n = S.contact_sel ? S.contact_sel : &LZ_NODES[0];
-    if(idx == 0) {
-        /* Message: open the bound thread, or a fresh one on this contact's network */
-        for(int i = 0; i < 6; i++) {
-            if(strcmp(LZ_THREADS[i].name, n->name) == 0) {
-                lz_open_convo(&LZ_THREADS[i]);
-                return;
-            }
-        }
-        static lz_thread_t tmp;
-        tmp.id = n->id; tmp.name = n->name; tmp.net = n->net;
-        tmp.addr = n->id; tmp.text = "-"; tmp.t = ""; tmp.unread = 0; tmp.path = n->dist;
-        lz_open_convo(&tmp);
+    lz_node_rt *n = S.contact_sel;
+    if(!n) return;
+    bool messageable = lz_node_messageable(n);
+    if(idx == 0 && messageable) {
+        lz_thread_rt *t = lz_svc_thread_for_node(n);
+        lz_open_convo(t);
+        return;
     }
-    /* idx 1 = Trace: no-op in prototype */
+    if(idx == 0 && !messageable) return;          /* infra: no Message action */
+    /* Add-contact / Trace button */
+    if(idx == 1) {
+        if(!n->contact) lz_svc_add_contact(n);
+        else lz_rebuild();                         /* Trace: no-op for now */
+    }
 }
 
 void lz_scr_contact(lv_obj_t *root)
 {
-    const lz_node_t *n = S.contact_sel ? S.contact_sel : &LZ_NODES[0];
+    lz_node_rt *n = S.contact_sel;
+    if(!n) { lz_back(); return; }
+    bool messageable = lz_node_messageable(n);
+    char ago[8], snrs[8];
+    lz_fmt_ago(n->last_heard, ago, sizeof ago);
+    snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lz_navbar(root, NULL, "Back");
 
@@ -240,7 +269,9 @@ void lz_scr_contact(lv_obj_t *root)
     char role[24]; snprintf(role, sizeof role, "- %s", n->role);
     lz_text(tag, role, LZ_F_SMALL, LZ_TEXT_META);
 
-    /* actions: Message (mint) + Trace */
+    /* actions row. Messageable people get a Message button + Add/Saved;
+     * infrastructure (Router/Repeater/Sensor/Room) gets Add/Saved + Trace,
+     * never a Message button. */
     lv_obj_t *actions = lz_box(body);
     lv_obj_set_width(actions, lv_pct(100));
     lv_obj_set_height(actions, LV_SIZE_CONTENT);
@@ -249,38 +280,52 @@ void lz_scr_contact(lv_obj_t *root)
     lv_obj_set_style_pad_ver(actions, 12, 0);
 
     bool f0 = S.focus == 0, f1 = S.focus == 1;
-    lv_obj_t *msg = lz_box(actions);
-    lv_obj_set_flex_grow(msg, 1);
-    lv_obj_set_height(msg, 31);
-    lv_obj_set_style_radius(msg, 10, 0);
-    lv_obj_set_style_bg_color(msg, LZ_TILE_165, 0);
-    lv_obj_set_style_bg_opa(msg, LV_OPA_COVER, 0);
-    if(f0) {
-        lv_obj_set_style_outline_width(msg, 2, 0);
-        lv_obj_set_style_outline_color(msg, LZ_FOCUS, 0);
-    }
-    lv_obj_set_flex_flow(msg, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(msg, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(msg, 5, 0);
-    lz_icon(msg, LZ_I_CHAT, &lz_icons_16f, LZ_ON_MINT);
-    lz_text(msg, "Message", LZ_F_BODY, LZ_ON_MINT);
 
-    lv_obj_t *trace = lz_box(actions);
-    lv_obj_set_size(trace, 41, 31);
-    lv_obj_set_style_radius(trace, 10, 0);
-    lv_obj_set_style_bg_color(trace, lv_color_hex(0x20242B), 0);
-    lv_obj_set_style_bg_opa(trace, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(trace, 1, 0);
-    lv_obj_set_style_border_color(trace, lv_color_hex(0x2D323A), 0);
-    if(f1) {
-        lv_obj_set_style_outline_width(trace, 2, 0);
-        lv_obj_set_style_outline_color(trace, LZ_FOCUS, 0);
-    }
-    lv_obj_t *tic = lz_icon(trace, LZ_I_ROUTE, &lz_icons_16f, lv_color_hex(0xCFD4DA));
-    lv_obj_center(tic);
+    /* shared button builder */
+    #define LZ_BTN(var, grow, w, bg, focused) \
+        lv_obj_t *var = lz_box(actions); \
+        if(grow) lv_obj_set_flex_grow(var, 1); else lv_obj_set_width(var, w); \
+        lv_obj_set_height(var, 31); \
+        lv_obj_set_style_radius(var, 10, 0); \
+        lv_obj_set_style_bg_color(var, bg, 0); \
+        lv_obj_set_style_bg_opa(var, LV_OPA_COVER, 0); \
+        lv_obj_set_flex_flow(var, LV_FLEX_FLOW_ROW); \
+        lv_obj_set_flex_align(var, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER); \
+        lv_obj_set_style_pad_column(var, 5, 0); \
+        if(focused) { lv_obj_set_style_outline_width(var, 2, 0); \
+                      lv_obj_set_style_outline_color(var, LZ_FOCUS, 0); }
 
-    lz_nav_track(msg, 0);     /* also makes both buttons tappable */
-    lz_nav_track(trace, 1);
+    if(messageable) {
+        LZ_BTN(msg, true, 0, LZ_TILE_165, f0);
+        lz_icon(msg, LZ_I_CHAT, &lz_icons_16f, LZ_ON_MINT);
+        lz_text(msg, "Message", LZ_F_BODY, LZ_ON_MINT);
+        lz_nav_track(msg, 0);
+
+        LZ_BTN(add, false, 96, n->contact ? lv_color_hex(0x1A2520) : lv_color_hex(0x20242B), f1);
+        lv_obj_set_style_border_width(add, 1, 0);
+        lv_obj_set_style_border_color(add, n->contact ? LZ_GREEN_BG : lv_color_hex(0x2D323A), 0);
+        lz_icon(add, LZ_I_GROUP, &lz_icons_16f, n->contact ? LZ_GREEN_TXT : lv_color_hex(0xCFD4DA));
+        lz_text(add, n->contact ? "Saved" : "Add", LZ_F_SMALL,
+                n->contact ? LZ_GREEN_TXT : lv_color_hex(0xCFD4DA));
+        lz_nav_track(add, 1);
+    } else {
+        LZ_BTN(add, true, 0, n->contact ? lv_color_hex(0x1A2520) : LZ_TILE_242, f0);
+        if(n->contact) {
+            lv_obj_set_style_border_width(add, 1, 0);
+            lv_obj_set_style_border_color(add, LZ_GREEN_BG, 0);
+        }
+        lz_icon(add, LZ_I_GROUP, &lz_icons_16f, n->contact ? LZ_GREEN_TXT : lv_color_white());
+        lz_text(add, n->contact ? "Contact saved" : "Add contact", LZ_F_BODY,
+                n->contact ? LZ_GREEN_TXT : lv_color_white());
+        lz_nav_track(add, 0);
+
+        LZ_BTN(trace, false, 41, lv_color_hex(0x20242B), f1);
+        lv_obj_set_style_border_width(trace, 1, 0);
+        lv_obj_set_style_border_color(trace, lv_color_hex(0x2D323A), 0);
+        lz_icon(trace, LZ_I_ROUTE, &lz_icons_16f, lv_color_hex(0xCFD4DA));
+        lz_nav_track(trace, 1);
+    }
+    #undef LZ_BTN
 
     /* spec table */
     lv_obj_t *card = lz_card(body);
@@ -290,7 +335,7 @@ void lz_scr_contact(lv_obj_t *root)
     if(n->batt >= 0) snprintf(batt, sizeof batt, "%d%%", n->batt);
     else snprintf(batt, sizeof batt, "-");
     const char *ks[6] = { "Node ID", "Hardware", "Distance", "SNR", "Battery", "Last heard" };
-    const char *vs[6] = { n->id, n->hw, n->dist, n->snr_s, batt, n->last };
+    const char *vs[6] = { n->id, n->hw, n->dist, snrs, batt, ago };
     for(int i = 0; i < 6; i++) {
         lv_obj_t *r = lz_box(card);
         lv_obj_set_width(r, lv_pct(100));

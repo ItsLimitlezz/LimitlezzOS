@@ -1,5 +1,6 @@
 #include "ui.h"
 #include <string.h>
+#include <stdio.h>
 
 lz_state_t S;
 
@@ -15,7 +16,7 @@ static lv_obj_t *g_focus_obj;   /* object to scroll into view */
 void lz_ui_init(lv_obj_t *root)
 {
     memset(&S, 0, sizeof(S));
-    S.view = LZ_V_LOCK;
+    S.view = lz_svc_needs_onboarding() ? LZ_V_ONBOARD : LZ_V_LOCK;
     S.net_mt = true;
     S.net_mc = true;
     S.settings.gps = true;
@@ -88,6 +89,7 @@ void lz_rebuild(void)
     lv_obj_set_style_bg_color(g_root, LZ_SCREEN_BG, 0);
     lv_obj_set_style_bg_opa(g_root, LV_OPA_COVER, 0);
     switch(S.view) {
+        case LZ_V_ONBOARD:    lz_scr_onboard(g_root); break;
         case LZ_V_LOCK:       lz_scr_lock(g_root); break;
         case LZ_V_HOME:       lz_scr_home(g_root); break;
         case LZ_V_MESSAGES:   lz_scr_messages(g_root); break;
@@ -197,10 +199,8 @@ static void convo_send(void)
 {
     size_t len = strlen(S.draft);
     while(len && S.draft[len-1] == ' ') S.draft[--len] = 0;
-    if(!len || S.sent_count >= LZ_SENT_MAX) return;
-    strncpy(S.sent[S.sent_count], S.draft, LZ_DRAFT_MAX - 1);
-    S.sent[S.sent_count][LZ_DRAFT_MAX - 1] = 0;
-    S.sent_count++;
+    if(!len || !S.convo) return;
+    if(!lz_svc_send_text(S.convo, S.draft)) return;   /* read-only thread: ignore */
     S.draft[0] = 0;
     lz_rebuild();
     if(g_scroll) {
@@ -209,8 +209,38 @@ static void convo_send(void)
     }
 }
 
+static void suggest_short(const char *longn, char *out, size_t cap);
+
+/* onboarding: steps 0/1 are text entry (capture into S.draft), step 2 is the
+ * networks chooser driven by the normal focus/activate engine, step 3 is done */
+static void onboard_key(lz_key_t k, char c)
+{
+    if(S.ob_step == 2) {                       /* networks: focus rows + Continue */
+        if(k == LZ_K_UP || k == LZ_K_DOWN) { move(k); return; }
+        if(k == LZ_K_ENTER) { activate(); return; }
+        if(k == LZ_K_BACK) { S.ob_step = 1; S.focus = 0;
+                             suggest_short(S.ob_long, S.draft, sizeof S.draft); lz_rebuild(); return; }
+        return;
+    }
+    if(k == LZ_K_ENTER) { lz_onboard_advance(); return; }
+    if(k == LZ_K_BACK) {
+        if(S.draft[0]) { S.draft[strlen(S.draft) - 1] = 0; lz_rebuild(); }
+        else if(S.ob_step > 0) { S.ob_step--; lz_rebuild(); }
+        return;
+    }
+    if(k == LZ_K_CHAR && c >= 32 && c < 127 && S.ob_step <= 1) {
+        size_t len = strlen(S.draft);
+        /* Meshtastic short_name is 4 chars max; long_name up to ~39 */
+        size_t cap = (S.ob_step == 1) ? 4 : sizeof(S.ob_long) - 1;
+        if(S.ob_step == 1 && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');  /* tag uppercases */
+        if(len < cap) { S.draft[len] = c; S.draft[len + 1] = 0; lz_rebuild(); }
+        return;
+    }
+}
+
 void lz_ui_key(lz_key_t k, char c)
 {
+    if(S.view == LZ_V_ONBOARD) { onboard_key(k, c); return; }
     switch(k) {
         case LZ_K_UP: case LZ_K_DOWN: case LZ_K_LEFT: case LZ_K_RIGHT:
             move(k);
@@ -421,6 +451,50 @@ void lz_status_bar(lv_obj_t *parent)
     lv_obj_set_style_bg_color(nub, lv_color_hex(0x767D86), 0);
     lv_obj_set_style_bg_opa(nub, LV_OPA_COVER, 0);
     lv_obj_align(nub, LV_ALIGN_RIGHT_MID, 0, 0);
+}
+
+/* derive a 4-char Meshtastic short tag from the long name (alnum, uppercased) */
+static void suggest_short(const char *longn, char *out, size_t cap)
+{
+    size_t j = 0;
+    for(const char *p = longn; *p && j < cap - 1 && j < 4; p++) {
+        char ch = *p;
+        if(ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
+        if((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) out[j++] = ch;
+    }
+    out[j] = 0;
+    if(j == 0) snprintf(out, cap, "NODE");
+}
+
+void lz_onboard_advance(void)
+{
+    if(S.ob_step == 0) {
+        /* long name: require something */
+        size_t len = strlen(S.draft);
+        while(len && S.draft[len - 1] == ' ') S.draft[--len] = 0;
+        if(!len) return;
+        snprintf(S.ob_long, sizeof S.ob_long, "%s", S.draft);
+        suggest_short(S.ob_long, S.draft, sizeof S.draft);   /* prefill tag */
+        S.ob_step = 1;
+        lz_rebuild();
+    } else if(S.ob_step == 1) {
+        if(!S.draft[0]) suggest_short(S.ob_long, S.draft, sizeof S.draft);
+        snprintf(S.ob_short, sizeof S.ob_short, "%s", S.draft);
+        S.draft[0] = 0;
+        S.ob_step = 2;
+        S.focus = 2;          /* default to Continue: both nets on, Enter proceeds */
+        lz_rebuild();
+    } else if(S.ob_step == 2) {
+        S.ob_step = 3;
+        lz_rebuild();
+    } else {
+        /* finish: persist identity, drop into the unified inbox */
+        lz_svc_set_identity(S.ob_long, S.ob_short);
+        S.nav_depth = 0;
+        S.focus = 0;
+        S.view = LZ_V_MESSAGES;
+        lz_rebuild();
+    }
 }
 
 bool lz_settings_slider_focused(void)

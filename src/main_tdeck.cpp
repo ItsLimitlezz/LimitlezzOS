@@ -16,9 +16,14 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
 #include <TFT_eSPI.h>
 #include "lvgl.h"
 #include "ui/ui.h"
+#include "services/mesh.h"
+
+#define SDCARD_CS  39
 
 #define BOARD_POWERON      10
 #define BOARD_I2C_SDA      18
@@ -188,6 +193,12 @@ void setup()
     touch_drv.read_cb = touch_read_cb;
     lv_indev_drv_register(&touch_drv);
 
+    /* SD card hosts the message store; fall back to RAM-only if absent */
+    const char *datadir = NULL;
+    if(SD.begin(SDCARD_CS)) datadir = "/sd/limitlezz";
+    lz_svc_init(datadir, true);
+    lz_svc_set_dirty_cb(lz_rebuild);
+
     lz_ui_init(lv_scr_act());
 }
 
@@ -224,6 +235,7 @@ void loop()
         else if(c) lz_ui_key(LZ_K_CHAR, c);
     }
 
+    lz_svc_loop();
     lv_timer_handler();
     delay(5);
 }

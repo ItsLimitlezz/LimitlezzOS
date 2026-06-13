@@ -12,13 +12,14 @@
 #include "lvgl.h"
 #include "data.h"
 #include "theme.h"
+#include "../services/mesh.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef enum {
-    LZ_V_LOCK, LZ_V_HOME, LZ_V_MESSAGES, LZ_V_CONVO,
+    LZ_V_ONBOARD, LZ_V_LOCK, LZ_V_HOME, LZ_V_MESSAGES, LZ_V_CONVO,
     LZ_V_MESHTASTIC, LZ_V_MESHCORE, LZ_V_APPSTORE,
     LZ_V_CONTACTS, LZ_V_CONTACT, LZ_V_SETTINGS,
     LZ_V_SYSTEM, LZ_V_TERMINAL, LZ_V_FILES,
@@ -47,14 +48,17 @@ typedef struct {
     lz_msg_tab_t msg_tab;
     lz_filter_t  msg_filter;
 
-    const lz_thread_t *convo;                 /* open conversation */
+    lz_thread_rt *convo;                      /* open conversation (service-owned) */
     char draft[LZ_DRAFT_MAX];
-    char sent[LZ_SENT_MAX][LZ_DRAFT_MAX];     /* runtime-sent bubbles */
-    int  sent_count;
+
+    /* first-boot onboarding */
+    int  ob_step;                             /* 0 long name, 1 short, 2 nets, 3 done */
+    char ob_long[24];
+    char ob_short[6];
 
     int mt_tab;            /* 0 nodes, 1 channels  */
     int mc_tab;            /* 0 contacts, 1 rooms  */
-    const lz_node_t *contact_sel;
+    lz_node_rt *contact_sel;
 
     struct {
         int region, preset, tx;               /* cycle indices */
@@ -92,6 +96,8 @@ lv_obj_t *lz_vflex(lv_obj_t *parent);                     /* scrollable column b
 void      lz_status_bar(lv_obj_t *parent);
 
 /* --- screen builders (screens/) --- */
+void lz_scr_onboard(lv_obj_t *root);
+void lz_onboard_advance(void);              /* commit current step (Enter / Continue) */
 void lz_scr_lock(lv_obj_t *root);
 void lz_scr_home(lv_obj_t *root);
 void lz_scr_messages(lv_obj_t *root);
@@ -107,7 +113,7 @@ void lz_scr_terminal(lv_obj_t *root);
 void lz_scr_files(lv_obj_t *root);
 
 /* open a network-bound conversation (Messages rows, Contact detail "Message") */
-void lz_open_convo(const lz_thread_t *t);
+void lz_open_convo(lz_thread_rt *t);
 
 /* settings helpers shared between key handling and the settings screen */
 bool lz_settings_slider_focused(void);
