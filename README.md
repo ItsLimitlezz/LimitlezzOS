@@ -49,23 +49,19 @@ font tables, no images, no gradients, no alpha layering.
   **receiving is not working yet**: no Public channel, can't see/send/receive
   MeshCore messages.
 
-### 🛠️ Roadmap — make Meshtastic great (in priority order)
-1. ✅ **DM: tap the name at the top of a chat → open that contact's profile.**
-2. ✅ **Channel: long-press a message → sender's profile → Message / Add to contacts.**
-3. ✅ **Meshtastic DMs (send + receive)** — PKI (X25519 + AES-256-CCM), verified both ways.
-4. **Message delivery status** — show Delivered / Failed (via ROUTING_APP acks);
-   long-press your own failed message to resend, resetting its status until it's
-   determined delivered or failed. *(next)*
-5. **USB companion → connect to the official Meshtastic app** (add Config msgs).
-6. **BLE companion** — let phones connect wirelessly, not just over USB.
-7. **List virtualization** — node/contact/message lists recycle off-screen rows
-   (only the visible window has objects) so a full 250-node DB doesn't exhaust
-   the LVGL object pool.
-8. **Unread notifications + indicator** — notify on new messages and show an
-   unread badge/status indicator.
+### 🛠️ Roadmap — versioned plan
+- ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
+  status** (green sending / blue delivered / red failed + long-press to resend).
+- **0.4** — **USB companion** for Meshtastic (official app drives the radio). *(next)*
+- **0.41** — **lock-screen notifications** for new messages. → **push + public release** here.
+- **0.42** — highlight chats with unread messages.
+- **0.43** — iPhone-style unread **counter badge** on the Messages icon (1–9, then "+").
+- **0.44** — **silence** public/group chats (no notification, excluded from the badge).
+- **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly).
 
 ### 🔭 Later
-- **MeshCore**: receive + default Public channel, then a MeshCore companion bridge.
+- **MeshCore** — receive + default Public channel, then a MeshCore companion bridge (currently "Coming soon").
+- **List virtualization** — node/message lists recycle off-screen rows for big DBs.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
 - **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
