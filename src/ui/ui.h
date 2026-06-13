@@ -122,6 +122,7 @@ void lz_scr_terminal(lv_obj_t *root);
 void lz_scr_files(lv_obj_t *root);
 void lz_scr_wifi(lv_obj_t *root);
 void lz_scr_settime(lv_obj_t *root);
+int  lz_tz_offset(int idx);             /* minutes offset for a timezone index */
 void lz_settime_enter(void);            /* load current clock into the editor */
 void lz_settime_key(lz_key_t k, char c);
 

@@ -82,7 +82,8 @@ void lz_ui_init(lv_obj_t *root)
     S.settings.timeout = 1;   /* 30s */
     S.settings.tx = 3;        /* Max (22 dBm) — matches the radio's init power */
     S.settings.kb_light = 0;  /* Auto */
-    S.settings.tz_idx = 12;   /* UTC+0 */
+    S.settings.tz_idx = 0;    /* EST by default */
+    lz_svc_set_tz(lz_tz_offset(0));
     g_root = root;
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, LZ_W, LZ_H);

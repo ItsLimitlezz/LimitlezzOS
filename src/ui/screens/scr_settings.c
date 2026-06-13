@@ -35,14 +35,17 @@ static const srow_t SROWS[12] = {
 };
 #define SETTINGS_FOCUS_COUNT 14   /* 2 network rows + 12 SROWS */
 
-/* timezone labels (offset hours = tz_idx - 12, range UTC-12..UTC+14) */
-static const char *tz_label(int idx, char *buf, size_t n)
-{
-    int off = idx - 12;
-    if(off == 0) snprintf(buf, n, "UTC");
-    else snprintf(buf, n, "UTC%+d", off);
-    return buf;
-}
+/* named timezones people recognize (label + offset in minutes). Includes the
+ * US daylight variants so you pick the one that matches the clock right now. */
+static const struct { const char *name; int off_min; } TZ[] = {
+    { "EST", -300 }, { "EDT", -240 }, { "CST", -360 }, { "CDT", -300 },
+    { "MST", -420 }, { "MDT", -360 }, { "PST", -480 }, { "PDT", -420 },
+    { "AKST", -540 }, { "HST", -600 }, { "AST", -240 }, { "UTC", 0 },
+    { "GMT", 0 }, { "BST", 60 }, { "CET", 60 }, { "CEST", 120 },
+    { "EET", 120 }, { "IST", 330 }, { "JST", 540 }, { "AEST", 600 },
+};
+#define TZ_COUNT ((int)(sizeof TZ / sizeof TZ[0]))
+int lz_tz_offset(int idx) { return TZ[(idx >= 0 && idx < TZ_COUNT) ? idx : 0].off_min; }
 
 static void cycle(int *idx, int n) { *idx = (*idx + 1) % n; }
 
@@ -62,7 +65,7 @@ static void settings_activate(int f)
         case 7: return;                            /* slider: left/right adjusts */
         case 8: cycle(&S.settings.kb_light, 3); break;
         case 9: cycle(&S.settings.timeout, 5); break;
-        case 10: cycle(&S.settings.tz_idx, 27); lz_svc_set_tz((S.settings.tz_idx - 12) * 60); break;
+        case 10: cycle(&S.settings.tz_idx, TZ_COUNT); lz_svc_set_tz(TZ[S.settings.tz_idx].off_min); break;
         case 11: lz_settime_enter(); lz_go(LZ_V_SETTIME); return;
         case 12: S.settings.save = !S.settings.save; break;
         case 13: lz_go(LZ_V_SYSTEM); return;
@@ -260,7 +263,7 @@ void lz_scr_settings(lv_obj_t *root)
                 }
                 case 8: value_chevron(row, KBLIGHT[S.settings.kb_light]); break;
                 case 9: value_chevron(row, TIMEOUTS[S.settings.timeout]); break;
-                case 10: { char tzb[8]; value_chevron(row, tz_label(S.settings.tz_idx, tzb, sizeof tzb)); break; }
+                case 10: value_chevron(row, TZ[S.settings.tz_idx].name); break;
                 case 11: { char tb[8]; value_chevron(row, lz_fmt_now(tb, sizeof tb)); break; }
                 case 12: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
                 case 13: {
@@ -303,10 +306,19 @@ void lz_scr_settings(lv_obj_t *root)
 
 /* ===== System ===== */
 
+static lv_obj_t *g_uptime_lbl;   /* updated in place each second (no rebuild -> no scroll jump) */
+static void fmt_uptime(uint32_t up, char *b, size_t n)
+{
+    if(up >= 86400) snprintf(b, n, "%ud %02u:%02u", up/86400, (up%86400)/3600, (up%3600)/60);
+    else            snprintf(b, n, "%02u:%02u:%02u", up/3600, (up%3600)/60, up%60);
+}
 static void system_refresh_cb(lv_timer_t *tm)
 {
     (void)tm;
-    if(S.view == LZ_V_SYSTEM) lz_rebuild();   /* live uptime + stats */
+    if(S.view != LZ_V_SYSTEM || !g_uptime_lbl) return;
+    lz_sysinfo_t si; lz_svc_sysinfo(&si);
+    char upv[20]; fmt_uptime(si.uptime_s, upv, sizeof upv);
+    lv_label_set_text(g_uptime_lbl, upv);     /* live tick, scroll position kept */
 }
 static void system_timer_del_cb(lv_event_t *e) { lv_timer_del((lv_timer_t *)lv_event_get_user_data(e)); }
 
@@ -413,7 +425,8 @@ void lz_scr_system(lv_obj_t *root)
         lv_obj_set_flex_flow(hd, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(hd, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lz_text(hd, rows[i].label, LZ_F_SMALL, LZ_TEXT_VALUE);
-        lz_text(hd, rows[i].value, LZ_F_SMALL, LZ_TEXT_STRONG);
+        lv_obj_t *vlbl = lz_text(hd, rows[i].value, LZ_F_SMALL, LZ_TEXT_STRONG);
+        if(i == 4) g_uptime_lbl = vlbl;   /* the per-second live tick target */
         if(!rows[i].bar) continue;
         int p = rows[i].pct; if(p < 0) p = 0; if(p > 100) p = 100;
         lv_obj_t *track = lz_box(st);
