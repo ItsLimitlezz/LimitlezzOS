@@ -12,6 +12,42 @@ follows the design handoff (`docs/design/`) exactly as the master spec
 prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
 font tables, no images, no gradients, no alpha layering.
 
+> ⚠️ **This is an ALPHA TEST.** It runs on real hardware and the core
+> Meshtastic experience is usable, but several features are unfinished or
+> broken (see below). **MeshCore is actively in testing.** Status reflects
+> hands-on hardware testing as of **2026-06-13**.
+
+## Alpha status
+
+### ✅ Working (hardware-tested)
+- **Display, screens & navigation** — renders cleanly, tear-free, screen-to-screen nav.
+- **Trackball + QWERTY keyboard** — focus, scroll, typing, back gesture.
+- **Touchscreen** — tapping items/tabs/buttons (but see calibration issue below).
+- **Clock** — status-bar time, NTP sync over Wi-Fi, named timezone picker, automatic DST (US/EU).
+- **Meshtastic channel messaging (LongFast)** — send **and** receive on the public channel.
+- **Node discovery** — heard nodes list (name, SNR, last-heard).
+- **Message history** — persists across leaving a chat and across reboots (SD card).
+- **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget.
+- **Battery & charging** — live percentage + charge state; System page telemetry.
+- **Keyboard backlight** — Auto / On / Off (I²C).
+- **Sleep & power saving** — idle dim/sleep, CPU down-clock.
+- **MeshCore self-advert (TX)** — signed Ed25519 advert broadcasts (flood + zero-hop); persistent identity.
+- **Split airtime (TDM)** — both networks on → SX1262 alternates MC↔MT every 500 ms; one on → 100%.
+
+### 🧪 In testing
+- **MeshCore (whole network path)** — adverts transmit, but **receiving is not working**:
+  no public channel visible, can't see/send/receive MeshCore messages yet.
+- **Companion bridge (Meshtastic over USB)** — protocol self-test passes on-device,
+  but **not yet connecting to the official app** in practice.
+
+### ❌ Known issues / backlog (next session)
+- **Meshtastic DMs broken** — direct-message send *and* receive don't work (only the channel does).
+- **MeshCore receive broken** — no Public channel shown; can't see, send, or receive MeshCore traffic.
+- **USB companion not connecting** to the Meshtastic app; **no BLE companion option** yet (neither network).
+- **Compose box overflow** — typing a long message runs past the input box; needs containment + scroll.
+- **Touch mis-registration** — taps sometimes hit the wrong row (e.g. open a chat instead of the target); wants a **screen calibration**.
+- **Clock format** — add a **12-hour (AM/PM) vs 24-hour** option.
+
 ![screens](docs/screens.png)
 
 ## Layout
