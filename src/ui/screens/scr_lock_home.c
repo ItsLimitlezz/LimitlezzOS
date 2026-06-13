@@ -7,6 +7,11 @@
 
 static void lock_tap(void) { lz_ui_key(LZ_K_ENTER, 0); }  /* tap anywhere unlocks */
 
+/* lock-screen notification: tapping it opens the conversation directly (which
+ * clears its unread, so the notification goes away after you view it) */
+static lz_thread_rt *g_notif_t;
+static void notif_tap(void) { if(g_notif_t) lz_open_convo(g_notif_t); }
+
 void lz_scr_lock(lv_obj_t *root)
 {
     lv_obj_set_style_bg_color(root, lv_color_hex(0x0B0E13), 0);
@@ -80,7 +85,42 @@ void lz_scr_lock(lv_obj_t *root)
     lz_text(pill, "Click trackball or press Enter", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
     lv_obj_align(pill, LV_ALIGN_CENTER, 0, 36);
 
-    lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.3", LZ_F_SMALL, lv_color_hex(0x5A616A));
+    /* new-message notification: tap to open it (clears unread on view) */
+    g_notif_t = lz_svc_top_unread();
+    if(g_notif_t) {
+        lv_obj_t *card = lz_box(root);
+        lv_obj_set_size(card, 268, LV_SIZE_CONTENT);
+        lv_obj_set_style_radius(card, 12, 0);
+        lv_obj_set_style_bg_color(card, lv_color_hex(0x171C24), 0);
+        lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(card, 1, 0);
+        lv_obj_set_style_border_color(card, lv_color_hex(0x2A313B), 0);
+        lv_obj_set_style_pad_all(card, 9, 0);
+        lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(card, 2, 0);
+        lv_obj_align(card, LV_ALIGN_CENTER, 0, 74);
+
+        lv_obj_t *hrow = lz_box(card);
+        lv_obj_set_width(hrow, lv_pct(100));
+        lv_obj_set_height(hrow, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(hrow, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(hrow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(hrow, 6, 0);
+        lz_icon(hrow, LZ_I_FORUM, &lz_icons_14, LZ_MINT);
+        lv_obj_t *nm = lz_text(hrow, g_notif_t->name, LZ_F_BODY, LZ_TEXT);
+        lv_obj_set_flex_grow(nm, 1);
+        lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
+        if(g_notif_t->unread > 1) {
+            char cnt[8]; snprintf(cnt, sizeof cnt, "%d", g_notif_t->unread);
+            lz_text(hrow, cnt, LZ_F_SMALL, LZ_MINT);
+        }
+        lv_obj_t *snip = lz_text(card, g_notif_t->last_text, LZ_F_SMALL, lv_color_hex(0xCFD4DA));
+        lv_obj_set_width(snip, lv_pct(100));
+        lv_label_set_long_mode(snip, LV_LABEL_LONG_DOT);
+        lz_on_click(card, notif_tap);
+    }
+
+    lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.41", LZ_F_SMALL, lv_color_hex(0x5A616A));
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     lz_nav_set(1, 1, NULL);  /* Enter unlocks (handled in engine) */

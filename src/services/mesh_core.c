@@ -346,6 +346,17 @@ static void reorder_threads(void)
 
 int lz_svc_thread_count_all(void) { return g_thread_count; }
 
+/* most-recent thread with unread messages — drives the lock-screen notification */
+lz_thread_rt *lz_svc_top_unread(void)
+{
+    lz_thread_rt *best = NULL;
+    for(int i = 0; i < g_thread_count; i++)
+        if(g_threads[i].unread > 0 && !g_threads[i].muted &&
+           (!best || g_threads[i].last_ts > best->last_ts))
+            best = &g_threads[i];
+    return best;
+}
+
 lz_thread_rt *lz_svc_thread_at(int display_idx)
 {
     if(display_idx < 0 || display_idx >= g_thread_count) return NULL;

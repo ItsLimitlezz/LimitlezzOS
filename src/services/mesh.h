@@ -61,6 +61,7 @@ typedef struct {
     char     path[12];           /* "2 hops" / "direct" / "broadcast" */
     bool     messageable;
     bool     is_channel;         /* true = broadcast channel (e.g. LongFast) */
+    bool     muted;              /* silenced: no notification / unread badge (v0.44) */
 } lz_thread_rt;
 
 /* delivery status for our own DMs (RAM-only, not persisted) */
@@ -94,6 +95,7 @@ int  lz_svc_node_count(lz_net_t net);
  * pointer to an open conversation. Display order (newest-first) is a separate
  * index, read via lz_svc_thread_at(). */
 int  lz_svc_thread_count_all(void);
+lz_thread_rt *lz_svc_top_unread(void);    /* most recent unread (lock-screen notification) */
 lz_thread_rt *lz_svc_thread_at(int display_idx);        /* newest-first */
 lz_thread_rt *lz_svc_thread_for_node(lz_node_rt *n);    /* find or create */
 lz_thread_rt *lz_svc_channel_thread(void);              /* LongFast broadcast channel */

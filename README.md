@@ -12,7 +12,7 @@ follows the design handoff (`docs/design/`) exactly as the master spec
 prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
 font tables, no images, no gradients, no alpha layering.
 
-> ⚠️ **This is an ALPHA TEST (0.3).** It runs on real hardware and the core
+> ⚠️ **This is an ALPHA TEST (0.41).** It runs on real hardware and the core
 > Meshtastic experience is usable, but some features are still unfinished (see
 > below). The near-term goal is to make this a great **Meshtastic** OS — on par
 > with the official device UI (MUI) — before fully building out **MeshCore**.
@@ -52,8 +52,11 @@ font tables, no images, no gradients, no alpha layering.
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
   status** (green sending / blue delivered / red failed + long-press to resend).
-- **0.4** — **USB companion** for Meshtastic (official app drives the radio). *(next)*
-- **0.41** — **lock-screen notifications** for new messages. → **push + public release** here.
+- ✅ **0.4** — **USB companion** for Meshtastic: enable in the Meshtastic app (Nodes
+  tab → Companion mode), then connect the official app over USB serial. Handshake
+  (my_info, metadata, config, channel, node DB, config_complete) self-test passes.
+- ✅ **0.41** — **lock-screen notifications**: a new-message card on the lock screen;
+  tap it to open the chat, and it clears once you view the message. → **release** here.
 - **0.42** — highlight chats with unread messages.
 - **0.43** — iPhone-style unread **counter badge** on the Messages icon (1–9, then "+").
 - **0.44** — **silence** public/group chats (no notification, excluded from the badge).

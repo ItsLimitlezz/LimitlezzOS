@@ -296,26 +296,29 @@ extern "C" int lz_mtc_selftest(char *out, int n)
     do_want_config(0x1234abcd);
     g_companion = was; g_capturing = false;
 
-    /* walk frames: count them, find config_complete_id (FromRadio field 7) */
-    int p = 0, frames = 0; bool saw_myinfo = false, saw_complete = false; uint32_t nonce = 0;
+    /* walk frames, confirm the full handshake content the app needs is present */
+    int p = 0, frames = 0; uint32_t nonce = 0;
+    bool my_info = false, meta = false, cfg = false, chan = false, complete = false;
     while(p + 4 <= g_caplen) {
         if(cap[p] != 0x94 || cap[p+1] != 0xC3) break;
         int len = (cap[p+2] << 8) | cap[p+3]; p += 4;
         if(p + len > g_caplen) break;
         const uint8_t *f = cap + p;
-        uint64_t key = f[0]; int field = key >> 3;
-        if(field == 3) saw_myinfo = true;
-        if(field == 7) { saw_complete = true; /* parse the nonce varint */
+        int field = f[0] >> 3;             /* FromRadio payload_variant field */
+        if(field == 3)  my_info = true;
+        if(field == 13) meta = true;
+        if(field == 5)  cfg = true;
+        if(field == 10) chan = true;
+        if(field == 7) { complete = true;
             uint64_t v = 0; int sh = 0, q = 1;
             while(q < len) { uint8_t x = f[q++]; v |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
             nonce = (uint32_t)v;
         }
         frames++; p += len;
     }
-    return snprintf(out, n, "%d frames | my_info=%s | config_complete=%s nonce=%08x %s",
-                    frames, saw_myinfo ? "yes" : "NO",
-                    saw_complete ? "yes" : "NO", (unsigned)nonce,
-                    (saw_myinfo && saw_complete && nonce == 0x1234abcd) ? "PASS" : "FAIL");
+    bool ok = my_info && meta && cfg && chan && complete && nonce == 0x1234abcd;
+    return snprintf(out, n, "%d frames | my_info=%d metadata=%d config=%d channel=%d complete=%d nonce=%08x -> %s",
+                    frames, my_info, meta, cfg, chan, complete, (unsigned)nonce, ok ? "PASS" : "FAIL");
 }
 
 #endif /* LZ_TARGET_TDECK */
