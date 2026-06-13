@@ -23,6 +23,9 @@ extern "C" int  lz_backend_mc_id(char *buf, int n)        __attribute__((weak));
 extern "C" bool lz_backend_mc_advert_now(bool flood)      __attribute__((weak));
 extern "C" int  lz_backend_mc_selftest(char *buf, int n)  __attribute__((weak));
 extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
+extern "C" void lz_touch_set_transform(int swap, int invx, int invy) __attribute__((weak));
+extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
+extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
 
 static char    g_line[160];
 static uint8_t g_len;
@@ -47,6 +50,7 @@ static void cmd_help(void)
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion test       loopback-verify the companion protocol\n"
+        "  touch [debug|S X Y]  show/calibrate touch (S=swap X=invx Y=invy), 'touch debug' logs taps\n"
         "  nodes                list heard nodes\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
@@ -162,6 +166,23 @@ static void cmd_mc(char *args)
     }
 }
 
+static void cmd_touch(char *args)
+{
+    if(args && strcmp(args, "debug") == 0) {
+        static bool on = false; on = !on;
+        if(lz_touch_set_debug) lz_touch_set_debug(on);
+        Serial.printf("[ok] touch debug %s (tap the screen to see coords)\n", on ? "on" : "off");
+        return;
+    }
+    int sw, ix, iy;
+    if(args && sscanf(args, "%d %d %d", &sw, &ix, &iy) == 3) {
+        if(lz_touch_set_transform) lz_touch_set_transform(sw, ix, iy);
+        Serial.println("[ok] touch transform set");
+    }
+    if(lz_touch_info) { char b[120]; lz_touch_info(b, sizeof b); Serial.println(b); }
+    else Serial.println("[--] touch not present");
+}
+
 static void cmd_companion(char *args)
 {
     if(args && strcmp(args, "test") == 0) {
@@ -259,6 +280,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "rf"))      cmd_rf(args);
     else if(!strcmp(line, "mc"))      cmd_mc(args);
     else if(!strcmp(line, "companion")) cmd_companion(args);
+    else if(!strcmp(line, "touch"))   cmd_touch(args);
     else if(!strcmp(line, "nodes"))   cmd_nodes();
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();

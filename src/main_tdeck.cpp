@@ -55,18 +55,29 @@
 #define KB_BL_TIMEOUT_MS   8000  /* Auto: stay lit this long after input */
 /* lz_backend_ok / lz_backend_begin_state declared in services/mesh.h */
 
-/* GT911 reports panel-native portrait coordinates (240x320); the display
- * runs landscape (rotation 1). Flip these if touch tracks rotated on a
- * different board/config revision. */
-#ifndef LZ_TOUCH_SWAP_XY
-#define LZ_TOUCH_SWAP_XY 1
-#endif
-#ifndef LZ_TOUCH_INVERT_X
-#define LZ_TOUCH_INVERT_X 0
-#endif
-#ifndef LZ_TOUCH_INVERT_Y
-#define LZ_TOUCH_INVERT_Y 1
-#endif
+/* GT911 reports panel-native portrait coordinates (240x320); the display runs
+ * landscape (rotation 1). The transform is runtime-adjustable so it can be
+ * calibrated live over serial (`touch ...`) without reflashing. */
+static int  g_touch_swap = 1;            /* swap X/Y (portrait->landscape) */
+static int  g_touch_invx = 0;
+static int  g_touch_invy = 1;
+static bool g_touch_debug = false;       /* log raw + mapped coords per touch */
+static volatile int g_touch_raw_x, g_touch_raw_y, g_touch_map_x, g_touch_map_y;
+
+extern "C" void lz_touch_set_transform(int swap, int invx, int invy)
+{
+    if(swap >= 0) g_touch_swap = swap ? 1 : 0;
+    if(invx >= 0) g_touch_invx = invx ? 1 : 0;
+    if(invy >= 0) g_touch_invy = invy ? 1 : 0;
+}
+extern "C" void lz_touch_set_debug(bool on) { g_touch_debug = on; }
+extern "C" int  lz_touch_info(char *buf, int n)
+{
+    return snprintf(buf, n, "swap=%d invx=%d invy=%d  last raw=(%d,%d) -> (%d,%d)  debug=%s",
+                    g_touch_swap, g_touch_invx, g_touch_invy,
+                    g_touch_raw_x, g_touch_raw_y, g_touch_map_x, g_touch_map_y,
+                    g_touch_debug ? "on" : "off");
+}
 
 /* ---- LovyanGFX config for the LilyGO T-Deck ST7789V (landscape 320x240) ----
  * ST7789 on the shared SPI bus (SCK40/MOSI41/MISO38), CS12/DC11, invert on,
@@ -194,19 +205,19 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
         if(gt911_read(0x8150, p, 4)) {           /* first point: x lo/hi, y lo/hi */
             int tx = p[0] | (p[1] << 8);
             int ty = p[2] | (p[3] << 8);
-#if LZ_TOUCH_SWAP_XY
-            int sx = ty, sy = tx;
-#else
-            int sx = tx, sy = ty;
-#endif
-#if LZ_TOUCH_INVERT_X
-            sx = LZ_W - 1 - sx;
-#endif
-#if LZ_TOUCH_INVERT_Y
-            sy = LZ_H - 1 - sy;
-#endif
+            int sx = g_touch_swap ? ty : tx;
+            int sy = g_touch_swap ? tx : ty;
+            if(g_touch_invx) sx = LZ_W - 1 - sx;
+            if(g_touch_invy) sy = LZ_H - 1 - sy;
             if(sx < 0) sx = 0; if(sx >= LZ_W) sx = LZ_W - 1;
             if(sy < 0) sy = 0; if(sy >= LZ_H) sy = LZ_H - 1;
+            g_touch_raw_x = tx; g_touch_raw_y = ty;
+            g_touch_map_x = sx; g_touch_map_y = sy;
+            if(g_touch_debug) {
+                static uint32_t last_log;
+                if(millis() - last_log > 150) { last_log = millis();
+                    Serial.printf("[touch] raw=(%d,%d) -> screen=(%d,%d)\n", tx, ty, sx, sy); }
+            }
             last_x = sx;
             last_y = sy;
             data->point.x = sx;
