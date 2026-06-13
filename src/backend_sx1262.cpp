@@ -238,6 +238,11 @@ static void broadcast_nodeinfo(void)
 void lz_backend_init(void)
 {
     g_boot_ms = millis();
+    /* hard-reset the SX1262 before begin (working examples do this; without
+     * it begin() can spin on BUSY up to a multi-second SPI timeout) */
+    pinMode(PIN_LORA_RESET, OUTPUT);
+    digitalWrite(PIN_LORA_RESET, LOW);  delay(10);
+    digitalWrite(PIN_LORA_RESET, HIGH); delay(10);
     int st = radio.begin(RF_FREQ_MHZ, RF_BW_KHZ, RF_SF, RF_CR,
                          RF_SYNCWORD, RF_TX_DBM, RF_PREAMBLE, RF_TCXO_V);
     g_begin_state = st;

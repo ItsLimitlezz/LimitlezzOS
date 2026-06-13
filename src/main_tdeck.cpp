@@ -3,11 +3,11 @@
  *
  * Bring-up (spec phase 1.0/1.4 — UI portion):
  *   - board power rail (GPIO 10 must go HIGH before peripherals respond)
- *   - ST7789 320x240 over SPI via TFT_eSPI (pins in platformio.ini)
+ *   - ST7789 320x240 over SPI via LovyanGFX (config below — the driver
+ *     Meshtastic uses on the T-Deck; manages the shared SPI bus cleanly)
  *   - I2C keyboard (ESP32-C3 slave @ 0x55) — returns one ASCII char per poll
  *   - trackball: 4 direction pins pulse on roll; click on GPIO 0
- *   - touch: GT911 capacitive @ 0x5D (alt 0x14), INT GPIO 16 — pins per the
- *     Meshtastic firmware t-deck variant; polled, no INT/RST handshake
+ *   - touch: GT911 capacitive @ 0x5D (alt 0x14), INT GPIO 16
  *
  * Radio stacks, Lua VM, and the rest of the backend land behind the
  * mock data layer in src/ui/data.c (spec phases 1.3+).
@@ -18,7 +18,8 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
-#include <TFT_eSPI.h>
+#define LGFX_USE_V1
+#include <LovyanGFX.hpp>
 #include "lvgl.h"
 #include "ui/ui.h"
 #include "services/mesh.h"
@@ -65,7 +66,50 @@
 #define LZ_TOUCH_INVERT_Y 1
 #endif
 
-static TFT_eSPI tft;
+/* ---- LovyanGFX config for the LilyGO T-Deck ST7789V (landscape 320x240) ----
+ * ST7789 on the shared SPI bus (SCK40/MOSI41/MISO38), CS12/DC11, invert on,
+ * bus_shared so it coexists with SD + LoRa. Matches Meshtastic's T-Deck LGFX. */
+class LGFX : public lgfx::LGFX_Device {
+    lgfx::Panel_ST7789 _panel;
+    lgfx::Bus_SPI      _bus;
+public:
+    LGFX() {
+        { auto c = _bus.config();
+          c.spi_host    = SPI2_HOST;     /* FSPI */
+          c.spi_mode    = 0;
+          c.freq_write  = 40000000;
+          c.freq_read   = 16000000;
+          c.spi_3wire   = false;
+          c.use_lock    = true;
+          c.dma_channel = SPI_DMA_CH_AUTO;
+          c.pin_sclk    = 40;
+          c.pin_mosi    = 41;
+          c.pin_miso    = 38;
+          c.pin_dc      = 11;
+          _bus.config(c);
+          _panel.setBus(&_bus);
+        }
+        { auto c = _panel.config();
+          c.pin_cs          = 12;
+          c.pin_rst         = -1;
+          c.pin_busy        = -1;
+          c.panel_width     = 240;
+          c.panel_height    = 320;
+          c.offset_x        = 0;
+          c.offset_y        = 0;
+          c.offset_rotation = 0;
+          c.readable        = false;
+          c.invert          = true;      /* T-Deck panel needs INVON */
+          c.rgb_order       = false;
+          c.dlen_16bit      = false;
+          c.bus_shared      = true;      /* shares the bus with SD + LoRa */
+          _panel.config(c);
+        }
+        setPanel(&_panel);
+    }
+};
+
+static LGFX lcd;
 static lv_color_t draw_buf_mem[LZ_W * 40];
 
 extern "C" uint32_t lz_tick_ms(void) { return millis(); }
@@ -74,10 +118,10 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 {
     uint32_t w = area->x2 - area->x1 + 1;
     uint32_t h = area->y2 - area->y1 + 1;
-    tft.startWrite();
-    tft.setAddrWindow(area->x1, area->y1, w, h);
-    tft.pushColors((uint16_t *)px, w * h, true);
-    tft.endWrite();
+    lcd.startWrite();
+    lcd.setAddrWindow(area->x1, area->y1, w, h);
+    lcd.writePixels((lgfx::rgb565_t *)px, w * h);
+    lcd.endWrite();
     lv_disp_flush_ready(drv);
 }
 
@@ -180,7 +224,10 @@ static bool kb_present;
 void setup()
 {
     Serial.begin(115200);
-    delay(300);
+    /* native USB CDC: give the host a moment to enumerate so the early boot
+     * lines aren't lost (don't block forever if running headless on battery) */
+    for(int i = 0; i < 40 && !Serial; i++) delay(25);
+    delay(200);
     Serial.println("\n=== LimitlezzOS boot ===");
 
     /* 1) master power rail FIRST — without this the display/SD/radio/keyboard
@@ -202,16 +249,24 @@ void setup()
     SPI.begin(BOARD_SPI_SCK, BOARD_SPI_MISO, BOARD_SPI_MOSI);
     Serial.println("[ok] shared SPI bus up (SCK40/MISO38/MOSI41)");
 
-    /* 4) backlight PWM, then display */
+    /* 4) display (LovyanGFX owns the bus transactions; bus_shared=true) */
+    lcd.init();
+    lcd.setRotation(1);                  /* landscape 320x240, keyboard at bottom */
+    lcd.fillScreen(0x0000);
+    /* backlight: LEDC is the SOLE owner of GPIO42, set up AFTER the display so
+     * nothing else can detach it (the dual-owner bug). Full on now — before
+     * SD/radio init — so a later stall never looks like a dead screen. */
     ledcSetup(BL_LEDC_CH, BL_LEDC_FREQ, BL_LEDC_BITS);
     ledcAttachPin(BOARD_BL_PIN, BL_LEDC_CH);
-    backlight_set(0);                    /* keep dark until the first frame */
-
-    tft.init();
-    tft.setRotation(1);                  /* landscape 320x240, keyboard at bottom */
-    tft.setSwapBytes(true);
-    tft.fillScreen(TFT_BLACK);
-    Serial.println("[ok] ST7789 display init");
+    backlight_set(100);
+    /* boot self-test: a brief R/G/B flash (RGB565). Seeing colors => panel +
+     * backlight + color order are good and any later black is the UI layer;
+     * staying black => display init or backlight. */
+    lcd.fillScreen(0xF800); delay(250);   /* red   */
+    lcd.fillScreen(0x07E0); delay(250);   /* green */
+    lcd.fillScreen(0x001F); delay(250);   /* blue  */
+    lcd.fillScreen(0x0000);
+    Serial.println("[ok] ST7789 display init + backlight on (R/G/B test shown)");
 
     lv_init();
     static lv_disp_draw_buf_t draw_buf;
@@ -256,7 +311,7 @@ void setup()
     /* 7) SD card (shared bus) hosts the message store; RAM-only if absent */
     digitalWrite(BOARD_TFT_CS, HIGH); digitalWrite(RADIO_CS, HIGH);
     const char *datadir = NULL;
-    if(SD.begin(SDCARD_CS, SPI)) { datadir = "/sd/limitlezz"; SD.mkdir("/sd/limitlezz"); }
+    if(SD.begin(SDCARD_CS, SPI, 4000000U)) { datadir = "/sd/limitlezz"; SD.mkdir("/sd/limitlezz"); }
     Serial.printf("[%s] microSD %s\n", datadir ? "ok" : "--",
                   datadir ? "mounted -> /sd/limitlezz" : "absent (RAM-only this session)");
 
