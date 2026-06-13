@@ -55,6 +55,9 @@ font tables, no images, no gradients, no alpha layering.
 6. **Message delivery status** — show Delivered / Failed (via ROUTING_APP acks);
    long-press your own failed message to resend, resetting its status until it's
    determined delivered or failed.
+7. **List virtualization** — node/contact/message lists recycle off-screen rows
+   (only the visible window has objects) so a full 250-node DB doesn't exhaust
+   the LVGL object pool.
 
 ### 🔭 Later
 - **MeshCore**: receive + default Public channel, then a MeshCore companion bridge.
