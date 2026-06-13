@@ -84,6 +84,12 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   (`/limitlezz/wifi.cfg`) — move to NVS or encrypt (covered by the above when a
   password is set).
 
+## Audit and completion plan
+
+- [`docs/tdeck-firmware-audit.md`](docs/tdeck-firmware-audit.md) - current firmware audit and risk list.
+- [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
+- [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
+
 ![screens](docs/screens.png)
 
 ## Layout
