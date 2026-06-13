@@ -25,6 +25,11 @@
 extern "C" void lz_store_save_mc_key(const uint8_t *prv32);
 extern "C" bool lz_store_load_mc_key(uint8_t *prv32);
 
+/* Meshtastic companion bridge (mt_companion.cpp) */
+extern "C" void lz_mtc_forward(uint32_t from, uint32_t to, uint32_t id, uint32_t chan,
+                               uint8_t portnum, const uint8_t *payload, int plen,
+                               float snr, uint32_t rxtime, int hop_limit);
+
 /* ---- T-Deck SX1262 pin map (variant.h) ---- */
 #define PIN_LORA_NSS    9
 #define PIN_LORA_DIO1   45
@@ -221,6 +226,10 @@ static void handle_rx_mt(void)
         if(mt_data_decode(dec, dl, &d)) {
             int hops_used = (int)f.hop_start - (int)f.hop_limit;
             if(hops_used < 0) hops_used = 0;
+            /* companion mode: hand the whole decoded packet to the phone app */
+            if(lz_mtc_active())
+                lz_mtc_forward(f.from, f.to, f.id, 0, d.portnum, d.payload, d.plen,
+                               snr, lz_svc_epoch(), f.hop_limit);
             if(d.portnum == MT_PORT_TEXT && d.plen) {
                 char text[LZ_TEXT_MAX];
                 int tl = d.plen < (int)sizeof text - 1 ? d.plen : (int)sizeof text - 1;

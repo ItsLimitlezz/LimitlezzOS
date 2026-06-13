@@ -159,6 +159,9 @@ void lz_backend_set_tx_power(int dbm);  /* live TX power change */
 void lz_backend_set_networks(bool mt, bool mc);  /* drive the TDM schedule */
 bool lz_backend_mc_advert_now(bool flood);       /* send a MeshCore self-advert (flood/zero-hop) */
 void lz_backend_mc_addr(char *buf, int n);       /* our MeshCore address, e.g. "MC-978bbe5f" */
+/* companion bridge: USB serial speaks the Meshtastic app protocol when active */
+bool lz_mtc_active(void);
+void lz_mtc_set_active(bool on);
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);

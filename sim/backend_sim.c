@@ -62,3 +62,6 @@ void lz_backend_set_tx_power(int dbm) { (void)dbm; }   /* no real radio in the s
 void lz_backend_set_networks(bool mt, bool mc) { (void)mt; (void)mc; }  /* no TDM in the sim */
 bool lz_backend_mc_advert_now(bool flood) { (void)flood; return true; }  /* sim: pretend sent */
 void lz_backend_mc_addr(char *buf, int n) { snprintf(buf, n, "MC-1ec77175"); }
+static bool g_sim_companion;
+bool lz_mtc_active(void) { return g_sim_companion; }                     /* no real bridge in the sim */
+void lz_mtc_set_active(bool on) { g_sim_companion = on; }

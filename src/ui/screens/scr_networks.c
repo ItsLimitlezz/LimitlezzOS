@@ -16,6 +16,14 @@ static void open_contact(int idx)
 
 static void open_longfast(int idx) { (void)idx; lz_open_convo(lz_svc_channel_thread()); }
 
+/* Companion mode: USB serial becomes a Meshtastic-app radio link. idx 0 is the
+ * toggle row; heard nodes follow at 1+. */
+static void mt_nodes_activate(int idx)
+{
+    if(idx == 0) { lz_mtc_set_active(!lz_mtc_active()); lz_rebuild(); return; }
+    open_contact(idx - 1);
+}
+
 /* MeshCore self-advertise (so other nodes discover us). idx 0 = zero-hop
  * (neighbors only), idx 1 = flood (mesh-wide); idx 2+ open a heard node. */
 static const char *g_mc_note;   /* transient confirmation under the buttons */
@@ -170,12 +178,30 @@ void lz_scr_meshtastic(lv_obj_t *root)
             if(nodes[i].net == LZ_NET_MT && nodes[i].num != me->num)
                 vis_nodes[vis_count++] = (lz_node_rt *)&nodes[i];
 
+        /* companion mode toggle (focus 0): USB acts as a Meshtastic-app radio */
+        {
+            lv_obj_t *crow = lz_row(body, 0 == S.focus);
+            lv_obj_set_style_radius(crow, 10, 0);
+            lv_obj_set_style_pad_column(crow, 8, 0);
+            lz_icon(crow, LZ_I_LAN, &lz_icons_16f, LZ_CYAN);
+            lv_obj_t *cc = lz_box(crow);
+            lv_obj_set_flex_grow(cc, 1);
+            lv_obj_set_height(cc, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(cc, LV_FLEX_FLOW_COLUMN);
+            lz_text(cc, "Companion mode", LZ_F_BODY, LZ_TEXT);
+            lz_text(cc, lz_mtc_active() ? "USB is driving the Meshtastic app"
+                                        : "Pair with the Meshtastic app over USB",
+                    LZ_F_SMALL, lv_color_hex(0x838A93));
+            lz_toggle(crow, lz_mtc_active(), LZ_TOGGLE_ON);
+            lz_nav_track(crow, 0);
+        }
+
         for(int i = 0; i < vis_count; i++) {
             lz_node_rt *n = vis_nodes[i];
             char ago[8], snrs[8];
             lz_fmt_ago(n->last_heard, ago, sizeof ago);
             snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
-            lv_obj_t *row = lz_row(body, i == S.focus);
+            lv_obj_t *row = lz_row(body, i + 1 == S.focus);
             lv_obj_set_style_radius(row, 10, 0);
             lv_obj_set_style_pad_column(row, 8, 0);
 
@@ -211,9 +237,9 @@ void lz_scr_meshtastic(lv_obj_t *root)
             lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
             lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
             lz_text(r, "SNR", LZ_F_SMALL, LZ_TEXT_3);
-            lz_nav_track(row, i);
+            lz_nav_track(row, i + 1);   /* focus 0 is the companion toggle */
         }
-        lz_nav_set(1, vis_count, open_contact);
+        lz_nav_set(1, vis_count + 1, mt_nodes_activate);
     } else {
         /* LongFast (Primary) is the live broadcast channel — tap to open it
          * and message everyone nearby. Emergency is shown but not yet wired. */

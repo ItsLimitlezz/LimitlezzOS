@@ -118,6 +118,7 @@ extern "C" uint32_t lz_tick_ms(void) { return millis(); }
 
 void lz_cli_begin(void);                 /* serial console (serial_cli.cpp) */
 void lz_cli_poll(void);
+extern "C" void lz_mtc_poll(void);       /* Meshtastic companion bridge (mt_companion.cpp) */
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 {
@@ -464,7 +465,8 @@ void loop()
     if(input) g_last_input_ms = millis();
     kb_backlight_update();
 
-    lz_cli_poll();                       /* serial command console */
+    if(lz_mtc_active()) lz_mtc_poll();   /* companion mode: USB speaks the Meshtastic app protocol */
+    else lz_cli_poll();                  /* otherwise: the text command console */
     lz_svc_loop();
     static int last_wifi = -1;
     lz_wifi_loop();

@@ -22,6 +22,7 @@ extern "C" void lz_backend_mc_tune(float freq, float bw, int sf, int cr, int syn
 extern "C" int  lz_backend_mc_id(char *buf, int n)        __attribute__((weak));
 extern "C" bool lz_backend_mc_advert_now(bool flood)      __attribute__((weak));
 extern "C" int  lz_backend_mc_selftest(char *buf, int n)  __attribute__((weak));
+extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
 
 static char    g_line[160];
 static uint8_t g_len;
@@ -44,6 +45,8 @@ static void cmd_help(void)
         "  mc                   show our MeshCore identity (pubkey)\n"
         "  mc advert [local]    broadcast a MeshCore self-advert (flood, or zero-hop)\n"
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
+        "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
+        "  companion test       loopback-verify the companion protocol\n"
         "  nodes                list heard nodes\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
@@ -159,6 +162,23 @@ static void cmd_mc(char *args)
     }
 }
 
+static void cmd_companion(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        if(lz_mtc_selftest) { char b[160]; lz_mtc_selftest(b, sizeof b); Serial.println(b); }
+        else Serial.println("[--] not present");
+        return;
+    }
+    if(args && strcmp(args, "on") == 0) {
+        Serial.println("[ok] companion mode ON - USB now speaks the Meshtastic app protocol");
+        Serial.println("     (text console returns after 'companion off' or reboot)");
+        lz_mtc_set_active(true);
+        return;
+    }
+    if(args && strcmp(args, "off") == 0) { lz_mtc_set_active(false); Serial.println("[ok] companion mode OFF"); return; }
+    Serial.printf("companion mode: %s  (on|off|test)\n", lz_mtc_active() ? "ON" : "off");
+}
+
 static void cmd_nodes(void)
 {
     const lz_node_rt *nodes;
@@ -238,6 +258,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "net"))     cmd_net(args);
     else if(!strcmp(line, "rf"))      cmd_rf(args);
     else if(!strcmp(line, "mc"))      cmd_mc(args);
+    else if(!strcmp(line, "companion")) cmd_companion(args);
     else if(!strcmp(line, "nodes"))   cmd_nodes();
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();
