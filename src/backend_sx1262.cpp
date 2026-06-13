@@ -280,6 +280,8 @@ static void handle_rx_mt(void)
                 parse_user(d.payload, d.plen, f.from, snr);
                 /* a targeted NodeInfo request -> reply with ours (incl. our key) */
                 if(d.want_response && f.to == me) send_nodeinfo(f.from, false);
+            } else if(d.portnum == MT_PORT_ROUTING && d.request_id) {
+                lz_core_on_ack(d.request_id);   /* delivery ack for one of our DMs */
             }
         }
     }

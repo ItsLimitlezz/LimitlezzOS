@@ -108,6 +108,12 @@ static void convo_header_cb(lv_event_t *e)
     lz_node_rt *n = (lz_node_rt *)lv_event_get_user_data(e);
     if(n) lv_async_call(open_profile_async, n);
 }
+/* long-press a failed (red) sent bubble -> resend it */
+static void resend_async(void *p) { if(lz_svc_resend((int)(intptr_t)p)) lz_rebuild(); }
+static void resend_cb(lv_event_t *e)
+{
+    lv_async_call(resend_async, lv_event_get_user_data(e));
+}
 
 void lz_scr_messages(lv_obj_t *root)
 {
@@ -383,12 +389,23 @@ void lz_scr_convo(lv_obj_t *root)
         lv_obj_set_width(bub, LV_SIZE_CONTENT);
         lv_obj_set_style_max_width(bub, (LZ_W * 74) / 100, 0);
         lv_obj_set_style_radius(bub, 13, 0);
-        lv_obj_set_style_bg_color(bub, self ? LZ_SELF_BUBBLE : LZ_BUBBLE_IN, 0);
+        /* delivery status colors a sent DM bubble: green=sending, blue=delivered,
+         * red=failed; channel/historical sent stay the default teal */
+        lv_color_t bg = self ? LZ_SELF_BUBBLE : LZ_BUBBLE_IN;
+        bool status_color = false;
+        if(self) switch(msgs[i].status) {
+            case LZ_MSG_SENDING:   bg = lv_color_hex(0x2E8B43); status_color = true; break;  /* green */
+            case LZ_MSG_DELIVERED: bg = lv_color_hex(0x1E6FD0); status_color = true; break;  /* blue */
+            case LZ_MSG_FAILED:    bg = lv_color_hex(0xC9402F); status_color = true; break;  /* red */
+            default: break;
+        }
+        lv_obj_set_style_bg_color(bub, bg, 0);
         lv_obj_set_style_bg_opa(bub, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_hor(bub, 9, 0);
         lv_obj_set_style_pad_ver(bub, 6, 0);
         lv_obj_t *bl = lz_text(bub, txt, LZ_F_BODY,
-                               self ? LZ_ON_MINT : lv_color_hex(0xE3E7EC));
+                               (self && status_color) ? lv_color_white()
+                               : self ? LZ_ON_MINT : lv_color_hex(0xE3E7EC));
         /* LVGL 8 labels only wrap at a fixed width: measure, clamp, wrap */
         lv_point_t tsz;
         lv_txt_get_size(&tsz, txt, LZ_F_BODY, 0, 0, LV_COORD_MAX, 0);
@@ -402,9 +419,23 @@ void lz_scr_convo(lv_obj_t *root)
             lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(bub, channel_longpress_cb, LV_EVENT_LONG_PRESSED, NULL);
         }
+        /* long-press a failed (red) sent bubble to resend it */
+        if(self && msgs[i].status == LZ_MSG_FAILED) {
+            lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(bub, resend_cb, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
+        }
 
-        char ts[12]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
-        lz_text(col, ts, LZ_F_SMALL, lv_color_hex(0x6B727B));
+        /* status line under a sent DM bubble */
+        char ts[16]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
+        const char *st = "";
+        if(self) switch(msgs[i].status) {
+            case LZ_MSG_SENDING:   st = " · sending"; break;
+            case LZ_MSG_DELIVERED: st = " · delivered"; break;
+            case LZ_MSG_FAILED:    st = " · failed - hold to resend"; break;
+            default: break;
+        }
+        char tl[40]; snprintf(tl, sizeof tl, "%s%s", ts, st);
+        lz_text(col, tl, LZ_F_SMALL, lv_color_hex(0x6B727B));
     }
 
     /* read-only thread (MeshCore in Stage 1, infrastructure): no composer */

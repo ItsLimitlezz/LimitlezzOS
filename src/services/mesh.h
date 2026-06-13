@@ -63,10 +63,16 @@ typedef struct {
     bool     is_channel;         /* true = broadcast channel (e.g. LongFast) */
 } lz_thread_rt;
 
+/* delivery status for our own DMs (RAM-only, not persisted) */
+enum { LZ_MSG_NONE = 0, LZ_MSG_SENDING, LZ_MSG_DELIVERED, LZ_MSG_FAILED };
+
 typedef struct {
     bool     self;
     uint32_t ts;
     char     text[LZ_TEXT_MAX];
+    uint8_t  status;             /* LZ_MSG_* — sent DMs only */
+    uint32_t pkt_id;             /* packet id, to match the ROUTING ack */
+    uint32_t sent_ms;            /* lz_tick_ms() at send, for ack timeout */
 } lz_msg_rt;
 
 /* ---- lifecycle ---- */
@@ -94,6 +100,7 @@ lz_thread_rt *lz_svc_channel_thread(void);              /* LongFast broadcast ch
 void lz_svc_open_thread(lz_thread_rt *t);               /* load tail, clear unread */
 int  lz_svc_tail(const lz_msg_rt **out);                /* tail of the open thread */
 bool lz_svc_send_text(lz_thread_rt *t, const char *text);
+bool lz_svc_resend(int tail_idx);     /* retry a failed sent DM (long-press) */
 
 /* ---- radio stats (airtime accounting) ---- */
 typedef struct { uint32_t tx_count, rx_count; float util_pct; } lz_radio_stats_t;

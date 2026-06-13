@@ -432,35 +432,36 @@ void lz_svc_open_thread(lz_thread_rt *t)
 
 int lz_svc_tail(const lz_msg_rt **out) { *out = g_tail; return g_tail_count; }
 
-static void tail_push(bool self, const char *text, uint32_t ts)
+static void tail_push(bool self, const char *text, uint32_t ts, uint8_t status, uint32_t pkt_id)
 {
-    if(g_tail_count < LZ_TAIL_MAX) {
-        lz_msg_rt *m = &g_tail[g_tail_count++];
-        m->self = self; m->ts = ts;
-        snprintf(m->text, sizeof m->text, "%s", text);
-    } else {
-        memmove(&g_tail[0], &g_tail[1], sizeof(lz_msg_rt) * (LZ_TAIL_MAX - 1));
-        lz_msg_rt *m = &g_tail[LZ_TAIL_MAX - 1];
-        m->self = self; m->ts = ts;
-        snprintf(m->text, sizeof m->text, "%s", text);
-    }
+    lz_msg_rt *m;
+    if(g_tail_count < LZ_TAIL_MAX) m = &g_tail[g_tail_count++];
+    else { memmove(&g_tail[0], &g_tail[1], sizeof(lz_msg_rt) * (LZ_TAIL_MAX - 1));
+           m = &g_tail[LZ_TAIL_MAX - 1]; }
+    memset(m, 0, sizeof *m);
+    m->self = self; m->ts = ts;
+    m->status = status; m->pkt_id = pkt_id; m->sent_ms = lz_tick_ms();
+    snprintf(m->text, sizeof m->text, "%s", text);
 }
 
 bool lz_svc_send_text(lz_thread_rt *t, const char *text)
 {
     if(!t || !text[0] || !t->messageable) return false;
     uint32_t ts = now_epoch();
+    uint32_t pid = lz_tick_ms(); if(!pid) pid = 1;
+    bool track = !t->is_channel;          /* DMs get delivery status; channels don't */
+    uint8_t status = track ? LZ_MSG_SENDING : LZ_MSG_NONE;
     lz_msg_rt m = { .self = true, .ts = ts };
     snprintf(m.text, sizeof m.text, "%s", text);
     lz_store_append(t->addr, &m);
-    if(g_open == t) tail_push(true, text, ts);
+    if(g_open == t) tail_push(true, text, ts, status, pid);
     touch_thread_meta(t, text, ts, false);
 
     lz_mt_packet_t p;
     memset(&p, 0, sizeof p);
     p.to = t->node_num;                  /* LZ_BROADCAST for the channel */
     p.from = g_id.num;
-    p.id = lz_tick_ms();
+    p.id = pid;
     p.hop_limit = 3;
     p.hop_start = 3;
     p.want_ack = !t->is_channel;          /* broadcasts are not ACKed */
@@ -473,6 +474,27 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
 
     reorder_threads();
     lz_store_save_threads(g_threads, g_thread_count);
+    mark_dirty();
+    return true;
+}
+
+/* resend a failed sent DM (long-press): reset to SENDING with a new id + retx */
+bool lz_svc_resend(int tail_idx)
+{
+    if(!g_open || tail_idx < 0 || tail_idx >= g_tail_count) return false;
+    lz_msg_rt *m = &g_tail[tail_idx];
+    if(!m->self || m->status != LZ_MSG_FAILED) return false;
+    uint32_t pid = lz_tick_ms(); if(!pid) pid = 1;
+    m->pkt_id = pid; m->sent_ms = lz_tick_ms(); m->status = LZ_MSG_SENDING;
+
+    lz_mt_packet_t p;
+    memset(&p, 0, sizeof p);
+    p.to = g_open->node_num; p.from = g_id.num; p.id = pid;
+    p.hop_limit = 3; p.hop_start = 3; p.want_ack = !g_open->is_channel; p.portnum = 1;
+    size_t len = strlen(m->text);
+    if(len > sizeof p.payload) len = sizeof p.payload;
+    memcpy(p.payload, m->text, len); p.plen = (uint8_t)len;
+    lz_backend_send(&p);
     mark_dirty();
     return true;
 }
@@ -516,7 +538,7 @@ void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used
     lz_msg_rt m = { .self = false, .ts = ts };
     snprintf(m.text, sizeof m.text, "%s", stored);
     lz_store_append(t->addr, &m);
-    if(g_open == t) tail_push(false, stored, ts);
+    if(g_open == t) tail_push(false, stored, ts, LZ_MSG_NONE, 0);
     touch_thread_meta(t, stored, ts, g_open != t);
 
     reorder_threads();
@@ -587,7 +609,29 @@ bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32])
     return true;
 }
 
-void lz_core_on_ack(uint32_t request_id) { (void)request_id; }
+/* a ROUTING ack came back for one of our sent DMs -> mark it delivered */
+void lz_core_on_ack(uint32_t request_id)
+{
+    for(int i = 0; i < g_tail_count; i++)
+        if(g_tail[i].self && g_tail[i].pkt_id == request_id &&
+           (g_tail[i].status == LZ_MSG_SENDING || g_tail[i].status == LZ_MSG_FAILED)) {
+            g_tail[i].status = LZ_MSG_DELIVERED;
+            mark_dirty();
+            return;
+        }
+}
+
+/* expire un-acked DMs (call from the service loop): SENDING -> FAILED after ~30s */
+static void age_sent_status(void)
+{
+    uint32_t now = lz_tick_ms();
+    for(int i = 0; i < g_tail_count; i++)
+        if(g_tail[i].self && g_tail[i].status == LZ_MSG_SENDING &&
+           now - g_tail[i].sent_ms > 30000) {
+            g_tail[i].status = LZ_MSG_FAILED;
+            mark_dirty();
+        }
+}
 
 /* ---------- demo seed (matches the design's sample data) ---------- */
 
@@ -626,6 +670,7 @@ void lz_svc_init(const char *datadir, bool seed_demo)
 void lz_svc_loop(void)
 {
     lz_backend_loop();
+    age_sent_status();        /* SENDING -> FAILED after the ack timeout */
 }
 
 void lz_svc_radio_stats(lz_radio_stats_t *out) { lz_backend_stats(out); }
