@@ -12,45 +12,51 @@ follows the design handoff (`docs/design/`) exactly as the master spec
 prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
 font tables, no images, no gradients, no alpha layering.
 
-> ⚠️ **This is an ALPHA TEST.** It runs on real hardware and the core
-> Meshtastic experience is usable, but several features are unfinished or
-> broken (see below). **MeshCore is actively in testing.** Status reflects
-> hands-on hardware testing as of **2026-06-13**.
+> ⚠️ **This is an ALPHA TEST (0.2).** It runs on real hardware and the core
+> Meshtastic experience is usable, but some features are still unfinished (see
+> below). The near-term goal is to make this a great **Meshtastic** OS — on par
+> with the official device UI (MUI) — before fully building out **MeshCore**.
+> Status reflects hands-on hardware testing as of **2026-06-13**.
 
 ## Alpha status
 
 ### ✅ Working (hardware-tested)
 - **Display, screens & navigation** — renders cleanly, tear-free, screen-to-screen nav.
 - **Trackball + QWERTY keyboard** — focus, scroll, typing, back gesture.
-- **Touchscreen** — tapping items/tabs/buttons (but see calibration issue below).
-- **Clock** — status-bar time, NTP sync over Wi-Fi, named timezone picker, automatic DST (US/EU).
+- **Touchscreen** — tap items/tabs/buttons/toggles; **3-tap on-screen calibration** (Settings → Calibrate touch) that any T-Deck can run, persisted across reboot.
+- **Clock** — status-bar time, NTP sync over Wi-Fi, named timezone picker, automatic DST (US/EU), **12-hour (AM/PM) or 24-hour** format.
 - **Meshtastic channel messaging (LongFast)** — send **and** receive on the public channel.
 - **Node discovery** — heard nodes list (name, SNR, last-heard).
 - **Message history** — persists across leaving a chat and across reboots (SD card).
+- **Compose** — long drafts scroll within the input box instead of overflowing.
 - **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget.
 - **Battery & charging** — live percentage + charge state; System page telemetry.
 - **Keyboard backlight** — Auto / On / Off (I²C).
 - **Sleep & power saving** — idle dim/sleep, CPU down-clock.
-- **MeshCore self-advert (TX)** — signed Ed25519 advert broadcasts (flood + zero-hop); persistent identity.
+- **MeshCore self-advert (TX)** — signed Ed25519 advert broadcasts (flood + zero-hop); persistent identity; Advertise buttons only shown when MeshCore is on.
 - **Split airtime (TDM)** — both networks on → SX1262 alternates MC↔MT every 500 ms; one on → 100%.
+- **Serial console** — USB-CDC command shell for control + diagnostics (`help`, `time`, `tz`, `net`, `rf`, `mc`, `companion`, `touch`, …).
 
 ### 🧪 In testing
-- **MeshCore (whole network path)** — adverts transmit, but **receiving is not working**:
-  no public channel visible, can't see/send/receive MeshCore messages yet.
 - **Companion bridge (Meshtastic over USB)** — protocol self-test passes on-device,
-  but **not yet connecting to the official app** in practice.
+  but **not yet connecting to the official app** (needs the Config/ModuleConfig
+  messages the app waits for).
+- **MeshCore (whole network path)** — adverts transmit + remote nodes decode, but
+  **receiving is not working yet**: no Public channel, can't see/send/receive
+  MeshCore messages.
 
-### ❌ Known issues / backlog (next session)
-- **Meshtastic DMs broken** — direct-message send *and* receive don't work (only the channel does).
-- **MeshCore receive broken** — no Public channel shown; can't see, send, or receive MeshCore traffic.
-- **USB companion not connecting** to the Meshtastic app; **no BLE companion option** yet (neither network).
-- **Compose box overflow** — typing a long message runs past the input box; needs containment + scroll.
-- **Touch mis-registration** — taps sometimes hit the wrong row (e.g. open a chat instead of the target); wants a **screen calibration**.
-- **Clock format** — add a **12-hour (AM/PM) vs 24-hour** option.
+### 🛠️ Roadmap — make Meshtastic great (in priority order)
+1. **DM: tap the name at the top of a chat → open that contact's profile.**
+2. **Channel: long-press a message → sender's profile → Message / Add to contacts.**
+3. **Meshtastic DMs (send + receive)** — needs PKI (Curve25519 + AES-CCM), as
+   modern Meshtastic encrypts DMs per-recipient.
+4. **USB companion → connect to the official Meshtastic app** (add Config msgs).
+5. **BLE companion** — let phones connect wirelessly, not just over USB.
 
-**Future hardening**
-- **Wi-Fi password storage** — currently saved in plaintext on the SD card
-  (`/limitlezz/wifi.cfg`); move to NVS or encrypt it.
+### 🔭 Later
+- **MeshCore**: receive + default Public channel, then a MeshCore companion bridge.
+- **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
+  (`/limitlezz/wifi.cfg`) — move to NVS or encrypt.
 
 ![screens](docs/screens.png)
 
