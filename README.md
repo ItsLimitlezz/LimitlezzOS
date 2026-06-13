@@ -46,12 +46,15 @@ font tables, no images, no gradients, no alpha layering.
   MeshCore messages.
 
 ### 🛠️ Roadmap — make Meshtastic great (in priority order)
-1. **DM: tap the name at the top of a chat → open that contact's profile.**
-2. **Channel: long-press a message → sender's profile → Message / Add to contacts.**
+1. ✅ **DM: tap the name at the top of a chat → open that contact's profile.**
+2. ✅ **Channel: long-press a message → sender's profile → Message / Add to contacts.**
 3. **Meshtastic DMs (send + receive)** — needs PKI (Curve25519 + AES-CCM), as
-   modern Meshtastic encrypts DMs per-recipient.
+   modern Meshtastic encrypts DMs per-recipient. *(in progress)*
 4. **USB companion → connect to the official Meshtastic app** (add Config msgs).
 5. **BLE companion** — let phones connect wirelessly, not just over USB.
+6. **Message delivery status** — show Delivered / Failed (via ROUTING_APP acks);
+   long-press your own failed message to resend, resetting its status until it's
+   determined delivered or failed.
 
 ### 🔭 Later
 - **MeshCore**: receive + default Public channel, then a MeshCore companion bridge.
