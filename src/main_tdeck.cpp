@@ -286,14 +286,7 @@ void setup()
     ledcSetup(BL_LEDC_CH, BL_LEDC_FREQ, BL_LEDC_BITS);
     ledcAttachPin(BOARD_BL_PIN, BL_LEDC_CH);
     backlight_set(100);
-    /* boot self-test: a brief R/G/B flash (RGB565). Seeing colors => panel +
-     * backlight + color order are good and any later black is the UI layer;
-     * staying black => display init or backlight. */
-    lcd.fillScreen(0xF800); delay(250);   /* red   */
-    lcd.fillScreen(0x07E0); delay(250);   /* green */
-    lcd.fillScreen(0x001F); delay(250);   /* blue  */
-    lcd.fillScreen(0x0000);
-    Serial.println("[ok] ST7789 display init + backlight on (R/G/B test shown)");
+    Serial.println("[ok] ST7789 display init + backlight on");
 
     lv_init();
     static lv_disp_draw_buf_t draw_buf;
