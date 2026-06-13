@@ -260,6 +260,7 @@ void lz_scr_settings(lv_obj_t *root)
         } else {
             lz_toggle(row, on, is_mt ? LZ_TRACK_MT : LZ_TRACK_MC);
         }
+        lz_nav_track(row, i);   /* make the toggle respond to touch, not just the trackball */
     }
 
     /* --- grouped rows --- */

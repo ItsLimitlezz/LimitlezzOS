@@ -87,6 +87,7 @@ extern "C" bool lz_store_load_touch(int *swap, int *invx, int *invy);
 static volatile bool g_cal_pending;
 static volatile int  g_cal_px, g_cal_py;
 static bool g_touch_down;
+static bool g_ignore_touch;        /* swallow presses until the finger lifts (post-cal) */
 static int  g_cal_rx[3], g_cal_ry[3];
 
 static void touchcal_register(int rx, int ry)
@@ -108,6 +109,7 @@ static void touchcal_register(int rx, int ry)
     lz_store_save_touch(swap, invx, invy);
     Serial.printf("[ok] touch calibrated: swap=%d invx=%d invy=%d\n", swap, invx, invy);
     S.cal_step = 0;
+    g_ignore_touch = true;          /* don't let the finishing tap click the Settings screen */
     lz_back();
     lz_rebuild();
 }
@@ -252,19 +254,25 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
                     Serial.printf("[touch] raw=(%d,%d) -> screen=(%d,%d)\n", tx, ty, sx, sy); }
             }
             /* calibration: capture the raw coord once per touch-down */
-            if(S.view == LZ_V_TOUCHCAL && !g_touch_down && !g_cal_pending) {
+            bool cal = (S.view == LZ_V_TOUCHCAL);
+            if(cal && !g_touch_down && !g_cal_pending) {
                 g_cal_px = tx; g_cal_py = ty; g_cal_pending = true;
             }
             g_touch_down = true;
-            last_x = sx;
-            last_y = sy;
-            data->point.x = sx;
-            data->point.y = sy;
-            data->state = LV_INDEV_STATE_PRESSED;
             lz_note_activity();                  /* touch keeps the screen awake */
+            /* don't deliver calibration taps (or the lingering post-cal press)
+             * to the UI — they would otherwise click whatever's underneath */
+            if(!cal && !g_ignore_touch) {
+                last_x = sx;
+                last_y = sy;
+                data->point.x = sx;
+                data->point.y = sy;
+                data->state = LV_INDEV_STATE_PRESSED;
+            }
         }
     } else {
         g_touch_down = false;                    /* finger lifted */
+        g_ignore_touch = false;                  /* clear the post-cal swallow */
     }
     gt911_write8(0x814E, 0);                     /* ack: clear buffer status */
 }
