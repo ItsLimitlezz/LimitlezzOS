@@ -565,8 +565,10 @@ void lz_core_on_pubkey(uint32_t from, const uint8_t *pub32)
 {
     lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);
     if(!n) return;
+    if(n->has_key && memcmp(n->pubkey, pub32, 32) == 0) return;   /* unchanged */
     memcpy(n->pubkey, pub32, 32);
     n->has_key = true;
+    lz_store_save_nodes(g_nodes, g_node_count);   /* persist so DMs survive reboot */
 }
 
 bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32])

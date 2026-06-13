@@ -362,12 +362,15 @@ void lz_store_save_nodes(const lz_node_rt *nodes, int n)
     FILE *f = fopen(tmp, "w");
     if(!f) return;
     for(int i = 0; i < n; i++) {
-        fprintf(f, "%u|%s|%d|%s|%s|%d|%d|%u|%.1f|%s|%s|%s\n",
+        char pk[66];                         /* X25519 pubkey hex, or "-" */
+        if(nodes[i].has_key) { for(int j = 0; j < 32; j++) sprintf(pk + j * 2, "%02x", nodes[i].pubkey[j]); }
+        else { pk[0] = '-'; pk[1] = 0; }
+        fprintf(f, "%u|%s|%d|%s|%s|%d|%d|%u|%.1f|%s|%s|%s|%s\n",
                 (unsigned)nodes[i].num, nodes[i].id, (int)nodes[i].net,
                 nodes[i].role, nodes[i].hw, nodes[i].batt,
                 nodes[i].contact ? 1 : 0, (unsigned)nodes[i].last_heard,
                 (double)nodes[i].snr, nodes[i].dist,
-                nodes[i].shortcode, nodes[i].name);
+                nodes[i].shortcode, nodes[i].name, pk);
     }
     fclose(f);
     remove(path);
@@ -381,7 +384,7 @@ int lz_store_load_nodes(lz_node_rt *out, int cap)
     path_for(path, sizeof path, "nodes.db");
     FILE *f = fopen(path, "r");
     if(!f) return 0;
-    char line[256];
+    char line[400];     /* room for the trailing 64-hex public key */
     int n = 0;
     while(n < cap && fgets(line, sizeof line, f)) {
         line[strcspn(line, "\r\n")] = 0;
@@ -389,7 +392,8 @@ int lz_store_load_nodes(lz_node_rt *out, int cap)
         char *num = field(&cur), *id = field(&cur), *net = field(&cur),
              *role = field(&cur), *hw = field(&cur), *batt = field(&cur),
              *contact = field(&cur), *heard = field(&cur), *snr = field(&cur),
-             *dist = field(&cur), *sc = field(&cur), *name = cur;
+             *dist = field(&cur), *sc = field(&cur), *name = field(&cur),
+             *pk = cur;       /* pubkey hex or "-" (NULL on old files = no key) */
         if(!num || !id || !net || !role || !hw || !batt || !contact || !heard ||
            !snr || !dist || !sc || !name)
             continue;
@@ -407,6 +411,15 @@ int lz_store_load_nodes(lz_node_rt *out, int cap)
         snprintf(nd->dist, sizeof nd->dist, "%s", dist);
         snprintf(nd->shortcode, sizeof nd->shortcode, "%s", sc);
         snprintf(nd->name, sizeof nd->name, "%s", name);
+        if(pk && pk[0] && pk[0] != '-' && strlen(pk) >= 64) {   /* restore X25519 key */
+            bool ok = true;
+            for(int j = 0; j < 32; j++) {
+                unsigned b;
+                if(sscanf(pk + j * 2, "%02x", &b) != 1) { ok = false; break; }
+                nd->pubkey[j] = (uint8_t)b;
+            }
+            nd->has_key = ok;
+        }
     }
     fclose(f);
     return n;

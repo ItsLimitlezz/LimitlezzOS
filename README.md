@@ -58,6 +58,8 @@ font tables, no images, no gradients, no alpha layering.
 7. **List virtualization** — node/contact/message lists recycle off-screen rows
    (only the visible window has objects) so a full 250-node DB doesn't exhaust
    the LVGL object pool.
+8. **Unread notifications + indicator** — notify on new messages and show an
+   unread badge/status indicator.
 
 ### 🔭 Later
 - **MeshCore**: receive + default Public channel, then a MeshCore companion bridge.
