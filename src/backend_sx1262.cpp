@@ -20,6 +20,7 @@
 #include "services/mesh.h"
 #include "services/mtproto.h"
 #include "services/mcproto.h"
+#include "mtpki.h"
 
 /* MeshCore identity persistence (store.c) */
 extern "C" void lz_store_save_mc_key(const uint8_t *prv32);
@@ -406,6 +407,7 @@ void lz_backend_init(void)
     radio.startReceive();
     g_ok = true;
     mc_identity_init();                  /* prepare our MeshCore Ed25519 identity */
+    lz_mtpki_init();                     /* prepare our Meshtastic X25519 (PKI DM) identity */
 }
 
 bool lz_backend_ok(void) { return g_ok; }

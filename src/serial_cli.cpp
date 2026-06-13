@@ -26,6 +26,7 @@ extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
 extern "C" void lz_touch_set_transform(int swap, int invx, int invy) __attribute__((weak));
 extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
 extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
+extern "C" int  lz_mtpki_selftest(char *buf, int n)       __attribute__((weak));
 
 static char    g_line[160];
 static uint8_t g_len;
@@ -51,6 +52,7 @@ static void cmd_help(void)
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
+        "  dm test              PKI direct-message crypto self-test (round-trip)\n"
         "  nodes                list heard nodes\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
@@ -164,6 +166,16 @@ static void cmd_mc(char *args)
     } else {
         Serial.println("[--] MeshCore not present in this build");
     }
+}
+
+static void cmd_dm(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        if(lz_mtpki_selftest) { char b[160]; lz_mtpki_selftest(b, sizeof b); Serial.println(b); }
+        else Serial.println("[--] PKI not present");
+        return;
+    }
+    Serial.println("usage: dm test   (PKI crypto round-trip self-test)");
 }
 
 static void cmd_touch(char *args)
@@ -286,6 +298,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "mc"))      cmd_mc(args);
     else if(!strcmp(line, "companion")) cmd_companion(args);
     else if(!strcmp(line, "touch"))   cmd_touch(args);
+    else if(!strcmp(line, "dm"))      cmd_dm(args);
     else if(!strcmp(line, "nodes"))   cmd_nodes();
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();

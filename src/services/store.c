@@ -291,6 +291,41 @@ bool lz_store_load_mc_key(uint8_t *prv32)
     return ok;
 }
 
+/* ---- Meshtastic PKI X25519 identity (32-byte private key, hex) ---- */
+
+void lz_store_save_mt_key(const uint8_t *prv32)
+{
+    if(!g_persist) return;
+    char path[128];
+    path_for(path, sizeof path, "mt_pki.txt");
+    FILE *f = fopen(path, "w");
+    if(!f) return;
+    for(int i = 0; i < 32; i++) fprintf(f, "%02x", prv32[i]);
+    fputc('\n', f);
+    fclose(f);
+}
+
+bool lz_store_load_mt_key(uint8_t *prv32)
+{
+    if(!g_persist) return false;
+    char path[128];
+    path_for(path, sizeof path, "mt_pki.txt");
+    FILE *f = fopen(path, "r");
+    if(!f) return false;
+    char hex[80];
+    bool ok = false;
+    if(fgets(hex, sizeof hex, f) && strlen(hex) >= 64) {
+        ok = true;
+        for(int i = 0; i < 32; i++) {
+            unsigned b;
+            if(sscanf(hex + i * 2, "%02x", &b) != 1) { ok = false; break; }
+            prv32[i] = (uint8_t)b;
+        }
+    }
+    fclose(f);
+    return ok;
+}
+
 /* ---- touch calibration transform (swap/invx/invy) ---- */
 
 void lz_store_save_touch(int swap, int invx, int invy)
