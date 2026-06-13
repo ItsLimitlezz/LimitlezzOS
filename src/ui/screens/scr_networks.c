@@ -108,7 +108,8 @@ void lz_scr_meshtastic(lv_obj_t *root)
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lz_text(right, "nodes", LZ_F_SMALL, LZ_TEXT_3);
-    lz_text(right, "5", LZ_F_TITLE, cyan_lt);
+    char mtn[6]; snprintf(mtn, sizeof mtn, "%d", lz_svc_node_count(LZ_NET_MT));
+    lz_text(right, mtn, LZ_F_TITLE, cyan_lt);
 
     /* tabs */
     lv_obj_t *tabs = lz_box(root);
@@ -262,7 +263,8 @@ void lz_scr_meshcore(lv_obj_t *root)
     lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lz_text(right, "contacts", LZ_F_SMALL, lv_color_hex(0x82796A));
-    lz_text(right, "4", LZ_F_TITLE, amber_lt);
+    char mcn[6]; snprintf(mcn, sizeof mcn, "%d", lz_svc_node_count(LZ_NET_MC));
+    lz_text(right, mcn, LZ_F_TITLE, amber_lt);
 
     /* tabs */
     lv_obj_t *tabs = lz_box(root);

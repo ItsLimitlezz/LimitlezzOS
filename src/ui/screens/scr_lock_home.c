@@ -12,13 +12,18 @@ void lz_scr_lock(lv_obj_t *root)
     lv_obj_set_style_bg_color(root, lv_color_hex(0x0B0E13), 0);
     lz_on_click(root, lock_tap);
 
-    /* top inset row: networks left, battery right */
+    /* top inset row: active networks left, battery right */
     lv_obj_t *hub = lz_icon(root, LZ_I_HUB, &lz_icons_14, LZ_CYAN);
     lv_obj_align(hub, LV_ALIGN_TOP_LEFT, 13, 11);
-    lv_obj_t *lan = lz_icon(root, LZ_I_LAN, &lz_icons_14, LZ_AMBER);
-    lv_obj_align(lan, LV_ALIGN_TOP_LEFT, 31, 11);
-    lv_obj_t *nets = lz_text(root, "2 networks", LZ_F_SMALL, lv_color_hex(0x7F868F));
-    lv_obj_align(nets, LV_ALIGN_TOP_LEFT, 50, 14);
+    if(LZ_MESHCORE_ENABLED) {
+        lv_obj_t *lan = lz_icon(root, LZ_I_LAN, &lz_icons_14, LZ_AMBER);
+        lv_obj_align(lan, LV_ALIGN_TOP_LEFT, 31, 11);
+        lv_obj_t *nets = lz_text(root, "2 networks", LZ_F_SMALL, lv_color_hex(0x7F868F));
+        lv_obj_align(nets, LV_ALIGN_TOP_LEFT, 50, 14);
+    } else {
+        lv_obj_t *nets = lz_text(root, "Meshtastic", LZ_F_SMALL, lv_color_hex(0x7F868F));
+        lv_obj_align(nets, LV_ALIGN_TOP_LEFT, 31, 14);
+    }
 
     lv_obj_t *pct = lz_text(root, "87%", LZ_F_SMALL, lv_color_hex(0xAEB6BF));
     lv_obj_align(pct, LV_ALIGN_TOP_RIGHT, -36, 14);

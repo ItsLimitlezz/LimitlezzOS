@@ -197,10 +197,15 @@ void lz_scr_messages(lv_obj_t *root)
         /* disabled-network note (history kept) */
         if(S.msg_filter == LZ_FILT_ALL && (!S.net_mt || !S.net_mc)) {
             char note[96];
-            const char *who = (!S.net_mt && !S.net_mc) ? "Meshtastic & MeshCore"
-                              : !S.net_mt ? "Meshtastic" : "MeshCore";
-            snprintf(note, sizeof note,
-                     "%s disabled in Settings - conversations hidden, history kept.", who);
+            if(!LZ_MESHCORE_ENABLED && S.net_mt) {
+                snprintf(note, sizeof note,
+                         "MeshCore is coming soon - Meshtastic only for now.");
+            } else {
+                const char *who = (!S.net_mt && !S.net_mc) ? "Meshtastic & MeshCore"
+                                  : !S.net_mt ? "Meshtastic" : "MeshCore";
+                snprintf(note, sizeof note,
+                         "%s disabled in Settings - conversations hidden, history kept.", who);
+            }
             lv_obj_t *nb = lz_box(body);
             lv_obj_set_width(nb, lv_pct(100));
             lv_obj_set_height(nb, LV_SIZE_CONTENT);

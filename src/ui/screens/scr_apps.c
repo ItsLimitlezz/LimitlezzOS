@@ -178,6 +178,8 @@ void lz_scr_contacts(lv_obj_t *root)
         snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
         lv_obj_t *row = lz_row(body, i == S.focus);
         lv_obj_set_style_radius(row, 10, 0);
+        if(!LZ_MESHCORE_ENABLED && n->net == LZ_NET_MC)
+            lv_obj_set_style_opa(row, LV_OPA_50, 0);   /* MeshCore locked: Stage 2 */
 
         lv_obj_t *avwrap = lz_box(row);
         lv_obj_set_size(avwrap, 32, 32);

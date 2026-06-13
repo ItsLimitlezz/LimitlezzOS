@@ -432,7 +432,10 @@ void lz_status_bar(lv_obj_t *parent)
 
     lv_obj_t *hub = lz_icon(bar, LZ_I_HUB, &lz_icons_14, mint);
     lv_obj_align(hub, LV_ALIGN_LEFT_MID, 9, 0);
-    lv_obj_t *nodes = lz_text(bar, "7 nodes", LZ_F_MONO, lv_color_hex(0xAEB6BF));
+    int nn = lz_svc_node_count(LZ_NET_MT) +
+             (LZ_MESHCORE_ENABLED ? lz_svc_node_count(LZ_NET_MC) : 0);
+    char ntxt[16]; snprintf(ntxt, sizeof ntxt, "%d node%s", nn, nn == 1 ? "" : "s");
+    lv_obj_t *nodes = lz_text(bar, ntxt, LZ_F_MONO, lv_color_hex(0xAEB6BF));
     lv_obj_align(nodes, LV_ALIGN_LEFT_MID, 27, 0);
 
     /* right cluster: [signal bars] [clock] [battery] laid out by flex so
