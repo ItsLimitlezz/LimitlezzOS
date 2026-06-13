@@ -5,11 +5,12 @@ A mesh-native handheld OS for the **LilyGO T-Deck** (ESP32-S3, SX1262 LoRa,
 **MeshCore** into a single network-tagged inbox, driven entirely by the
 trackball.
 
-This repo implements the **UI layer** of the design handoff
-(`docs/design/`) in C on **LVGL 8.3** — the real target stack for the
-T-Deck — exactly as the master spec prescribes: flat solid fills, 1px
-hairlines, a 2px near-white focus ring, baked font tables, no images, no
-gradients, no alpha layering.
+It is a working **Alpha 0.1**: real LVGL 8.3 firmware (display via LovyanGFX),
+a desktop SDL2 simulator sharing the exact same UI code, and a live Meshtastic
+radio stack on the SX1262 — flashed and tested on real T-Deck hardware. The UI
+follows the design handoff (`docs/design/`) exactly as the master spec
+prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
+font tables, no images, no gradients, no alpha layering.
 
 ![screens](docs/screens.png)
 
@@ -96,9 +97,11 @@ typing goes into the conversation composer.
 pio run -e tdeck -t upload                     # flash over USB-C
 ```
 
-Current footprint: 682 KB flash (13% of the 5 MB OTA slot), 167 KB static RAM.
-Message history lives on the SD card (`/sd/limitlezz`); without a card the OS
-runs RAM-only and seeds the demo mesh.
+Current footprint: ~1.2 MB flash (23% of the 5 MB OTA slot), 195 KB static RAM
+(61%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
+identity, the node database, and saved Wi-Fi credentials all live on the SD
+card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds the demo
+mesh.
 
 ## What's implemented (UI portion of spec Stage 1/2)
 
@@ -123,8 +126,19 @@ runs RAM-only and seeds the demo mesh.
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the
   first-class network toggles flip (and drives the Messages dimming);
-  value-cycling rows; brightness slider (left/right while focused);
-  System & battery page (arc gauge + stat bars).
+  value-cycling rows; brightness slider (left/right while focused); functional
+  TX power, GPS toggle, and keyboard backlight (Auto/On/Off, driven over I2C);
+  **time zone picker** (named zones — EST, PST… — not raw UTC offsets) and a
+  **manual clock editor**, with **NTP auto-sync** over Wi-Fi; **System & battery**
+  page with a live arc gauge, stat bars, self-updating uptime, and battery-health
+  readout derived from resting voltage.
+- **Wi-Fi** — scan, join (masked password entry), remembers one network's
+  credentials on the SD card, an **auto-connect** toggle (rejoin on boot / on
+  reappearance / after a drop, or never), and long-press-to-forget so you can
+  change a saved password.
+- **Real status everywhere** — the status bar clock, battery %, and charge
+  state are live; identity, node table, and message history persist across
+  reboots; nothing on screen is hard-coded demo data on hardware.
 - **Terminal / Files** — mono console with blinking cursor; /sdcard listing.
 
 ## Status against the master-spec roadmap
@@ -132,14 +146,17 @@ runs RAM-only and seeds the demo mesh.
 Stage 1 (Meshtastic-only) is the focus, per the spec's hard staging rule
 (get Meshtastic rock-solid before adding MeshCore + TDM). Done so far: the full
 UI, the messaging data model wired to a real Meshtastic stack, persistent
-history, and the SX1262 radio backend (text + NodeInfo, dedup, managed flood).
+history/identity/nodes, the SX1262 radio backend (text + NodeInfo on LongFast,
+dedup, managed flood), live clock (manual + NTP + named time zones), Wi-Fi with
+saved credentials and auto-connect, keyboard backlight, and real
+battery/system telemetry.
 
 Still ahead: on-hardware RF validation against a stock node, ACK/routing
 (ROUTING_APP) and retransmit, position/telemetry decode, the Lua app sandbox,
 App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
 **MeshCore + the TDM airtime arbiter are Stage 2** — the amber side of the UI
-and the airtime split bar are in place, but MeshCore DMs are intentionally
-read-only until the second radio stack lands on the proven Meshtastic base.
+and the airtime split bar are in place; the second radio stack is the next
+piece of work landing on the proven Meshtastic base.
 
 ## Flashing & first hardware test
 
@@ -156,12 +173,15 @@ flash tells you the whole story:
 === LimitlezzOS boot ===
 [ok] peripheral power (GPIO10) HIGH
 [ok] shared SPI bus up (SCK40/MISO38/MOSI41)
-[ok] ST7789 display init
+[ok] ST7789 display init + backlight on
+[ok] LVGL double full-frame buffers in PSRAM (tear-free)
 [ok] keyboard @0x55
 [ok] GT911 touch @0x5D
 [ok] trackball + keyboard input
 [ok] microSD mounted -> /sd/limitlezz
+[ok] message store read/write
 [ok] SX1262 radio (RadioLib begin=0)
+[ok] node id !a1b2c3d4
 === boot complete ===
 ```
 
