@@ -48,7 +48,7 @@ void lz_scr_lock(lv_obj_t *root)
     lv_obj_align(fill, LV_ALIGN_LEFT_MID, 1, 0);
 
     /* clock + date (real time once synced, otherwise --:-- + a hint) */
-    char clk[8]; lz_fmt_now(clk, sizeof clk);
+    char clk[12]; lz_fmt_now(clk, sizeof clk);
     lv_obj_t *clock = lz_text(root, clk, LZ_F_CLOCK, LZ_TEXT);
     lv_obj_align(clock, LV_ALIGN_CENTER, 0, -38);
     char dbuf[28]; lz_fmt_date(dbuf, sizeof dbuf);

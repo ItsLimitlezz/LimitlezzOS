@@ -119,11 +119,25 @@ const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)
     return buf;
 }
 
+static bool g_clock_24;                              /* false = 12-hour (AM/PM) */
+void lz_svc_set_clock24(bool on) { g_clock_24 = on; }
+bool lz_svc_clock24(void) { return g_clock_24; }
+
+/* format a local seconds-of-day as 24-hour "14:23" or 12-hour "2:23 PM" */
+static const char *fmt_hm_local(uint32_t secs, char *buf, size_t n)
+{
+    unsigned h = (secs / 3600) % 24, m = (secs % 3600) / 60;
+    if(g_clock_24) snprintf(buf, n, "%02u:%02u", h, m);
+    else {
+        unsigned h12 = h % 12; if(h12 == 0) h12 = 12;
+        snprintf(buf, n, "%u:%02u %s", h12, m, h < 12 ? "AM" : "PM");
+    }
+    return buf;
+}
+
 const char *lz_fmt_hm(uint32_t ts, char *buf, size_t n)
 {
-    uint32_t secs = (ts + eff_tz_min() * 60) % 86400;   /* stored UTC -> local */
-    snprintf(buf, n, "%02u:%02u", (unsigned)(secs / 3600), (unsigned)((secs % 3600) / 60));
-    return buf;
+    return fmt_hm_local((ts + eff_tz_min() * 60) % 86400, buf, n);   /* stored UTC -> local */
 }
 
 bool lz_node_messageable(const lz_node_rt *n)
@@ -248,9 +262,7 @@ void lz_svc_get_clock(int *y, int *mo, int *d, int *h, int *mi)
 const char *lz_fmt_now(char *buf, size_t n)
 {
     if(!g_time_synced) { snprintf(buf, n, "--:--"); return buf; }
-    uint32_t secs = now_local() % 86400;
-    snprintf(buf, n, "%02u:%02u", (unsigned)(secs / 3600), (unsigned)((secs % 3600) / 60));
-    return buf;
+    return fmt_hm_local(now_local() % 86400, buf, n);
 }
 const char *lz_fmt_date(char *buf, size_t n)
 {

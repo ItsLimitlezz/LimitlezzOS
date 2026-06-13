@@ -88,6 +88,8 @@ void lz_ui_init(lv_obj_t *root)
     S.settings.kb_light = 0;  /* Auto */
     S.settings.tz_idx = 0;    /* Eastern (EST/EDT, DST-aware) by default */
     lz_tz_apply(0);
+    S.settings.clock24 = false;   /* 12-hour (AM/PM) by default */
+    lz_svc_set_clock24(false);
     lz_apply_networks();      /* push the initial Meshtastic/MeshCore schedule to the radio */
     g_root = root;
     lv_obj_remove_style_all(root);
@@ -577,7 +579,7 @@ void lz_status_bar(lv_obj_t *parent)
         lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, i * 5, 0);
     }
 
-    char clk[8]; lz_fmt_now(clk, sizeof clk);   /* real time, or "--:--" if unsynced */
+    char clk[12]; lz_fmt_now(clk, sizeof clk);  /* real time, or "--:--" if unsynced */
     lz_text(right, clk, LZ_F_MONO, lv_color_hex(0xCDD3DA));
 
     /* battery from real sysinfo: outline + fill scaled to %, or a USB mark */

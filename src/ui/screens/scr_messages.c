@@ -383,7 +383,7 @@ void lz_scr_convo(lv_obj_t *root)
             lv_obj_add_event_cb(bub, channel_longpress_cb, LV_EVENT_LONG_PRESSED, NULL);
         }
 
-        char ts[8]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
+        char ts[12]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
         lz_text(col, ts, LZ_F_SMALL, lv_color_hex(0x6B727B));
     }
 
@@ -429,7 +429,28 @@ void lz_scr_convo(lv_obj_t *root)
     char ph[48];
     bool has_draft = S.draft[0] != 0;
     if(!has_draft) snprintf(ph, sizeof ph, "Message %s...", t->name);
-    lv_obj_t *itxt = lz_text(input, has_draft ? S.draft : ph, LZ_F_SMALL,
+    /* keep the text you're typing visible: if the draft is wider than the pill,
+     * show its tail (the cursor end) with a leading ellipsis instead of letting
+     * the start clip off the right edge */
+    const char *shown = ph;
+    char tail[LZ_DRAFT_MAX + 4];
+    if(has_draft) {
+        shown = S.draft;
+        int maxw = LZ_W - 92;                    /* usable px inside the pill */
+        lv_point_t sz;
+        lv_txt_get_size(&sz, S.draft, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
+        if(sz.x > maxw) {
+            int start = 0;
+            while(S.draft[start]) {
+                lv_txt_get_size(&sz, S.draft + start, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
+                if(sz.x <= maxw - 12) break;      /* leave room for the ellipsis */
+                start++;
+            }
+            snprintf(tail, sizeof tail, "...%s", S.draft + start);
+            shown = tail;
+        }
+    }
+    lv_obj_t *itxt = lz_text(input, shown, LZ_F_SMALL,
                              has_draft ? LZ_TEXT : lv_color_hex(0x6B727B));
     lv_label_set_long_mode(itxt, LV_LABEL_LONG_CLIP);
     lv_obj_set_width(itxt, lv_pct(100));

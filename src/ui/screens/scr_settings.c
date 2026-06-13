@@ -28,10 +28,11 @@ static const srow_t SROWS[10] = {
     { "Sleep after",      LZ_I_SCHEDULE,   ROW_VALUE  },  /* f=7  */
     { "Time zone",        LZ_I_PUBLIC,     ROW_VALUE  },  /* f=8  */
     { "Set time",         LZ_I_SCHEDULE,   ROW_NAV    },  /* f=9  */
-    { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=10 */
-    { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=11 */
+    { "Clock format",     LZ_I_SCHEDULE,   ROW_VALUE  },  /* f=10 */
+    { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=11 */
+    { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=12 */
 };
-#define SETTINGS_FOCUS_COUNT 12   /* 2 network rows + 10 SROWS */
+#define SETTINGS_FOCUS_COUNT 13   /* 2 network rows + 11 SROWS */
 
 /* Named regions people recognize. Each carries a STANDARD-time offset plus a
  * daylight rule, so the clock follows DST automatically — pick "Eastern" once
@@ -99,8 +100,9 @@ static void settings_activate(int f)
         case 7: cycle(&S.settings.timeout, 5); break;
         case 8: lz_go(LZ_V_TZPICK); S.focus = S.settings.tz_idx; lz_rebuild(); return;
         case 9: lz_settime_enter(); lz_go(LZ_V_SETTIME); return;
-        case 10: S.settings.save = !S.settings.save; break;
-        case 11: lz_go(LZ_V_SYSTEM); return;
+        case 10: S.settings.clock24 = !S.settings.clock24; lz_svc_set_clock24(S.settings.clock24); break;
+        case 11: S.settings.save = !S.settings.save; break;
+        case 12: lz_go(LZ_V_SYSTEM); return;
         default: return;
     }
     lz_rebuild();
@@ -261,8 +263,8 @@ void lz_scr_settings(lv_obj_t *root)
     /* --- grouped rows --- */
     static const struct { const char *title; int first, count; } GROUPS[6] = {
         { "RADIO",        2, 1 }, { "CONNECTIVITY", 3, 2 },
-        { "DISPLAY",      5, 3 }, { "TIME",         8, 2 },
-        { "POWER",       10, 1 }, { "DEVICE",      11, 1 },
+        { "DISPLAY",      5, 3 }, { "TIME",         8, 3 },
+        { "POWER",       11, 1 }, { "DEVICE",      12, 1 },
     };
     char bval[8];
     for(int g = 0; g < 6; g++) {
@@ -300,9 +302,10 @@ void lz_scr_settings(lv_obj_t *root)
                 case 8: { char zb[24]; snprintf(zb, sizeof zb, "%s (%s)",
                                TZ[S.settings.tz_idx].name, lz_svc_tz_abbrev());
                            value_chevron(row, zb); break; }
-                case 9: { char tb[8]; value_chevron(row, lz_fmt_now(tb, sizeof tb)); break; }
-                case 10: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
-                case 11: {
+                case 9: { char tb[12]; value_chevron(row, lz_fmt_now(tb, sizeof tb)); break; }
+                case 10: value_chevron(row, S.settings.clock24 ? "24-hour" : "12-hour"); break;
+                case 11: lz_toggle(row, S.settings.save, LZ_TOGGLE_ON); break;
+                case 12: {
                     lz_sysinfo_t si; lz_svc_sysinfo(&si);
                     char sb[16];
                     if(si.battery_pct >= 0) snprintf(sb, sizeof sb, "%d%% - %dC", si.battery_pct, si.temp_c);
