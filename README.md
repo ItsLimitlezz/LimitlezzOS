@@ -5,7 +5,7 @@ A mesh-native handheld OS for the **LilyGO T-Deck** (ESP32-S3, SX1262 LoRa,
 **MeshCore** into a single network-tagged inbox, driven entirely by the
 trackball.
 
-It is a working **Alpha 0.41**: real LVGL 8.3 firmware (display via LovyanGFX),
+It is a working **Alpha 0.44**: real LVGL 8.3 firmware (display via LovyanGFX),
 a desktop SDL2 simulator sharing the exact same UI code, and a live Meshtastic
 radio stack on the SX1262 — flashed and tested on real T-Deck hardware. The UI
 follows the design handoff (`docs/design/`) exactly as the master spec
@@ -13,7 +13,7 @@ prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
 font tables, no images, no gradients, no alpha layering — now moving toward an
 iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 
-> 🚀 **This is the first public Alpha release (Alpha 0.41).** It runs on real
+> 🚀 **Public Alpha release (Alpha 0.44).** It runs on real
 > hardware and the core **Meshtastic** experience is genuinely usable — encrypted
 > DMs both ways, channel messaging, a USB companion bridge, lock-screen
 > notifications — but some features are still unfinished (see below). The
@@ -71,13 +71,13 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   status** (green sending / blue delivered / red failed + long-press to resend).
 - ✅ **0.4** — **USB companion** for Meshtastic: enable in the Meshtastic app (Nodes
   tab → Companion mode), then connect the official app over USB serial.
-- 🚀 **0.41 — this release** — **lock-screen notifications** (centered card + "+N more"),
+- ✅ **0.41** — **lock-screen notifications** (centered card + "+N more"),
   **tap-to-wake/unlock**, **virtualized node list** (fixes the big-mesh crash), the
   **iPhone-style dark UI** pass, and the USB companion **confirmed working on hardware**.
 - ✅ **0.42** — highlight chats with unread messages (dark-mint row + brighter name).
 - ✅ **0.43** — unread **counter badge** on the Messages icon (1–9, then "9+"); muted excluded.
-- ✅ **0.44** — **silence** chats: long-press any chat to mute (crescent moon, no notification/badge).
-- ✅ **sym + L** — keyboard shortcut to lock the screen from anywhere.
+- 🚀 **0.44 — this release** — **silence** chats (long-press to mute: crescent moon, no
+  notification/badge) and the **sym + L** keyboard shortcut to lock the screen from anywhere.
 - **0.45** — responsiveness pass (Settings, chat log, keyboard input latency).
 - **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly), and
   **Developer mode**: the **Terminal** app is hidden from the home screen by default

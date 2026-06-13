@@ -337,7 +337,7 @@ void lz_scr_settings(lv_obj_t *root)
     /* --- ABOUT (static) --- */
     lv_obj_t *about = group_card(body, "ABOUT");
     const char *ks[2] = { "Device", "Firmware" };
-    const char *vs[2] = { "LilyGo T-Deck", "LimitlezzOS Alpha 0.41" };
+    const char *vs[2] = { "LilyGo T-Deck", "LimitlezzOS Alpha 0.44" };
     for(int i = 0; i < 2; i++) {
         lv_obj_t *r = lz_box(about);
         lv_obj_set_width(r, lv_pct(100));
