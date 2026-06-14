@@ -124,7 +124,7 @@ static bool seen_before(uint32_t from, uint32_t id)
 /* MeshCore dedup: a message reflooded by several repeaters arrives multiple
  * times. The path bytes change but the payload ([hash][mac][ciphertext]) is
  * identical, so hash that to drop duplicates. */
-#define MC_SEEN_N 16
+#define MC_SEEN_N 64        /* busy tree/repeater meshes reflood a lot; keep a deep ring */
 static uint32_t g_mc_seen[MC_SEEN_N];
 static int      g_mc_seen_head;
 static bool mc_seen_before(const uint8_t *payload, int len)

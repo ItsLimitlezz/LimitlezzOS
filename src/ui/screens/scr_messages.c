@@ -338,7 +338,8 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_t *tile = lz_box(row);
             lv_obj_set_size(tile, 33, 33);
             lv_obj_set_style_radius(tile, 9, 0);
-            lv_obj_set_style_bg_color(tile, lz_tile_color(205), 0);
+            /* MeshCore channels use the amber hue (72); Meshtastic uses teal (205) */
+            lv_obj_set_style_bg_color(tile, lz_tile_color(t->net == LZ_NET_MC ? 72 : 205), 0);
             lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
             lv_obj_t *ic = lz_icon(tile, LZ_I_TAG, &lz_icons_18, lv_color_white());
             lv_obj_center(ic);
