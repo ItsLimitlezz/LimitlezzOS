@@ -86,8 +86,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   launcher gate for Terminal.
 - **0.45** — responsiveness pass in progress: conversation typing/backspace now
   updates the compose pill in place, Contacts uses virtualized rows, and Settings
-  brightness adjusts without a full screen rebuild; chat-log scrolling and
-  hardware regression are still open.
+  brightness adjusts without a full screen rebuild; chat rebuilds preserve scroll
+  unless pinned to the newest message. Hardware regression is still open.
 - **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly).
 
 ### 🔭 Later

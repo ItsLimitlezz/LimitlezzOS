@@ -74,7 +74,7 @@ Status labels:
 | Lock screen | Functional | clock, battery, network icons, notification card | Add per-network badges once MeshCore is active. |
 | Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default, Messages unread counter badge | V0.95: support added apps and multiple Home screens; run hardware visual regression for badge layout. |
 | Unified inbox | Functional/Partial | Messages tabs, filters, unread highlighting, per-thread badges, mute indicator, channel tab | MeshCore filter is gated; finish hardware responsiveness pass. |
-| Conversation view | Functional/Partial | compose, in-place draft text refresh, bubbles, status colors, resend long-press, persisted sent-DM delivery metadata | Stock-device ACK/retry interop and hardware chat-log latency still need validation. |
+| Conversation view | Functional/Partial | compose, in-place draft text refresh, scroll-preserving chat rebuilds, bubbles, status colors, resend long-press, persisted sent-DM delivery metadata | Stock-device ACK/retry interop and hardware chat-log latency still need validation. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, companion toggle | Emergency channel row is disabled. |
 | MeshCore manager | Prototype/Partial | "Coming soon" unless gate is flipped; deeper screen exists behind gate | Do not enable until MeshCore message path works. |
 | Contacts/detail | Functional/Partial | virtualized contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked; hardware long-list scroll needs validation. |

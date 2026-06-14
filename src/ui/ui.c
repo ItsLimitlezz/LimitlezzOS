@@ -73,12 +73,36 @@ static void (*g_activate)(int idx);
 static bool (*g_skip)(int idx);  /* indices the focus ring must skip over */
 static lv_obj_t *g_scroll;
 static lv_obj_t *g_focus_obj;   /* object to scroll into view */
+static int  g_convo_scroll_y;
+static bool g_convo_stick_bottom = true;
+static bool g_convo_force_bottom = true;
+static bool g_convo_skip_capture;
 
 static int clamp_i(int v, int lo, int hi)
 {
     if(v < lo) return lo;
     if(v > hi) return hi;
     return v;
+}
+
+static void convo_scroll_capture(void)
+{
+    if(g_convo_skip_capture) {
+        g_convo_skip_capture = false;
+        return;
+    }
+    if(S.view != LZ_V_CONVO || !g_scroll) return;
+    lv_obj_update_layout(g_scroll);
+    g_convo_scroll_y = lv_obj_get_scroll_y(g_scroll);
+    g_convo_stick_bottom = lv_obj_get_scroll_bottom(g_scroll) <= 4;
+}
+
+static void convo_scroll_reset(void)
+{
+    g_convo_scroll_y = 0;
+    g_convo_stick_bottom = true;
+    g_convo_force_bottom = true;
+    g_convo_skip_capture = true;
 }
 
 static int tx_dbm_for_idx(int idx)
@@ -222,6 +246,7 @@ void lz_nav_track(lv_obj_t *obj, int idx)
 
 void lz_rebuild(void)
 {
+    convo_scroll_capture();
     g_cols = 1; g_count = 0; g_activate = NULL; g_scroll = NULL; g_focus_obj = NULL; g_skip = NULL;
     lz_vlist_invalidate();   /* body about to be deleted; drop vlist's pointers */
     lv_obj_clean(g_root);
@@ -258,8 +283,15 @@ void lz_rebuild(void)
         /* recursive: settings rows sit inside group cards, so the scrollable
          * body is the grandparent, not the direct parent */
         lv_obj_scroll_to_view_recursive(g_focus_obj, LV_ANIM_OFF);
-    } else if((S.view == LZ_V_CONVO || S.view == LZ_V_TERMINAL) && g_scroll) {
-        /* conversation + console stay pinned to the newest line */
+    } else if(S.view == LZ_V_CONVO && g_scroll) {
+        lv_obj_update_layout(g_scroll);
+        if(g_convo_force_bottom || g_convo_stick_bottom)
+            lv_obj_scroll_to_y(g_scroll, LV_COORD_MAX, LV_ANIM_OFF);
+        else
+            lv_obj_scroll_to_y(g_scroll, g_convo_scroll_y, LV_ANIM_OFF);
+        g_convo_force_bottom = false;
+    } else if(S.view == LZ_V_TERMINAL && g_scroll) {
+        /* console stays pinned to the newest line */
         lv_obj_update_layout(g_scroll);
         lv_obj_scroll_to_y(g_scroll, LV_COORD_MAX, LV_ANIM_OFF);
     }
@@ -269,6 +301,7 @@ void lz_go(lz_view_t v)
 {
     if(S.nav_depth < (int)(sizeof(S.nav_stack)/sizeof(S.nav_stack[0])))
         S.nav_stack[S.nav_depth++] = S.view;
+    if(v == LZ_V_CONVO) convo_scroll_reset();
     S.view = v;
     S.focus = 0;
     lz_vlist_reset_scroll();    /* fresh screen starts at the top */
@@ -280,6 +313,7 @@ void lz_back(void)
     lz_view_t v = LZ_V_HOME;
     if(S.nav_depth > 0) v = S.nav_stack[--S.nav_depth];
     if(v == LZ_V_LOCK) v = LZ_V_HOME;
+    if(v == LZ_V_CONVO) convo_scroll_reset();
     S.view = v;
     S.focus = 0;
     lz_vlist_reset_scroll();
@@ -392,6 +426,7 @@ static void convo_send(void)
     if(!len || !S.convo) return;
     if(!lz_svc_send_text(S.convo, S.draft)) return;   /* read-only thread: ignore */
     S.draft[0] = 0;
+    g_convo_force_bottom = true;
     lz_rebuild();
     if(g_scroll) {
         lv_obj_update_layout(g_scroll);
