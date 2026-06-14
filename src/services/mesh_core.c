@@ -13,6 +13,8 @@
 void lz_store_init(const char *datadir);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
+bool lz_store_update_delivery(const char *addr, uint32_t old_pkt_id,
+                              uint32_t new_pkt_id, uint8_t status);
 void lz_store_save_threads(const lz_thread_rt *t, int n);
 int  lz_store_load_threads(lz_thread_rt *out, int cap);
 void lz_store_save_nodes(const lz_node_rt *nodes, int n);
@@ -41,11 +43,53 @@ static int           g_dst_rule;                 /* LZ_DST_NONE / _US / _EU */
 static char          g_tz_std_ab[6] = "UTC";     /* abbrev in standard time */
 static char          g_tz_dst_ab[6] = "UTC";     /* abbrev in daylight time */
 
+#define LZ_DELIVERY_PEND 16
+static struct {
+    bool used;
+    uint32_t pkt_id;
+    char addr[16];
+} g_delivery[LZ_DELIVERY_PEND];
+
 /* ---------- helpers ---------- */
 
 static uint32_t now_epoch(void)                  /* UTC */
 {
     return g_epoch_base + lz_tick_ms() / 1000;
+}
+
+static void delivery_track(const char *addr, uint32_t pkt_id)
+{
+    if(!pkt_id) return;
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
+        if(g_delivery[i].used && g_delivery[i].pkt_id == pkt_id) {
+            snprintf(g_delivery[i].addr, sizeof g_delivery[i].addr, "%s", addr);
+            return;
+        }
+    }
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
+        if(!g_delivery[i].used) {
+            g_delivery[i].used = true;
+            g_delivery[i].pkt_id = pkt_id;
+            snprintf(g_delivery[i].addr, sizeof g_delivery[i].addr, "%s", addr);
+            return;
+        }
+    }
+}
+
+static const char *delivery_addr(uint32_t pkt_id)
+{
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++)
+        if(g_delivery[i].used && g_delivery[i].pkt_id == pkt_id) return g_delivery[i].addr;
+    return NULL;
+}
+
+static void delivery_forget(uint32_t pkt_id)
+{
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++)
+        if(g_delivery[i].used && g_delivery[i].pkt_id == pkt_id) {
+            g_delivery[i].used = false;
+            return;
+        }
 }
 
 /* days since 1970-01-01 for a civil date (Howard Hinnant's algorithm) */
@@ -453,12 +497,15 @@ lz_thread_rt *lz_svc_channel_thread(void)
     return t;
 }
 
+static void track_loaded_delivery(lz_thread_rt *t);
+
 void lz_svc_open_thread(lz_thread_rt *t)
 {
     if(!t) return;
     g_open = t;
     t->unread = 0;
     g_tail_count = lz_store_load_tail(t->addr, g_tail, LZ_TAIL_MAX);
+    track_loaded_delivery(t);
     lz_store_save_threads(g_threads, g_thread_count);
     /* opening a Meshtastic DM without the peer's key -> request its NodeInfo so
      * we can PKI-encrypt (the reply carries the key, usually within a second) */
@@ -482,6 +529,29 @@ static void tail_push(bool self, const char *text, uint32_t ts, uint8_t status, 
     snprintf(m->text, sizeof m->text, "%s", text);
 }
 
+static bool tail_mark_delivery(uint32_t old_pkt_id, uint32_t new_pkt_id, uint8_t status)
+{
+    bool changed = false;
+    for(int i = 0; i < g_tail_count; i++) {
+        if(g_tail[i].self && g_tail[i].pkt_id == old_pkt_id) {
+            g_tail[i].status = status;
+            g_tail[i].pkt_id = new_pkt_id;
+            g_tail[i].sent_ms = status == LZ_MSG_SENDING ? lz_tick_ms() : 0;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+static void track_loaded_delivery(lz_thread_rt *t)
+{
+    if(!t) return;
+    for(int i = 0; i < g_tail_count; i++)
+        if(g_tail[i].self && g_tail[i].pkt_id &&
+           g_tail[i].status == LZ_MSG_SENDING)
+            delivery_track(t->addr, g_tail[i].pkt_id);
+}
+
 bool lz_svc_send_text(lz_thread_rt *t, const char *text)
 {
     if(!t || !text[0] || !t->messageable) return false;
@@ -489,10 +559,11 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
     uint32_t pid = lz_tick_ms(); if(!pid) pid = 1;
     bool track = !t->is_channel;          /* DMs get delivery status; channels don't */
     uint8_t status = track ? LZ_MSG_SENDING : LZ_MSG_NONE;
-    lz_msg_rt m = { .self = true, .ts = ts };
+    lz_msg_rt m = { .self = true, .ts = ts, .status = status,
+                    .pkt_id = track ? pid : 0, .sent_ms = lz_tick_ms() };
     snprintf(m.text, sizeof m.text, "%s", text);
     lz_store_append(t->addr, &m);
-    if(g_open == t) tail_push(true, text, ts, status, pid);
+    if(g_open == t) tail_push(true, text, ts, status, track ? pid : 0);
     touch_thread_meta(t, text, ts, false);
 
     lz_mt_packet_t p;
@@ -508,7 +579,15 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
     if(len > sizeof p.payload) len = sizeof p.payload;
     memcpy(p.payload, text, len);
     p.plen = (uint8_t)len;
-    lz_backend_send(&p);
+    bool sent = lz_backend_send(&p);
+    if(track) {
+        if(sent) {
+            delivery_track(t->addr, pid);
+        } else {
+            lz_store_update_delivery(t->addr, pid, pid, LZ_MSG_FAILED);
+            if(g_open == t) tail_mark_delivery(pid, pid, LZ_MSG_FAILED);
+        }
+    }
 
     reorder_threads();
     lz_store_save_threads(g_threads, g_thread_count);
@@ -522,6 +601,7 @@ bool lz_svc_resend(int tail_idx)
     if(!g_open || tail_idx < 0 || tail_idx >= g_tail_count) return false;
     lz_msg_rt *m = &g_tail[tail_idx];
     if(!m->self || m->status != LZ_MSG_FAILED) return false;
+    uint32_t old_pid = m->pkt_id;
     uint32_t pid = lz_tick_ms(); if(!pid) pid = 1;
     m->pkt_id = pid; m->sent_ms = lz_tick_ms(); m->status = LZ_MSG_SENDING;
 
@@ -532,7 +612,16 @@ bool lz_svc_resend(int tail_idx)
     size_t len = strlen(m->text);
     if(len > sizeof p.payload) len = sizeof p.payload;
     memcpy(p.payload, m->text, len); p.plen = (uint8_t)len;
-    lz_backend_send(&p);
+    bool sent = lz_backend_send(&p);
+    if(old_pid) lz_store_update_delivery(g_open->addr, old_pid, pid,
+                                         sent ? LZ_MSG_SENDING : LZ_MSG_FAILED);
+    if(sent) {
+        if(old_pid) delivery_forget(old_pid);
+        delivery_track(g_open->addr, pid);
+    } else {
+        m->status = LZ_MSG_FAILED;
+        m->sent_ms = 0;
+    }
     mark_dirty();
     return true;
 }
@@ -650,13 +739,17 @@ bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32])
 /* a ROUTING ack came back for one of our sent DMs -> mark it delivered */
 void lz_core_on_ack(uint32_t request_id)
 {
-    for(int i = 0; i < g_tail_count; i++)
-        if(g_tail[i].self && g_tail[i].pkt_id == request_id &&
-           (g_tail[i].status == LZ_MSG_SENDING || g_tail[i].status == LZ_MSG_FAILED)) {
-            g_tail[i].status = LZ_MSG_DELIVERED;
-            mark_dirty();
-            return;
-        }
+    bool changed = tail_mark_delivery(request_id, request_id, LZ_MSG_DELIVERED);
+    const char *addr = delivery_addr(request_id);
+    if(addr) {
+        lz_store_update_delivery(addr, request_id, request_id, LZ_MSG_DELIVERED);
+        delivery_forget(request_id);
+        changed = true;
+    } else if(g_open) {
+        changed = lz_store_update_delivery(g_open->addr, request_id, request_id,
+                                           LZ_MSG_DELIVERED) || changed;
+    }
+    if(changed) mark_dirty();
 }
 
 /* expire un-acked DMs (call from the service loop): SENDING -> FAILED after ~30s */
@@ -666,7 +759,11 @@ static void age_sent_status(void)
     for(int i = 0; i < g_tail_count; i++)
         if(g_tail[i].self && g_tail[i].status == LZ_MSG_SENDING &&
            now - g_tail[i].sent_ms > 30000) {
+            uint32_t pid = g_tail[i].pkt_id;
             g_tail[i].status = LZ_MSG_FAILED;
+            g_tail[i].sent_ms = 0;
+            if(g_open && pid) lz_store_update_delivery(g_open->addr, pid, pid, LZ_MSG_FAILED);
+            if(pid) delivery_forget(pid);
             mark_dirty();
         }
 }

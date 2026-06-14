@@ -75,9 +75,9 @@ Deliverables:
   - silence/mute for public/group chats
   - responsiveness pass for Settings, chat log, keyboard input, and long lists
 - Make delivery state durable:
-  - persist sent-message packet IDs and delivery status
-  - reflect immediate backend send failures
-  - retain failed/sending/delivered state across conversation reopen and reboot
+  - persist sent-message packet IDs and delivery status. Implemented for newly sent DMs through message-log v2 metadata.
+  - reflect immediate backend send failures. Implemented: failed transmit attempts mark the sent bubble failed.
+  - retain failed/sending/delivered state across conversation reopen and reboot. Implemented for newly sent DMs; persisted retry queues remain below.
 - Expand routing/ACK behavior:
   - retransmit queue
   - retry limits

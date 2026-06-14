@@ -263,7 +263,7 @@ listen/retune; both on = 50/50 split, one on = 100%). MeshCore ADVERTs are
 decoded so nodes appear by name + role on the amber side of the UI; the airtime
 split bar reflects the live schedule.
 
-Still ahead: ACK/routing (ROUTING_APP) and retransmit, position/telemetry
+Still ahead: ACK/routing diagnostics and retransmit queues, position/telemetry
 decode, MeshCore encrypted-payload (DM/channel) decode, the Lua app sandbox,
 App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
 

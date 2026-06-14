@@ -64,7 +64,7 @@ typedef struct {
     bool     muted;              /* silenced: no notification / unread badge (v0.44) */
 } lz_thread_rt;
 
-/* delivery status for our own DMs (RAM-only, not persisted) */
+/* delivery status for our own DMs */
 enum { LZ_MSG_NONE = 0, LZ_MSG_SENDING, LZ_MSG_DELIVERED, LZ_MSG_FAILED };
 
 typedef struct {

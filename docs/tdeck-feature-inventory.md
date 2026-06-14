@@ -44,10 +44,10 @@ Status labels:
 | Channel send/receive | Functional, needs validation | `lz_svc_channel_thread`, `lz_core_on_text`, `lz_backend_send` | Add delivery/error handling for TX failures. |
 | Node discovery | Functional, needs validation | NodeInfo parse, heard-node table, 250-node cap | Add role/hardware enum coverage beyond current minimal parse. |
 | Node table persistence | Functional | `nodes.db` save/load | Add versioning/migration for future schema changes. |
-| Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Persist delivery state and queued-send state. |
+| Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Add persisted retry queue and interop validation. |
 | PKI encrypted DMs | Functional, needs validation | `mtpki.cpp`, NodeInfo public key capture | Add test vectors or a deterministic host test. |
-| Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, bubble status colors | ACK timeout/status is RAM-tail only and not persisted. |
-| Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend` | No persisted retry queue; immediate backend failures not reflected. |
+| Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, persisted sent-DM status metadata, bubble status colors | Add richer ACK diagnostics and hardware interop coverage. |
+| Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend`; immediate backend failures mark the bubble failed | No persisted retry queue or retry-limit UI yet. |
 | Managed flood rebroadcast | Functional, needs validation | `rebroadcast` in `backend_sx1262.cpp` | Needs airtime/backoff validation in busy meshes. |
 | USB companion bridge | Functional, needs validation | `mt_companion.cpp`, serial commands, UI toggle | Config coverage is minimal; Meshtastic BLE companion is V0.5. |
 | Position/telemetry decode | Planned | README lists as still ahead | Needed for maps, weather, and richer node detail. |

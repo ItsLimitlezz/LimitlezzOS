@@ -51,7 +51,15 @@ static void log_name(char *out, size_t n, const char *addr)
     snprintf(out, n, "m_%s.log", clean);
 }
 
-/* ---- per-thread logs: [u8 self][u32 ts][u16 len][text] ---- */
+/* ---- per-thread logs ----
+ * v1: [u8 self][u32 ts][u16 len][text]
+ * v2: [u8 self][u32 ts][u16 len|0x8000][u8 status][u32 pkt_id][text]
+ *
+ * Text is capped below 0x8000 bytes, so the top bit is a backward-compatible
+ * marker for records that carry sent-DM delivery metadata.
+ */
+#define LZ_LOG_EXTENDED 0x8000u
+#define LZ_LOG_LEN_MASK 0x7FFFu
 
 void lz_store_append(const char *addr, const lz_msg_rt *m)
 {
@@ -68,11 +76,17 @@ void lz_store_append(const char *addr, const lz_msg_rt *m)
      * every following message. */
     uint16_t len = (uint16_t)strlen(m->text);
     if(len > LZ_TEXT_MAX) len = LZ_TEXT_MAX;
-    uint8_t rec[1 + 4 + 2 + LZ_TEXT_MAX];
+    bool extended = m->self && (m->status != LZ_MSG_NONE || m->pkt_id != 0);
+    uint16_t len_field = len | (extended ? LZ_LOG_EXTENDED : 0);
+    uint8_t rec[1 + 4 + 2 + 1 + 4 + LZ_TEXT_MAX];
     size_t n = 0;
     rec[n++] = m->self ? 1 : 0;
     memcpy(rec + n, &m->ts, 4); n += 4;
-    memcpy(rec + n, &len, 2);   n += 2;
+    memcpy(rec + n, &len_field, 2); n += 2;
+    if(extended) {
+        rec[n++] = m->status;
+        memcpy(rec + n, &m->pkt_id, 4); n += 4;
+    }
     memcpy(rec + n, m->text, len); n += len;
     fwrite(rec, 1, n, f);       /* one record, one write */
     fclose(f);
@@ -93,15 +107,26 @@ int lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap)
     for(;;) {
         uint8_t self;
         uint32_t ts;
-        uint16_t len;
+        uint16_t len_field;
         if(fread(&self, 1, 1, f) != 1) break;
         if(fread(&ts, 4, 1, f) != 1) break;
-        if(fread(&len, 2, 1, f) != 1) break;
+        if(fread(&len_field, 2, 1, f) != 1) break;
+        bool extended = (len_field & LZ_LOG_EXTENDED) != 0;
+        uint16_t len = len_field & LZ_LOG_LEN_MASK;
+        uint8_t status = LZ_MSG_NONE;
+        uint32_t pkt_id = 0;
+        if(extended) {
+            if(fread(&status, 1, 1, f) != 1) break;
+            if(fread(&pkt_id, 4, 1, f) != 1) break;
+        }
         lz_msg_rt *slot = &ring[head];
         head = (head + 1) % cap;
         if(count < cap) count++;
+        memset(slot, 0, sizeof *slot);
         slot->self = self != 0;
         slot->ts = ts;
+        slot->status = status;
+        slot->pkt_id = pkt_id;
         size_t rd = len < LZ_TEXT_MAX - 1 ? len : LZ_TEXT_MAX - 1;
         if(fread(slot->text, 1, rd, f) != rd) { count--; break; }
         slot->text[rd] = 0;
@@ -116,6 +141,47 @@ int lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap)
         memcpy(ring, tmp, sizeof(lz_msg_rt) * count);
     }
     return count;
+}
+
+bool lz_store_update_delivery(const char *addr, uint32_t old_pkt_id,
+                              uint32_t new_pkt_id, uint8_t status)
+{
+    if(!g_persist || !old_pkt_id) return false;
+    char name[24], path[128];
+    log_name(name, sizeof name, addr);
+    path_for(path, sizeof path, name);
+    FILE *f = fopen(path, "r+b");
+    if(!f) return false;
+
+    bool ok = false;
+    for(;;) {
+        uint8_t self;
+        uint32_t ts;
+        uint16_t len_field;
+        if(fread(&self, 1, 1, f) != 1) break;
+        if(fread(&ts, 4, 1, f) != 1) break;
+        if(fread(&len_field, 2, 1, f) != 1) break;
+        bool extended = (len_field & LZ_LOG_EXTENDED) != 0;
+        uint16_t len = len_field & LZ_LOG_LEN_MASK;
+
+        if(extended) {
+            long status_pos = ftell(f);
+            uint8_t rec_status;
+            uint32_t rec_pkt_id;
+            if(fread(&rec_status, 1, 1, f) != 1) break;
+            if(fread(&rec_pkt_id, 4, 1, f) != 1) break;
+            if(self && rec_pkt_id == old_pkt_id) {
+                fseek(f, status_pos, SEEK_SET);
+                fwrite(&status, 1, 1, f);
+                fwrite(&new_pkt_id, 4, 1, f);
+                ok = true;
+                break;
+            }
+        }
+        if(fseek(f, len, SEEK_CUR) != 0) break;
+    }
+    fclose(f);
+    return ok;
 }
 
 /* ---- thread index ---- */
