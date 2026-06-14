@@ -455,7 +455,10 @@ void setup()
     lz_set_sysinfo_cb(tdeck_sysinfo);
     lz_svc_init(datadir, false);          /* false = no demo contacts/messages */
     lz_svc_set_dirty_cb(lz_rebuild);
-    lz_mtc_ble_begin();
+    /* BLE is NOT started here: the NimBLE controller holds internal DMA RAM that
+     * WiFi needs, so the two are mutually exclusive. BLE is brought up lazily
+     * only when the user enables the companion (lz_mtc_ble_set_enabled), which
+     * turns WiFi off first. Boot default = WiFi available, BLE off. */
     lz_wifi_init();
     Serial.printf("[%s] SX1262 radio (RadioLib begin=%d)\n",
                   lz_backend_ok() ? "ok" : "FAIL", lz_backend_begin_state());

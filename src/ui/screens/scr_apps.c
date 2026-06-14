@@ -462,7 +462,7 @@ static void term_put(uint8_t kind, const char *s)
 static void term_seed(void)
 {
     g_term_n = 0;
-    term_put(0, "LimitlezzOS Alpha 0.44  -  serial console");
+    term_put(0, "LimitlezzOS Alpha 0.6  -  serial console");
     term_put(0, "type 'help' for commands");
     g_term_seeded = true;
 }

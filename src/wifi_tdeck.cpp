@@ -17,6 +17,10 @@
 extern "C" {
     void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect);
     bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect);
+    /* BLE companion and WiFi share internal DMA RAM and can't both be resident;
+     * turning WiFi on tears the BLE controller down first (frees that RAM). */
+    bool lz_mtc_ble_enabled(void);
+    void lz_mtc_ble_set_enabled(bool on);
 }
 
 #define LZ_WIFI_MAX 16
@@ -93,6 +97,8 @@ extern "C" void lz_wifi_set_enabled(bool on)
 {
     g_on = on;
     if(on) {
+        /* free the BT controller's internal RAM first or esp_wifi_init NO_MEMs */
+        if(lz_mtc_ble_enabled()) lz_mtc_ble_set_enabled(false);
         load_saved();
         WiFi.mode(WIFI_STA);
         /* rejoin the saved network if auto-connect is on, otherwise just scan */

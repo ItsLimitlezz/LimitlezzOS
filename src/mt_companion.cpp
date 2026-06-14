@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include "services/mesh.h"
 #include "services/mtproto.h"
+#include "services/wifi.h"   /* BLE<->WiFi are mutually exclusive (shared internal RAM) */
 
 static bool g_companion;          /* USB serial companion mode */
 
@@ -91,6 +92,8 @@ typedef struct {
 
 static ble_to_t *g_ble_to_q;          /* phone -> radio, drained on the main loop */
 static int g_ble_to_head, g_ble_to_count;
+
+extern "C" bool btStarted(void);   /* Arduino core: true while the BT controller is enabled */
 
 extern "C" bool lz_mtc_ble_enabled(void) { return g_ble_enabled; }
 extern "C" bool lz_mtc_ble_connected(void) { return g_ble_connected; }
@@ -273,7 +276,7 @@ static void send_channel_primary(void)
 static void send_metadata(void)
 {
     uint8_t m[48]; int n = 0;
-    n += pb_str(m + n, 1, "0.44.0-limitlezz");        /* firmware_version */
+    n += pb_str(m + n, 1, "0.6.0-limitlezz");         /* firmware_version */
     n += pb_uint(m + n, 7, 0);                        /* role = CLIENT */
     n += pb_uint(m + n, 9, 50);                       /* hw_model = T_DECK */
     send_fromradio(13, m, n);
@@ -518,14 +521,19 @@ extern "C" void lz_mtc_ble_begin(void)
     g_ble_fromnum->setCallbacks(&g_ble_num_cb);
     ble_set_fromnum(0, false);
 
-    /* Allocate both rings once, here, before any BLE task can touch them (PSRAM
-     * preferred — ~10 KB total — internal heap as a fallback). */
-    g_ble_q = (ble_from_t *)heap_caps_calloc(MTC_BLE_QUEUE_N, sizeof(ble_from_t),
-                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if(!g_ble_q) g_ble_q = (ble_from_t *)calloc(MTC_BLE_QUEUE_N, sizeof(ble_from_t));
-    g_ble_to_q = (ble_to_t *)heap_caps_calloc(MTC_BLE_QUEUE_N, sizeof(ble_to_t),
-                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if(!g_ble_to_q) g_ble_to_q = (ble_to_t *)calloc(MTC_BLE_QUEUE_N, sizeof(ble_to_t));
+    /* Allocate both rings once (PSRAM preferred — ~66 KB total — internal heap as
+     * a fallback). They persist across BLE on/off toggles (the controller is
+     * deinited but the PSRAM rings are reused), so only allocate if not present. */
+    if(!g_ble_q) {
+        g_ble_q = (ble_from_t *)heap_caps_calloc(MTC_BLE_QUEUE_N, sizeof(ble_from_t),
+                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if(!g_ble_q) g_ble_q = (ble_from_t *)calloc(MTC_BLE_QUEUE_N, sizeof(ble_from_t));
+    }
+    if(!g_ble_to_q) {
+        g_ble_to_q = (ble_to_t *)heap_caps_calloc(MTC_BLE_QUEUE_N, sizeof(ble_to_t),
+                                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if(!g_ble_to_q) g_ble_to_q = (ble_to_t *)calloc(MTC_BLE_QUEUE_N, sizeof(ble_to_t));
+    }
 
     g_ble_server->start();
     NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
@@ -537,12 +545,20 @@ extern "C" void lz_mtc_ble_begin(void)
 
 extern "C" void lz_mtc_ble_set_enabled(bool on)
 {
-    if(!g_ble_ready) lz_mtc_ble_begin();
-    if(on && g_companion) g_companion = false;  /* one external app bridge at a time */
-    g_ble_enabled = on;
     if(on) {
+        /* BLE controller and the WiFi driver both need internal DMA RAM and can't
+         * both be resident — free WiFi first so the controller can init. */
+        if(lz_wifi_enabled()) lz_wifi_set_enabled(false);
+        if(g_companion) g_companion = false;   /* one external app bridge at a time */
+        if(!g_ble_ready) lz_mtc_ble_begin();
+        if(!g_ble_ready) return;               /* controller init failed (out of RAM) */
+        g_ble_enabled = true;
         NimBLEDevice::startAdvertising();
     } else {
+        g_ble_enabled = false;
+        if(!g_ble_ready) return;
+        /* Graceful GAP teardown first: stop advertising, drop the phone, and let
+         * the host task run its disconnect callbacks... */
         NimBLEDevice::stopAdvertising();
         if(g_ble_server && g_ble_connected) {
             std::vector<uint16_t> peers = g_ble_server->getPeerDevices();
@@ -554,6 +570,19 @@ extern "C" void lz_mtc_ble_set_enabled(bool on)
         g_ble_head = g_ble_count = 0;
         g_ble_to_head = g_ble_to_count = 0;
         taskEXIT_CRITICAL(&g_ble_mux);
+        vTaskDelay(pdMS_TO_TICKS(100));        /* ...let disconnect/host events fire */
+        /* ...then fully deinit: NimBLEDevice::deinit(true) runs
+         * esp_bt_controller_disable()+_deinit(), returning the controller's
+         * internal DMA RAM to the heap so WiFi can init again. It does NOT call
+         * the one-way esp_bt_controller_mem_release(), so BLE can be re-enabled. */
+        NimBLEDevice::deinit(true);
+        for(int i = 0; i < 50 && btStarted(); i++) vTaskDelay(pdMS_TO_TICKS(10));
+        /* server/characteristics are deleted by deinit(true); null our dangling
+         * pointers and clear the ready flag so a later begin() rebuilds cleanly.
+         * The PSRAM rings are kept and reused. */
+        g_ble_server = NULL;
+        g_ble_fromradio = g_ble_toradio = g_ble_fromnum = NULL;
+        g_ble_ready = false;
     }
 }
 
@@ -596,7 +625,10 @@ extern "C" int lz_mtc_ble_status(char *buf, int n)
 
 extern "C" int lz_mtc_ble_selftest(char *buf, int n)
 {
-    if(!g_ble_ready) lz_mtc_ble_begin();
+    /* Don't lazily init here: bringing up the BT controller would steal the
+     * internal RAM WiFi needs. Require the companion to be on already. */
+    if(!g_ble_ready)
+        return snprintf(buf, n, "BLE mailbox selftest: enable BLE first (companion ble on)");
     if(g_ble_connected || g_ble_count)
         return snprintf(buf, n, "BLE mailbox selftest skipped (active connection/queue)");
     bool old_enabled = g_ble_enabled;

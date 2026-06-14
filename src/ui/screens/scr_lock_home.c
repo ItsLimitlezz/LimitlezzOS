@@ -126,7 +126,7 @@ void lz_scr_lock(lv_obj_t *root)
         }
     }
 
-    lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.44", LZ_F_SMALL, lv_color_hex(0x5A616A));
+    lv_obj_t *foot = lz_text(root, "LimitlezzOS  Alpha 0.6", LZ_F_SMALL, lv_color_hex(0x5A616A));
     lv_obj_align(foot, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     lz_nav_set(1, 1, NULL);  /* Enter unlocks (handled in engine) */

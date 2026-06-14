@@ -5,15 +5,17 @@ A mesh-native handheld OS for the **LilyGO T-Deck** (ESP32-S3, SX1262 LoRa,
 **MeshCore** into a single network-tagged inbox, driven entirely by the
 trackball.
 
-It is a working **Alpha 0.44**: real LVGL 8.3 firmware (display via LovyanGFX),
-a desktop SDL2 simulator sharing the exact same UI code, and a live Meshtastic
-radio stack on the SX1262 — flashed and tested on real T-Deck hardware. The UI
+It is a working **Alpha 0.6**: real LVGL 8.3 firmware (display via LovyanGFX),
+a desktop SDL2 simulator sharing the exact same UI code, and a live dual-stack
+**Meshtastic + MeshCore** radio stack on the one SX1262 (time-shared by a
+split-airtime scheduler), plus a USB/BLE companion bridge — flashed and tested
+on real T-Deck hardware. The UI
 follows the design handoff (`docs/design/`) exactly as the master spec
 prescribes: flat solid fills, 1px hairlines, a 2px near-white focus ring, baked
 font tables, no images, no gradients, no alpha layering — now moving toward an
 iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 
-> 🚀 **Public Alpha release (Alpha 0.44).** It runs on real
+> 🚀 **Public Alpha release (Alpha 0.6).** It runs on real
 > hardware and the core **Meshtastic** experience is genuinely usable — encrypted
 > DMs both ways, channel messaging, a USB companion bridge, lock-screen
 > notifications — but some features are still unfinished (see below). The
@@ -84,7 +86,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   **iPhone-style dark UI** pass, and the USB companion **confirmed working on hardware**.
 - ✅ **0.42** — highlight chats with unread messages (dark-mint row + brighter name).
 - ✅ **0.43** — unread **counter badge** on the Messages icon (1–9, then "9+"); muted excluded.
-- 🚀 **0.44 — this release** — **silence** chats (long-press to mute: crescent moon, no
+- ✅ **0.44** — **silence** chats (long-press to mute: crescent moon, no
   notification/badge) and the **sym + L** keyboard shortcut to lock the screen from anywhere.
 - ✅ **Phase 0 hardening** — persistent user settings and a **Developer Mode**
   launcher gate for Terminal.
@@ -92,11 +94,18 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   updates the compose pill in place, Contacts uses virtualized rows, and Settings
   brightness adjusts without a full screen rebuild; chat rebuilds preserve scroll
   unless pinned to the newest message. Hardware regression is still open.
-- **0.5 (beta)** — **BLE companion** for Meshtastic: firmware transport is in
-  place; phone pairing/send/receive hardware validation is next.
+- ✅ **0.5** — **BLE companion** for Meshtastic: firmware GATT transport in place.
+- 🚀 **0.6 — this release** — **MeshCore is live**: public-channel chat **and**
+  encrypted DMs (X25519 + AES), in the same unified inbox as Meshtastic and
+  time-shared on the one SX1262 by a **split-airtime scheduler** that never cuts
+  an in-flight RX/TX. **BLE companion** merged and running on hardware
+  (advertising + GATT mailbox; phone pairing/send/receive validation next). A full
+  **desktop simulator** (virtual mesh + 50+ self-test assertions) to cut hardware
+  testing. **Wi-Fi and BLE are mutually exclusive** on this RAM-tight ESP32-S3 —
+  enabling one frees the other.
 
 ### 🔭 Later
-- **MeshCore** — receive + default Public channel, then a MeshCore companion bridge (currently "Coming soon").
+- **MeshCore companion bridge** — let the companion app speak MeshCore too (Public + DMs are already on-device).
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.

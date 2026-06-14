@@ -67,7 +67,7 @@ lz_store_app_t LZ_STORE[8] = {
 };
 
 const char *LZ_TERM_LINES[12] = {
-    "LimitlezzOS Alpha 0.44  -  serial console",
+    "LimitlezzOS Alpha 0.6  -  serial console",
     "limitlezz:~$ mesh --info",
     "owner : Jess (JESS)",
     "nets  : meshtastic[on] meshcore[on]",
