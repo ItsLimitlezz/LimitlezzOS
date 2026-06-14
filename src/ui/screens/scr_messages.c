@@ -548,42 +548,52 @@ void lz_scr_convo(lv_obj_t *root)
         return;
     }
 
-    /* compose bar: input pill + network-tagged send */
+    /* compose bar: a single iMessage-style pill with the send button inside it */
     lv_obj_t *compose = lz_box(root);
-    lv_obj_set_size(compose, LZ_W, 35);
+    lv_obj_set_size(compose, LZ_W, 42);
     lv_obj_set_style_bg_color(compose, lv_color_hex(0x0F141B), 0);
     lv_obj_set_style_bg_opa(compose, LV_OPA_COVER, 0);
     lv_obj_set_style_border_side(compose, LV_BORDER_SIDE_TOP, 0);
     lv_obj_set_style_border_width(compose, 1, 0);
     lv_obj_set_style_border_color(compose, lv_color_hex(0x1A212A), 0);
-    lv_obj_set_flex_flow(compose, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(compose, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_hor(compose, 7, 0);
-    lv_obj_set_style_pad_column(compose, 6, 0);
 
+    /* the rounded text pill fills the bar with a small side margin */
     lv_obj_t *input = lz_box(compose);
-    lv_obj_set_flex_grow(input, 1);
-    lv_obj_set_height(input, 24);
+    lv_obj_set_size(input, LZ_W - 16, 32);
+    lv_obj_center(input);
     lv_obj_set_style_radius(input, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(input, lv_color_hex(0x191D24), 0);
     lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(input, 1, 0);
     lv_obj_set_style_border_color(input, lv_color_hex(0x2A2F37), 0);
+
     g_draft_thread = t;
     g_draft_label = lz_text(input, "", LZ_F_SMALL, LZ_TEXT);
     lv_label_set_long_mode(g_draft_label, LV_LABEL_LONG_CLIP);
-    lv_obj_set_width(g_draft_label, lv_pct(100));
-    lv_obj_align(g_draft_label, LV_ALIGN_LEFT_MID, 11, 0);
+    lv_obj_set_width(g_draft_label, LZ_W - 16 - 44);   /* leave room for the send button */
+    lv_obj_align(g_draft_label, LV_ALIGN_LEFT_MID, 13, 0);
     lz_convo_draft_refresh();
 
-    /* send: paper plane only — the nav bar already names the network */
-    lv_obj_t *send = lz_box(compose);
-    lv_obj_set_size(send, 34, 24);
+    /* send: a circular button INSIDE the pill at the right edge, with an up-arrow.
+     * (The icon font has no up-arrow glyph, so draw it from two white lines.) */
+    lv_obj_t *send = lz_box(input);
+    lv_obj_set_size(send, 26, 26);
     lv_obj_set_style_radius(send, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(send, t->net == LZ_NET_MT ? LZ_SEND_MT : LZ_SEND_MC, 0);
     lv_obj_set_style_bg_opa(send, LV_OPA_COVER, 0);
-    lv_obj_t *si = lz_icon(send, LZ_I_SEND, &lz_icons_14, lv_color_white());
-    lv_obj_center(si);
+    lv_obj_align(send, LV_ALIGN_RIGHT_MID, -3, 0);
+    static lv_point_t arr_shaft[] = {{13, 19}, {13, 8}};         /* vertical stroke */
+    static lv_point_t arr_head[]  = {{8, 13}, {13, 8}, {18, 13}}; /* chevron head   */
+    lv_obj_t *shaft = lv_line_create(send);
+    lv_line_set_points(shaft, arr_shaft, 2);
+    lv_obj_set_style_line_width(shaft, 2, 0);
+    lv_obj_set_style_line_color(shaft, lv_color_white(), 0);
+    lv_obj_set_style_line_rounded(shaft, true, 0);
+    lv_obj_t *head = lv_line_create(send);
+    lv_line_set_points(head, arr_head, 3);
+    lv_obj_set_style_line_width(head, 2, 0);
+    lv_obj_set_style_line_color(head, lv_color_white(), 0);
+    lv_obj_set_style_line_rounded(head, true, 0);
     lz_on_click(send, tap_send);
 
     lz_nav_set(1, 0, NULL);  /* no focusables: up/down scroll, Enter sends */

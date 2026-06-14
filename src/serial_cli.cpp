@@ -22,6 +22,8 @@ extern "C" void lz_backend_mc_tune(float freq, float bw, int sf, int cr, int syn
 extern "C" int  lz_backend_mc_id(char *buf, int n)        __attribute__((weak));
 extern "C" bool lz_backend_mc_advert_now(bool flood)      __attribute__((weak));
 extern "C" bool lz_backend_mc_send_public(const char *text) __attribute__((weak));
+extern "C" bool lz_backend_mc_dm(const char *name, const char *text) __attribute__((weak));
+extern "C" int  lz_backend_mc_peers(char *buf, int n)     __attribute__((weak));
 extern "C" int  lz_backend_mc_selftest(char *buf, int n)  __attribute__((weak));
 extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
 extern "C" void lz_touch_set_transform(int swap, int invx, int invy) __attribute__((weak));
@@ -51,6 +53,8 @@ static void cmd_help(void)
         "  mc                   show our MeshCore identity (pubkey)\n"
         "  mc advert [local]    broadcast a MeshCore self-advert (flood, or zero-hop)\n"
         "  mc send <text>       send a message on the MeshCore Public channel\n"
+        "  mc dm <name> <text>  send a MeshCore direct message (encrypted)\n"
+        "  mc peers             list heard MeshCore peers (dm targets)\n"
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion test       loopback-verify the companion protocol\n"
@@ -174,6 +178,21 @@ static void cmd_mc(char *args)
             Serial.println("[ok] sent on MeshCore Public");
         else
             Serial.println("[err] not sent (MeshCore off / radio down)");
+        return;
+    }
+    if(args && strncmp(args, "dm ", 3) == 0) {         /* mc dm <peer-name> <text> */
+        char *p = args + 3; char *sp = strchr(p, ' ');
+        if(!sp) { Serial.println("usage: mc dm <peer-name> <text>"); return; }
+        *sp = 0; const char *text = sp + 1;
+        if(lz_backend_mc_dm && lz_backend_mc_dm(p, text))
+            Serial.printf("[ok] DM sent to %s\n", p);
+        else
+            Serial.println("[err] DM not sent (unknown peer? try 'mc peers')");
+        return;
+    }
+    if(args && strcmp(args, "peers") == 0) {
+        if(lz_backend_mc_peers) { char b[700]; lz_backend_mc_peers(b, sizeof b); Serial.print(b); }
+        else Serial.println("[--] MeshCore peers not present");
         return;
     }
     if(lz_backend_mc_id) {
