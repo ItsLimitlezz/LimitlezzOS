@@ -73,7 +73,7 @@ Deliverables:
   - unread highlighting in Messages. Implemented: unread rows use the dark-mint emphasis and brighter sender text.
   - Messages launcher badge with 1-9 and plus behavior. Implemented: the Home Messages tile shows 1-9, then `9+`, excluding muted chats.
   - silence/mute for public/group chats. Implemented: long-press toggles mute and shows the crescent indicator.
-  - responsiveness pass for Settings, chat log, keyboard input, and long lists. Implemented in software: conversation typing/backspace now refreshes the compose label in place instead of rebuilding the full chat log; conversation rebuilds preserve scroll position unless already pinned to bottom; Contacts now uses the virtualized list helper and virtual-list touch scroll stays bounded; Settings brightness left/right updates the slider in place instead of rebuilding the whole screen. Still open: hardware latency regression proof.
+  - responsiveness pass for Settings, chat log, keyboard input, and long lists. Implemented in software: conversation typing/backspace now refreshes the compose label in place instead of rebuilding the full chat log; conversation rebuilds preserve scroll position unless already pinned to bottom; Contacts now uses the virtualized list helper and virtual-list touch scroll stays bounded; Settings brightness left/right updates the slider in place instead of rebuilding the whole screen. Still open: hands-on hardware latency regression proof; the 2026-06-14 COM8 run proved no-stub flash and USB CLI smoke.
 - Make delivery state durable:
   - persist sent-message packet IDs and delivery status. Implemented for newly sent DMs through message-log metadata.
   - reflect immediate backend send failures. Implemented: failed transmit attempts mark the sent bubble failed.
@@ -88,7 +88,7 @@ Deliverables:
   and environment temperature/humidity/pressure metrics.
 - Keep radio settings simple in the primary UI; advanced region/preset/channel controls, if added, belong in Developer Mode.
 - Replace static Files screen with a read-only SD/appfs browser. Implemented for mounted SD/local store; appfs mount support remains V0.95 app-platform work.
-- Add hardware dogfood checklist against stock Meshtastic devices. Created as `docs/tdeck-hardware-dogfood-checklist.md`; execute it before calling Phase 1 shippable.
+- Add hardware dogfood checklist against stock Meshtastic devices. Created as `docs/tdeck-hardware-dogfood-checklist.md`; 2026-06-14 COM8 flash and USB CLI smoke evidence is logged there, but stock Meshtastic peer dogfood still needs a passing run before calling Phase 1 shippable.
 
 Exit criteria:
 

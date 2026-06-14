@@ -31,6 +31,22 @@ dogfood belong to the later roadmap phases.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
 - Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, and `companion`.
 
+## Hardware Evidence Log
+
+### 2026-06-14 COM8 Smoke Attempt
+
+- Branch/commit flashed: `codex/tdeck-firmware-audit-roadmap` at `d5f69e0`.
+- Port boundary: only `COM8` was opened/flashed/probed during this attempt.
+- COM8 open preflight passed with `python scripts/serial_harness.py --port COM8 --baud 115200 --open-only --open-timeout 5`.
+- Normal PlatformIO upload reached the ESP32-S3 on `COM8` but failed during the stub baud-rate handoff with `No serial data received`.
+- Direct ROM flashing with PlatformIO's packaged `esptool.py v4.5.1 --no-stub` on `COM8` succeeded; bootloader, partitions, `boot_app0.bin`, and firmware hashes all verified.
+- A local Windows COM8 attach with DTR/RTS preset low before opening the serial handle avoided the host reset loop and reached the LimitlezzOS `lz>` prompt; no Windows helper was added to the repo.
+- COM8 CLI smoke passed for `id`, `sys`, `net`, `rf`, `stats`, `wifi`, and `companion test`.
+- Companion self-test evidence: `27 frames | my_info=1 metadata=1 config=1 channel=1 complete=1 nonce=1234abcd -> PASS`.
+- Post-flash serial before the local attach fix showed ESP-ROM `SPI_FAST_FLASH_BOOT` and app entry at `0x403c98d0`, then `COM8` disconnected during USB handoff before the LimitlezzOS `lz>` prompt appeared.
+- The ROM saved PC `0x420c67ae` decoded against the flashed ELF to `esp_pm_impl_waiti`, which indicates the previous reset happened while the app was idle rather than at a decoded crash site.
+- Remaining gap: do not count stock Meshtastic peer dogfood as complete from this serial-only evidence.
+
 ## Meshtastic Channel Interop
 
 - Receive a LongFast text from Peer A on the T-Deck.
@@ -85,4 +101,3 @@ dogfood belong to the later roadmap phases.
 - `nodes` output showing name/ID/SNR plus GPS/telemetry hints.
 - Photos or screenshots of lock notification, Home badge, unread row, muted chat, delivery states, and contact telemetry.
 - Pass/fail notes for every item above, including device models and Meshtastic firmware versions for peers.
-
