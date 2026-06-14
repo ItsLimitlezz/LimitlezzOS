@@ -63,6 +63,9 @@ void lz_backend_set_networks(bool mt, bool mc) { (void)mt; (void)mc; }  /* no TD
 void lz_backend_request_nodeinfo(uint32_t to) { (void)to; }            /* no radio in the sim */
 bool lz_backend_mc_advert_now(bool flood) { (void)flood; return true; }  /* sim: pretend sent */
 void lz_backend_mc_addr(char *buf, int n) { snprintf(buf, n, "MC-1ec77175"); }
+bool lz_backend_mc_send_public(const char *text) { (void)text; return true; }      /* sim: no radio */
+bool lz_backend_mc_dm(const char *name, const char *text) { (void)name; (void)text; return true; }
+int  lz_backend_mc_peers(char *buf, int n) { snprintf(buf, n, "no MeshCore peers (sim)\n"); return 0; }
 static bool g_sim_companion;
 bool lz_mtc_active(void) { return g_sim_companion; }                     /* no real bridge in the sim */
 void lz_mtc_set_active(bool on) { g_sim_companion = on; }

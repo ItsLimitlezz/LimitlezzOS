@@ -29,6 +29,10 @@ bool lz_store_load_identity(char *longn, int ln, char *shortn, int sn);
 /* monotonic clock supplied by the platform layer */
 extern uint32_t lz_tick_ms(void);
 
+/* MeshCore TX (real backend on the T-Deck; absent in the sim -> weak/NULL) */
+extern bool lz_backend_mc_send_public(const char *text) __attribute__((weak));
+extern bool lz_backend_mc_dm(const char *name, const char *text) __attribute__((weak));
+
 static lz_node_rt    g_nodes[LZ_MAX_NODES];
 static int           g_node_count;
 static lz_thread_rt  g_threads[LZ_MAX_THREADS];   /* stable: never reordered */
@@ -582,10 +586,13 @@ lz_thread_rt *lz_svc_thread_for_node(lz_node_rt *n)
  * broadcasts (to = LZ_BROADCAST) and inbound broadcasts land here. */
 lz_thread_rt *lz_svc_channel_thread(void)
 {
-    lz_thread_rt *t = find_thread(LZ_BROADCAST);
+    /* keyed by addr (not node_num): both LongFast and MeshCore Public use
+     * node_num==LZ_BROADCAST, so find_thread(LZ_BROADCAST) would conflate them. */
+    lz_thread_rt *t = find_thread_by_addr("longfast");
     if(t) {                              /* re-assert channel props (survives reload) */
         t->is_channel = true;
         t->messageable = true;
+        t->net = LZ_NET_MT;
         if(!t->name[0]) snprintf(t->name, sizeof t->name, "LongFast");
         return t;
     }
@@ -597,6 +604,31 @@ lz_thread_rt *lz_svc_channel_thread(void)
     snprintf(t->addr, sizeof t->addr, "longfast");
     snprintf(t->name, sizeof t->name, "LongFast");
     snprintf(t->path, sizeof t->path, "Primary");
+    t->messageable = true;
+    t->is_channel = true;
+    return t;
+}
+
+/* The MeshCore "Public" group channel — the amber-side counterpart to LongFast.
+ * Distinct addr so it coexists with the Meshtastic channel in the inbox. */
+lz_thread_rt *lz_svc_mc_channel_thread(void)
+{
+    lz_thread_rt *t = find_thread_by_addr("mcpublic");
+    if(t) {
+        t->is_channel = true;
+        t->messageable = true;
+        t->net = LZ_NET_MC;
+        if(!t->name[0]) snprintf(t->name, sizeof t->name, "Public");
+        return t;
+    }
+    if(g_thread_count >= LZ_MAX_THREADS) return NULL;
+    t = &g_threads[g_thread_count++];
+    memset(t, 0, sizeof *t);
+    t->node_num = LZ_BROADCAST;
+    t->net = LZ_NET_MC;
+    snprintf(t->addr, sizeof t->addr, "mcpublic");
+    snprintf(t->name, sizeof t->name, "Public");
+    snprintf(t->path, sizeof t->path, "MeshCore");
     t->messageable = true;
     t->is_channel = true;
     return t;
@@ -739,6 +771,10 @@ static bool send_text_packet(lz_thread_rt *t, const char *text, uint32_t pid)
 bool lz_svc_send_text(lz_thread_rt *t, const char *text)
 {
     if(!t || !text[0] || !t->messageable) return false;
+    if(t->net == LZ_NET_MC) {       /* MeshCore: backend sends + echoes into the thread */
+        if(t->is_channel) return lz_backend_mc_send_public && lz_backend_mc_send_public(text);
+        return lz_backend_mc_dm && lz_backend_mc_dm(t->name, text);
+    }
     uint32_t ts = now_epoch();
     uint32_t pid = next_packet_id();
     bool track = !t->is_channel;          /* DMs get delivery status; channels don't */
@@ -931,6 +967,8 @@ void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, f
     lz_node_rt *n = ensure_node(num, id, LZ_NET_MC);
     if(!n) return;
     n->net = LZ_NET_MC;
+    memcpy(n->pubkey, pubkey, 32);       /* persist the Ed25519 key so DM ECDH survives reboot */
+    n->has_key = true;
     if(name && name[0]) snprintf(n->name, sizeof n->name, "%s", name);
     snprintf(n->shortcode, sizeof n->shortcode, "%02x%02x", pubkey[0], pubkey[1]);
     const char *role = adv_type == 2 ? "Repeater" : adv_type == 3 ? "Room"
@@ -940,6 +978,63 @@ void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, f
     n->last_heard = now_epoch();
     lz_store_save_nodes(g_nodes, g_node_count);
     mark_dirty();
+}
+
+/* append a MeshCore message (inbound or our own send) to a thread + persist */
+static void mc_thread_append(lz_thread_rt *t, bool self, const char *text)
+{
+    if(!t) return;
+    uint32_t ts = now_epoch();
+    lz_msg_rt m = { .self = self, .ts = ts };
+    snprintf(m.text, sizeof m.text, "%s", text);
+    lz_store_append(t->addr, &m);
+    if(g_open == t) tail_push(self, text, ts, LZ_MSG_NONE, 0, 0, LZ_FAIL_NONE);
+    touch_thread_meta(t, text, ts, !self && g_open != t);   /* unread only for inbound */
+    reorder_threads();
+    lz_store_save_threads(g_threads, g_thread_count);
+    mark_dirty();
+}
+
+static lz_thread_rt *mc_dm_thread(const uint8_t *pubkey, const char *name, float snr)
+{
+    uint32_t num = ((uint32_t)pubkey[0] << 24) | ((uint32_t)pubkey[1] << 16) |
+                   ((uint32_t)pubkey[2] << 8) | (uint32_t)pubkey[3];
+    lz_node_rt *n = find_node(num);
+    if(!n) { lz_core_on_mc_node(pubkey, name, 1 /*Chat*/, snr); n = find_node(num); }
+    if(!n) return NULL;
+    n->net = LZ_NET_MC;
+    if(name && name[0]) snprintf(n->name, sizeof n->name, "%s", name);
+    lz_thread_rt *t = ensure_thread(n);
+    if(t) { t->net = LZ_NET_MC; t->messageable = true; }   /* a chat peer we can DM back */
+    return t;
+}
+
+/* MeshCore Public-channel message arrived -> MeshCore Public thread ("sender: text") */
+void lz_core_on_mc_channel_text(const char *sender, const char *text, float snr)
+{
+    (void)snr;
+    char stored[LZ_TEXT_MAX];
+    if(sender && sender[0]) snprintf(stored, sizeof stored, "%s: %s", sender, text);
+    else                    snprintf(stored, sizeof stored, "%s", text);
+    mc_thread_append(lz_svc_mc_channel_thread(), false, stored);
+}
+
+/* our own Public-channel send -> show it in the Public thread */
+void lz_core_on_mc_channel_self(const char *text)
+{
+    mc_thread_append(lz_svc_mc_channel_thread(), true, text);
+}
+
+/* a MeshCore direct message arrived from `pubkey` -> that peer's DM thread */
+void lz_core_on_mc_dm(const uint8_t *pubkey, const char *name, const char *text, float snr)
+{
+    mc_thread_append(mc_dm_thread(pubkey, name, snr), false, text);
+}
+
+/* our own DM send -> show it in that peer's DM thread */
+void lz_core_on_mc_dm_self(const uint8_t *pubkey, const char *name, const char *text)
+{
+    mc_thread_append(mc_dm_thread(pubkey, name, 0.0f), true, text);
 }
 
 void lz_core_on_battery(uint32_t from, int batt)

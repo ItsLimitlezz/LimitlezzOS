@@ -542,6 +542,39 @@ void lz_scr_system(lv_obj_t *root)
         lz_text(c, cv[i], LZ_F_BODY, LZ_TEXT_STRONG);
     }
 
+    /* built-in controls / key bindings reference */
+    static const struct { const char *key, *act; } BINDS[] = {
+        { "Trackball",    "Roll = move - click = select" },
+        { "Enter",        "Select / send message" },
+        { "Backspace",    "Delete char - back when empty" },
+        { "Esc",          "Back" },
+        { "sym + L",      "Lock screen (from anywhere)" },
+        { "Left / Right", "Switch tabs - adjust slider" },
+        { "1 / 2 / 3",    "Messages filter: All / MT / MC" },
+        { "Long-press",   "Mute chat - resend - profile" },
+    };
+    lz_text(body, "Controls", LZ_F_SMALL, lv_color_hex(0x7F868F));
+    lv_obj_t *kb = lz_box(body);
+    lv_obj_set_width(kb, lv_pct(100));
+    lv_obj_set_height(kb, LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(kb, 9, 0);
+    lv_obj_set_style_bg_color(kb, LZ_CARD_BG, 0);
+    lv_obj_set_style_bg_opa(kb, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(kb, 1, 0);
+    lv_obj_set_style_border_color(kb, LZ_CARD_BORDER, 0);
+    lv_obj_set_style_pad_all(kb, 8, 0);
+    lv_obj_set_flex_flow(kb, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(kb, 6, 0);
+    for(int i = 0; i < (int)(sizeof BINDS / sizeof BINDS[0]); i++) {
+        lv_obj_t *r = lz_box(kb);
+        lv_obj_set_width(r, lv_pct(100));
+        lv_obj_set_height(r, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lz_text(r, BINDS[i].key, LZ_F_SMALL, LZ_TEXT_STRONG);
+        lz_text(r, BINDS[i].act, LZ_F_SMALL, LZ_TEXT_2);
+    }
+
     lz_nav_set(1, 0, NULL);
 
     /* refresh once a second so uptime + live stats keep counting on this page */

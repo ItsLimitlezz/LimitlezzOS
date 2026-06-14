@@ -262,6 +262,12 @@ void lz_core_on_ack(uint32_t request_id);
 /* MeshCore: learn a node from a (signed, unencrypted) ADVERT.
  * adv_type: 1=Chat 2=Repeater 3=Room 4=Sensor */
 void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, float snr);
+/* MeshCore Public channel + DM ingress -> unified inbox threads */
+lz_thread_rt *lz_svc_mc_channel_thread(void);
+void lz_core_on_mc_channel_text(const char *sender, const char *text, float snr);
+void lz_core_on_mc_channel_self(const char *text);                       /* our Public send */
+void lz_core_on_mc_dm(const uint8_t *pubkey, const char *name, const char *text, float snr);
+void lz_core_on_mc_dm_self(const uint8_t *pubkey, const char *name, const char *text);  /* our DM send */
 /* Meshtastic PKI: learn a node's X25519 public key (from its NodeInfo) */
 void lz_core_on_pubkey(uint32_t from, const uint8_t *pub32);
 bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32]);   /* true if known */

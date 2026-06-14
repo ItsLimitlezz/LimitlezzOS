@@ -342,7 +342,6 @@ static void handle_rx_mt(void)
  * We decode ADVERTs (signed, unencrypted) to learn nodes by name + role.
  * Other MeshCore types are encrypted (need ECDH/channel keys we don't hold),
  * so they're counted but not opened. */
-static void mc_peer_learn(const uint8_t pub[32], const char *name);   /* fwd */
 static void handle_mc_dm(const mc_pkt_t *p, float snr);               /* fwd */
 static void handle_mc_ack(const uint8_t *ack4);                       /* fwd */
 static void handle_mc_path(const mc_pkt_t *p);                        /* fwd */
@@ -365,17 +364,16 @@ static void handle_rx_mc(void)
     if(p.payload_type == MC_PAYLOAD_ADVERT) {
         mc_advert_t a;
         if(mc_advert_decode(&p, &a)) {
-            lz_core_on_mc_node(a.pubkey, a.has_name ? a.name : NULL, a.adv_type, snr);
-            mc_peer_learn(a.pubkey, a.has_name ? a.name : NULL);   /* cache pubkey for DM ECDH */
+            lz_core_on_mc_node(a.pubkey, a.has_name ? a.name : NULL, a.adv_type, snr);  /* persists key for DM ECDH */
             Serial.printf("[mc] ADVERT %s (snr %.1f)\n", a.has_name ? a.name : "(noname)", snr);
         }
     } else if(p.payload_type == MC_PAYLOAD_GRP_TXT) {
         /* V0.6: try the default Public channel. MAC mismatch => some other channel. */
         mc_group_msg_t g;
         if(mc_group_decode(&p, MC_PUBLIC_SECRET, &g)) {
-            /* M2: prove reception over serial. Unified-inbox threading is M5. */
             Serial.printf("[mc] Public  %s: %s  (snr %.1f)\n",
                           g.sender[0] ? g.sender : "?", g.text, snr);
+            lz_core_on_mc_channel_text(g.sender, g.text, snr);   /* -> Messages app */
         } else {
             Serial.printf("[mc] GRP_TXT chan=%02x (not Public / undecodable)\n",
                           mc_group_channel_hash(&p));
@@ -578,49 +576,35 @@ extern "C" bool lz_backend_mc_send_public(const char *text)
     if(budget < 16) budget = 16;
     int tlen = (int)strlen(text);
 
-    if(tlen <= budget) return mc_send_one(id, text);          /* fits in one frame */
-
-    int slice = budget - 6;                                   /* leave room for "(i/n) " */
-    if(slice < 8) slice = 8;
-    int nparts = (tlen + slice - 1) / slice;
-    if(nparts > 9) nparts = 9;                                /* single-digit markers; chat is short */
-    bool ok = true;
-    for(int i = 0; i < nparts; i++) {
-        char part[180];
-        int off = i * slice, n = tlen - off;
-        if(n > slice) n = slice;
-        if(n < 0) n = 0;
-        snprintf(part, sizeof part, "(%d/%d) %.*s", i + 1, nparts, n, text + off);
-        ok = mc_send_one(id, part) && ok;
-        if(i + 1 < nparts) delay(400);                        /* spacing so parts don't self-collide */
+    bool ok;
+    if(tlen <= budget) {
+        ok = mc_send_one(id, text);                           /* fits in one frame */
+    } else {
+        int slice = budget - 6;                               /* leave room for "(i/n) " */
+        if(slice < 8) slice = 8;
+        int nparts = (tlen + slice - 1) / slice;
+        if(nparts > 9) nparts = 9;                            /* single-digit markers; chat is short */
+        ok = true;
+        for(int i = 0; i < nparts; i++) {
+            char part[180];
+            int off = i * slice, n = tlen - off;
+            if(n > slice) n = slice;
+            if(n < 0) n = 0;
+            snprintf(part, sizeof part, "(%d/%d) %.*s", i + 1, nparts, n, text + off);
+            ok = mc_send_one(id, part) && ok;
+            if(i + 1 < nparts) delay(400);                    /* spacing so parts don't self-collide */
+        }
     }
+    if(ok) lz_core_on_mc_channel_self(text);                  /* show our send in the Public thread */
     return ok;
 }
 
 /* ---- MeshCore direct messages (TXT_MSG, M4) ---------------------------------
- * DMs use a per-peer X25519 ECDH secret from the Ed25519 identities. We learn
- * peer pubkeys from their adverts and cache them here so a DM can be decrypted
- * (RX) or built (TX). Inbox threading is M5; for now DMs surface over serial. */
-#define MC_PEERS_N    48
+ * DMs use a per-peer X25519 ECDH secret from the Ed25519 identities. Peer pubkeys
+ * live in the node table (persisted to nodes.db via lz_core_on_mc_node), so DM
+ * decode/targeting survives a reboot — no separate RAM cache. */
 #define MC_DM_PEND_N  6
-static struct { uint8_t pub[32]; char name[24]; bool used; } g_mc_peers[MC_PEERS_N];
 static struct { uint8_t ack4[4]; char peer[24]; uint32_t t_ms; bool used; } g_mc_dm_pend[MC_DM_PEND_N];
-
-static void mc_peer_learn(const uint8_t pub[32], const char *name)
-{
-    int free_slot = -1;
-    for(int i = 0; i < MC_PEERS_N; i++) {
-        if(g_mc_peers[i].used && memcmp(g_mc_peers[i].pub, pub, 32) == 0) {
-            if(name && name[0]) snprintf(g_mc_peers[i].name, sizeof g_mc_peers[i].name, "%s", name);
-            return;                                  /* known peer, refresh name */
-        }
-        if(!g_mc_peers[i].used && free_slot < 0) free_slot = i;
-    }
-    if(free_slot < 0) free_slot = (int)(pub[0] % MC_PEERS_N);   /* full: evict by hash */
-    memcpy(g_mc_peers[free_slot].pub, pub, 32);
-    snprintf(g_mc_peers[free_slot].name, sizeof g_mc_peers[free_slot].name, "%s", name ? name : "");
-    g_mc_peers[free_slot].used = true;
-}
 
 static void send_mc_ack(const uint8_t ack4[4])
 {
@@ -639,24 +623,31 @@ static void handle_mc_dm(const mc_pkt_t *p, float snr)
     uint8_t dest_hash = p->payload[0], src_hash = p->payload[1];
     if(dest_hash != g_mc_pub[0]) return;              /* not addressed to us */
 
-    mc_dm_msg_t dm; int matched = -1;
-    for(int i = 0; i < MC_PEERS_N; i++) {             /* 1-byte hash collides: try all */
-        if(!g_mc_peers[i].used || g_mc_peers[i].pub[0] != src_hash) continue;
+    /* 1-byte src_hash collides: try every MeshCore node whose key starts with it */
+    const lz_node_rt *nodes; int nn = lz_svc_nodes(&nodes);
+    mc_dm_msg_t dm;
+    uint8_t ppub[32]; char pname[24]; bool found = false;
+    for(int i = 0; i < nn; i++) {
+        if(nodes[i].net != LZ_NET_MC || !nodes[i].has_key || nodes[i].pubkey[0] != src_hash) continue;
         uint8_t shared[32];
-        mc_ed25519_dh(shared, g_mc_peers[i].pub, g_mc_prv);
-        if(mc_dm_decode(p, shared, &dm)) { matched = i; break; }
+        mc_ed25519_dh(shared, nodes[i].pubkey, g_mc_prv);
+        if(mc_dm_decode(p, shared, &dm)) {
+            memcpy(ppub, nodes[i].pubkey, 32);
+            snprintf(pname, sizeof pname, "%s", nodes[i].name);
+            found = true; break;
+        }
     }
-    if(matched < 0) {
+    if(!found) {
         Serial.printf("[mc] DM to us from %02x: undecodable (peer key unknown?)\n", src_hash);
         return;
     }
     if(dm.txt_type == MC_TXT_TYPE_CLI_DATA) return;   /* CLI command, not chat, no ack */
-    Serial.printf("[mc] DM from %s: %s  (snr %.1f)\n",
-                  g_mc_peers[matched].name[0] ? g_mc_peers[matched].name : "?", dm.text, snr);
+    Serial.printf("[mc] DM from %s: %s  (snr %.1f)\n", pname[0] ? pname : "?", dm.text, snr);
+    lz_core_on_mc_dm(ppub, pname, dm.text, snr);      /* -> Messages app */
 
     uint8_t ack4[4];
     uint8_t type_byte = (uint8_t)((dm.txt_type << 2) | dm.attempt);
-    mc_dm_ack4(ack4, dm.timestamp, type_byte, dm.text, g_mc_peers[matched].pub);
+    mc_dm_ack4(ack4, dm.timestamp, type_byte, dm.text, ppub);
     send_mc_ack(ack4);                                /* so the sender sees delivery */
 }
 
@@ -684,47 +675,55 @@ static void handle_mc_path(const mc_pkt_t *p)
         handle_mc_ack(p->payload + i);
 }
 
-/* send a direct message to a cached peer (matched by advert name substring). */
+/* send a direct message to a known MeshCore peer (matched by node-name substring). */
 extern "C" bool lz_backend_mc_dm(const char *name, const char *text)
 {
     if(!g_ok || !g_net_mc || !name || !text || !text[0]) return false;
-    int pi = -1;
-    for(int i = 0; i < MC_PEERS_N; i++)
-        if(g_mc_peers[i].used && g_mc_peers[i].name[0] && strstr(g_mc_peers[i].name, name)) { pi = i; break; }
-    if(pi < 0) return false;                          /* unknown peer: need their advert first */
+    const lz_node_rt *nodes; int nn = lz_svc_nodes(&nodes);
+    uint8_t ppub[32]; char pname[24]; bool found = false;
+    for(int i = 0; i < nn; i++)
+        if(nodes[i].net == LZ_NET_MC && nodes[i].has_key && nodes[i].name[0] &&
+           strstr(nodes[i].name, name)) {
+            memcpy(ppub, nodes[i].pubkey, 32);
+            snprintf(pname, sizeof pname, "%s", nodes[i].name);
+            found = true; break;
+        }
+    if(!found) return false;                          /* unknown peer: need their advert first */
 
     if(g_active != PROF_MC) slot_begin(PROF_MC, millis());
     uint8_t shared[32];
-    mc_ed25519_dh(shared, g_mc_peers[pi].pub, g_mc_prv);
+    mc_ed25519_dh(shared, ppub, g_mc_prv);
     uint8_t frame[200], ack4[4];
     uint32_t ts = lz_svc_epoch();
-    int n = mc_dm_encode(frame, sizeof frame, shared, g_mc_peers[pi].pub[0], g_mc_pub[0],
+    int n = mc_dm_encode(frame, sizeof frame, shared, ppub[0], g_mc_pub[0],
                          ts, MC_TXT_TYPE_PLAIN, 0, text, g_mc_pub, ack4);
     if(n <= 0) return false;
     bool sent = tx_frame(frame, n);
-    if(sent) {                                        /* track for delivery (ACK match) */
+    if(sent) {
+        lz_core_on_mc_dm_self(ppub, pname, text);     /* show our send in the thread */
         int slot = -1;
         for(int i = 0; i < MC_DM_PEND_N; i++) if(!g_mc_dm_pend[i].used) { slot = i; break; }
         if(slot < 0) slot = 0;
         memcpy(g_mc_dm_pend[slot].ack4, ack4, 4);
-        snprintf(g_mc_dm_pend[slot].peer, sizeof g_mc_dm_pend[slot].peer, "%s", g_mc_peers[pi].name);
+        snprintf(g_mc_dm_pend[slot].peer, sizeof g_mc_dm_pend[slot].peer, "%s", pname);
         g_mc_dm_pend[slot].t_ms = millis();
         g_mc_dm_pend[slot].used = true;
     }
     return sent;
 }
 
-/* list cached MeshCore peers (serial `mc peers`) */
+/* list known MeshCore peers (serial `mc peers`) */
 extern "C" int lz_backend_mc_peers(char *buf, int n)
 {
+    const lz_node_rt *nodes; int nn = lz_svc_nodes(&nodes);
     int k = 0, count = 0;
-    for(int i = 0; i < MC_PEERS_N; i++) if(g_mc_peers[i].used) {
+    for(int i = 0; i < nn; i++) if(nodes[i].net == LZ_NET_MC && nodes[i].has_key) {
         count++;
         if(k < n - 1)
-            k += snprintf(buf + k, n - k, "  %02x  %s\n", g_mc_peers[i].pub[0],
-                          g_mc_peers[i].name[0] ? g_mc_peers[i].name : "(noname)");
+            k += snprintf(buf + k, n - k, "  %02x  %s\n", nodes[i].pubkey[0],
+                          nodes[i].name[0] ? nodes[i].name : "(noname)");
     }
-    if(count == 0) snprintf(buf, n, "no MeshCore peers heard yet\n");
+    if(count == 0) snprintf(buf, n, "no MeshCore peers with keys yet\n");
     return count;
 }
 
