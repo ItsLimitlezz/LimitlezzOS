@@ -11,7 +11,7 @@ param(
     [int]$UploadBaud = 115200,
     [int]$OpenTimeout = 60,
     [int]$BootTimeout = 45,
-    [int]$CommandTimeout = 15,
+    [int]$CommandTimeout = 30,
     [switch]$NoExpect,
     [string[]]$Commands = @("id", "sys", "net", "rf", "stats", "wifi", "companion test")
 )

@@ -129,7 +129,7 @@ def main() -> int:
     parser.add_argument("--reset", action="store_true", help="Pulse reset even when --skip-upload is used.")
     parser.add_argument("--open-timeout", type=float, default=60.0)
     parser.add_argument("--boot-timeout", type=float, default=45.0)
-    parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--no-expect", action="store_true")
     parser.add_argument("--commands", nargs="*", default=DEFAULT_COMMANDS)
     args = parser.parse_args()

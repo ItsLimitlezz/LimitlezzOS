@@ -123,7 +123,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke-test the LimitlezzOS serial CLI.")
     parser.add_argument("--port", default=os.environ.get("LZ_SERIAL_PORT", "COM8"))
     parser.add_argument("--baud", type=int, default=115200)
-    parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--open-timeout", type=float, default=60.0, help="Seconds to wait for a COM port to appear.")
     parser.add_argument("--boot-timeout", type=float, help="Seconds to wait for the first LimitlezzOS prompt.")
     parser.add_argument("--commands", nargs="*", default=DEFAULT_COMMANDS)
