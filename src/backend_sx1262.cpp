@@ -121,6 +121,24 @@ static bool seen_before(uint32_t from, uint32_t id)
     return false;
 }
 
+/* MeshCore dedup: a message reflooded by several repeaters arrives multiple
+ * times. The path bytes change but the payload ([hash][mac][ciphertext]) is
+ * identical, so hash that to drop duplicates. */
+#define MC_SEEN_N 16
+static uint32_t g_mc_seen[MC_SEEN_N];
+static int      g_mc_seen_head;
+static bool mc_seen_before(const uint8_t *payload, int len)
+{
+    uint32_t h = 2166136261u;
+    for(int i = 0; i < len; i++) { h ^= payload[i]; h *= 16777619u; }
+    h ^= (uint32_t)len;
+    if(!h) h = 1;
+    for(int i = 0; i < MC_SEEN_N; i++) if(g_mc_seen[i] == h) return true;
+    g_mc_seen[g_mc_seen_head] = h;
+    g_mc_seen_head = (g_mc_seen_head + 1) % MC_SEEN_N;
+    return false;
+}
+
 #if defined(ESP32)
 ICACHE_RAM_ATTR
 #endif
@@ -371,14 +389,18 @@ static void handle_rx_mc(void)
         /* V0.6: try the default Public channel. MAC mismatch => some other channel. */
         mc_group_msg_t g;
         if(mc_group_decode(&p, MC_PUBLIC_SECRET, &g)) {
-            Serial.printf("[mc] Public  %s: %s  (snr %.1f)\n",
-                          g.sender[0] ? g.sender : "?", g.text, snr);
-            lz_core_on_mc_channel_text(g.sender, g.text, snr);   /* -> Messages app */
+            if(mc_seen_before(p.payload, p.payload_len)) return;   /* dup reflood */
+            const char *me = lz_svc_identity()->long_name;
+            bool mine = g.sender[0] && me[0] && strcmp(g.sender, me) == 0;
+            Serial.printf("[mc] Public  %s: %s  (snr %.1f)%s\n",
+                          g.sender[0] ? g.sender : "?", g.text, snr, mine ? " [self]" : "");
+            if(!mine) lz_core_on_mc_channel_text(g.sender, g.text, snr);  /* not our own echo */
         } else {
             Serial.printf("[mc] GRP_TXT chan=%02x (not Public / undecodable)\n",
                           mc_group_channel_hash(&p));
         }
     } else if(p.payload_type == MC_PAYLOAD_TXT_MSG) {
+        if(mc_seen_before(p.payload, p.payload_len)) return;       /* dup reflood */
         handle_mc_dm(&p, snr);
     } else if(p.payload_type == MC_PAYLOAD_ACK) {
         if(p.payload_len >= 4) handle_mc_ack(p.payload);
