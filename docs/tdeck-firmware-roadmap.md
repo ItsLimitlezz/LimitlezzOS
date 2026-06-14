@@ -49,9 +49,9 @@ Goal: make Alpha 0.41 trustworthy to build, test, and describe.
 Deliverables:
 
 - Confirm and encode the correct LilyGO T-Deck board profile: 16 MB flash, PSRAM, upload flash size, partition compatibility, and memory type.
-- Add CI for `pio run -e tdeck` with firmware size reporting.
-- Add a simulator CI path or clear host-specific setup docs for SDL2.
-- Make `pio run -e native` fail clearly when `sdl2-config` is absent.
+- Add CI for `pio run -e tdeck` with firmware size reporting. Implemented in `.github/workflows/firmware.yml`; CI builds the T-Deck target, captures `pio run -t size`, and uploads firmware artifacts.
+- Add a simulator CI path or clear host-specific setup docs for SDL2. Implemented in `.github/workflows/firmware.yml`; Ubuntu CI installs SDL2, builds the native simulator, and runs `program --selftest`.
+- Make `pio run -e native` fail clearly when `sdl2-config` is absent. Implemented by `scripts/pio_native_sdl2.py`; CI covers the SDL2-present path.
 - Add a release checklist covering build, flash, boot log, display, touch, keyboard, trackball, SD, radio, Wi-Fi, companion, and sleep.
 - Update README status wording so "working", "partial", "prototype", and "planned" are distinct.
 - Persist user settings beyond identity/Wi-Fi/touch/keys: brightness, timeout, clock format, time zone, keyboard light, TX power, network toggles, power saving. Implemented through `settings.cfg`; Wi-Fi credential hardening remains V0.96.

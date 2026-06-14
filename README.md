@@ -191,8 +191,12 @@ typing goes into the conversation composer.
 pio run -e tdeck -t upload                     # flash over USB-C
 ```
 
-Current footprint: ~1.22 MB flash (24% of the 5 MB OTA slot), 240 KB static RAM
-(75%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
+CI runs the native simulator build, native codec selftest, T-Deck firmware build,
+and T-Deck size report in `.github/workflows/firmware.yml`, then uploads the
+firmware artifacts from `.pio/build/tdeck`.
+
+Current footprint: ~1.23 MB flash (24.5% of the 5 MB OTA slot), 265 KB static RAM
+(80.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
 identity, user settings, the node database, and saved Wi-Fi credentials all live
 on the SD card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds
 the demo mesh.

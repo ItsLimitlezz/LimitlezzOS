@@ -26,7 +26,7 @@ Status labels:
 
 | Feature | Status | Evidence | Gap / Next Action |
 | --- | --- | --- | --- |
-| T-Deck PlatformIO firmware target | Functional, needs validation | `platformio.ini`, `src/main_tdeck.cpp`; local build emitted `firmware.bin` | Clean up Windows build workflow and verify board profile against actual T-Deck flash/PSRAM. |
+| T-Deck PlatformIO firmware target | Functional, CI-covered, needs hardware validation | `platformio.ini`, `src/main_tdeck.cpp`; `.github/workflows/firmware.yml` builds `pio run -e tdeck`, captures size output, and uploads firmware artifacts | Keep validating board profile against actual T-Deck flash/PSRAM during hardware smoke runs. |
 | OTA-ready partition layout | Partial | `partitions.csv` has `ota_0`, `ota_1`, `otadata`, `config`, `appfs` | OTA service and update UI are not implemented. |
 | Display and LVGL shell | Functional, needs validation | LovyanGFX ST7789 setup, LVGL buffers, UI screens | Hardware flash/smoke checklist needed for every release. |
 | Trackball and keyboard input | Functional, needs validation | GPIO interrupts and I2C keyboard polling in `main_tdeck.cpp` | Add hardware test checklist and input regression tests in simulator. |
@@ -109,7 +109,7 @@ Status labels:
 | Feedback Manager | Planned | Design spec section 8 | Centralize LED, buzzer, keyboard/display feedback and DND. |
 | Emergency beacon | Planned | Design spec section 12, disabled Emergency UI row | Requires Feedback Manager and dual-network messaging. |
 | BLE companion | Planned | Author V0.5 beta milestone | Add Meshtastic BLE companion after USB companion and core Meshtastic messaging are stable. |
-| CI and release checks | Planned | No `.github` workflows | Add tdeck build, simulator/selftest where available, artifact/size reporting. |
+| CI and release checks | Partial | `.github/workflows/firmware.yml` runs native simulator build, native protocol selftest, T-Deck build, size reporting, and artifact upload | Add screenshot generation, protocol vectors beyond the native selftest, size budgets, and hardware evidence gates. |
 
 ## Completion Criteria
 
