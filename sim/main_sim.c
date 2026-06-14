@@ -18,6 +18,7 @@
 #include "ui/ui.h"
 #include "services/mesh.h"
 #include "services/mtproto.h"
+#include "services/mcproto.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -474,6 +475,40 @@ static int codec_selftest(void)
               "store: 1st DM left untouched");
         remove("./m_selftestdm.log");
         lz_store_init(NULL);              /* back to RAM-only */
+    }
+
+    /* 9. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+     *    reject a wrong key (MAC), and round-trip an encode. Vector generated
+     *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
+    {
+        /* on-air frame: header(GRP_TXT|FLOOD)=0x15, path_len=0, then
+         * [chash 0x11][mac 99 04][ciphertext 32B] -> "Alice: hello mesh" */
+        static const uint8_t gframe[] = {
+            0x15, 0x00,
+            0x11, 0x99, 0x04,
+            0xb0,0xf3,0xee,0x44,0xb9,0x2e,0x56,0xc5,0x41,0x80,0x6d,0x64,0x1b,0x02,0x4a,0x58,
+            0x5b,0xe4,0xe2,0x76,0x1c,0x62,0xb2,0x46,0x4f,0xd9,0xdd,0xf4,0x22,0xcd,0x3f,0xd3 };
+        mc_pkt_t gp;
+        CHECK(mc_parse(gframe, (int)sizeof gframe, &gp), "MeshCore frame parses");
+        CHECK(gp.payload_type == MC_PAYLOAD_GRP_TXT, "MeshCore payload type GRP_TXT");
+        CHECK(mc_group_channel_hash(&gp) == MC_PUBLIC_CHANNEL_HASH, "MeshCore Public channel hash 0x11");
+        mc_group_msg_t gm;
+        CHECK(mc_group_decode(&gp, MC_PUBLIC_SECRET, &gm), "MeshCore GRP_TXT decodes + MAC ok");
+        CHECK(gm.timestamp == 0x6843B2A0u, "MeshCore GRP_TXT timestamp");
+        CHECK(strcmp(gm.sender, "Alice") == 0, "MeshCore GRP_TXT sender parsed");
+        CHECK(strcmp(gm.text, "hello mesh") == 0, "MeshCore GRP_TXT text parsed");
+        uint8_t wrong[16]; memset(wrong, 0x11, sizeof wrong);
+        mc_group_msg_t gbad;
+        CHECK(!mc_group_decode(&gp, wrong, &gbad), "MeshCore GRP_TXT wrong key rejected (MAC)");
+        /* encode -> parse -> decode round-trip */
+        uint8_t out[128];
+        int ol = mc_group_encode(out, sizeof out, MC_PUBLIC_SECRET, 0x12345678u, "Bob", "hi there");
+        CHECK(ol > 5, "MeshCore GRP_TXT encodes");
+        mc_pkt_t rp; mc_group_msg_t rm;
+        CHECK(mc_parse(out, ol, &rp) && mc_group_decode(&rp, MC_PUBLIC_SECRET, &rm),
+              "MeshCore GRP_TXT round-trip decodes");
+        CHECK(rm.timestamp == 0x12345678u && strcmp(rm.sender, "Bob") == 0 &&
+              strcmp(rm.text, "hi there") == 0, "MeshCore GRP_TXT round-trip fields");
     }
 
     #undef CHECK

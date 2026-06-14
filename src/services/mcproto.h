@@ -63,10 +63,31 @@ typedef struct {
     char     name[32];
 } mc_advert_t;
 
+/* a decoded group/channel text message (GRP_TXT) */
+typedef struct {
+    uint32_t timestamp;
+    uint8_t  flags;
+    char     sender[32];        /* parsed from "sender: text"; empty if absent */
+    char     text[176];
+} mc_group_msg_t;
+
+/* The default "Public" channel: 16-byte AES-128 secret (PSK izOH6cXN6mrJ5e26oRXNcg==)
+ * and its packet channel-hash = SHA256(secret)[0]. */
+extern const uint8_t MC_PUBLIC_SECRET[16];
+#define MC_PUBLIC_CHANNEL_HASH 0x11
+
 /* parse the on-air framing; false if the header/path are malformed */
 bool mc_parse(const uint8_t *buf, int len, mc_pkt_t *out);
 /* decode an ADVERT packet's identity + name; false if not an advert/too short */
 bool mc_advert_decode(const mc_pkt_t *p, mc_advert_t *out);
+/* the channel-hash byte a GRP_TXT/GRP_DATA payload is tagged with (payload[0]) */
+uint8_t mc_group_channel_hash(const mc_pkt_t *p);
+/* decode a GRP_TXT payload with a 16-byte channel secret: verify the MAC and
+ * AES-128-ECB decrypt. false if not a group text, malformed, or MAC mismatch. */
+bool mc_group_decode(const mc_pkt_t *p, const uint8_t secret16[16], mc_group_msg_t *out);
+/* build a GRP_TXT on-air frame (FLOOD route, path_len 0). Returns length or -1. */
+int  mc_group_encode(uint8_t *frame, int cap, const uint8_t secret16[16],
+                     uint32_t timestamp, const char *sender, const char *text);
 /* human label for a payload type (for diagnostics) */
 const char *mc_type_name(uint8_t payload_type);
 
