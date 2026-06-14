@@ -42,12 +42,6 @@ static void compute_window(int scroll_y, int *out_first, int *out_last)
     if(view_h <= 0) view_h = 200;
     int first = (scroll_y - VL.header_h) / VL.stride - VL_BUFFER;
     int last  = (scroll_y + view_h - VL.header_h) / VL.stride + VL_BUFFER;
-    /* the focused row must exist so the focus ring and scroll-into-view work */
-    int fi = S.focus - VL.focus_base;
-    if(fi >= 0 && fi < VL.count) {
-        if(fi < first) first = fi;
-        if(fi > last)  last  = fi;
-    }
     first = clampi(first, 0, VL.count - 1);
     last  = clampi(last,  0, VL.count - 1);
     if(last < first) last = first;
@@ -142,13 +136,7 @@ lv_obj_t *lz_vlist(lv_obj_t *body, int header_h, int count, int stride,
     }
 
     int nf, nl;
-    /* compute_window reads S.focus; temporarily evaluate at the chosen offset */
-    {
-        int saved = g_saved_scroll;
-        g_saved_scroll = sc;
-        compute_window(sc, &nf, &nl);
-        g_saved_scroll = saved;
-    }
+    compute_window(sc, &nf, &nl);
     for(int i = nf; i <= nl; i++) build_row(i);
     VL.win_first = nf;
     VL.win_last  = nl;

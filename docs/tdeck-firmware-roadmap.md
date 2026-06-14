@@ -73,7 +73,7 @@ Deliverables:
   - unread highlighting in Messages. Implemented: unread rows use the dark-mint emphasis and brighter sender text.
   - Messages launcher badge with 1-9 and plus behavior. Implemented: the Home Messages tile shows 1-9, then `9+`, excluding muted chats.
   - silence/mute for public/group chats. Implemented: long-press toggles mute and shows the crescent indicator.
-  - responsiveness pass for Settings, chat log, keyboard input, and long lists. In progress: conversation typing/backspace now refreshes the compose label in place instead of rebuilding the full chat log. Still open: Settings, chat-log scroll, long-list, and hardware latency regression proof.
+  - responsiveness pass for Settings, chat log, keyboard input, and long lists. In progress: conversation typing/backspace now refreshes the compose label in place instead of rebuilding the full chat log; Contacts now uses the virtualized list helper and virtual-list touch scroll stays bounded. Still open: Settings, chat-log scroll, and hardware latency regression proof.
 - Make delivery state durable:
   - persist sent-message packet IDs and delivery status. Implemented for newly sent DMs through message-log metadata.
   - reflect immediate backend send failures. Implemented: failed transmit attempts mark the sent bubble failed.

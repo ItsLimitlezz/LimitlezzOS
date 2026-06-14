@@ -1,6 +1,7 @@
 /* App Store (install flow), Contacts directory, Contact detail,
  * Terminal, Files */
 #include "../ui.h"
+#include "../vlist.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -171,6 +172,9 @@ void lz_scr_appstore(lv_obj_t *root)
 static lz_node_rt *contact_list[LZ_MAX_NODES];
 static int contact_n;
 
+#define CONTACT_ROW_H 46
+#define CONTACT_STRIDE 49
+
 static bool contact_locked(int idx)   /* MeshCore contacts inert until Stage 2 */
 {
     return idx >= 0 && idx < contact_n &&
@@ -183,6 +187,54 @@ static void contacts_activate(int idx)
         S.contact_sel = contact_list[idx];
         lz_go(LZ_V_CONTACT);
     }
+}
+
+static lv_obj_t *contact_row_cb(lv_obj_t *content, int index, int y, bool focused, void *ctx)
+{
+    (void)ctx;
+    lz_node_rt *n = contact_list[index];
+    char ago[8], snrs[8];
+    lz_fmt_ago(n->last_heard, ago, sizeof ago);
+    snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
+
+    lv_obj_t *row = lz_row(content, focused);
+    lv_obj_set_height(row, CONTACT_ROW_H);
+    lv_obj_set_y(row, y);
+    lv_obj_set_style_radius(row, 10, 0);
+    if(!LZ_MESHCORE_ENABLED && n->net == LZ_NET_MC)
+        lv_obj_set_style_opa(row, LV_OPA_50, 0);   /* MeshCore locked: Stage 2 */
+
+    lv_obj_t *avwrap = lz_box(row);
+    lv_obj_set_size(avwrap, 32, 32);
+    lv_obj_t *av = lz_dot(avwrap, 31, lz_av_color(n->net));
+    lv_obj_t *sc = lz_text(av, n->shortcode, LZ_F_SMALL, lv_color_white());
+    lv_obj_center(sc);
+    lv_obj_t *ring = lz_dot(avwrap, 11, LZ_SCREEN_BG);
+    lv_obj_align(ring, LV_ALIGN_BOTTOM_RIGHT, 1, 1);
+    lv_obj_t *nd = lz_dot(ring, 7, lz_net_color(n->net));
+    lv_obj_center(nd);
+
+    lv_obj_t *cl = lz_box(row);
+    lv_obj_set_flex_grow(cl, 1);
+    lv_obj_set_height(cl, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(cl, 1, 0);
+    lz_text(cl, n->name, LZ_F_BODY, LZ_TEXT);
+    char meta[40]; snprintf(meta, sizeof meta, "%s - %s", n->id, n->role);
+    lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x838A93));
+
+    lv_obj_t *r = lz_box(row);
+    lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lz_text(r, ago, LZ_F_SMALL, LZ_TEXT_META);
+    if(n->net == LZ_NET_MT)
+        lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
+    else
+        lz_text(r, n->dist, LZ_F_SMALL, LZ_TEXT_3);
+
+    lz_nav_track(row, index);
+    return row;
 }
 
 void lz_scr_contacts(lv_obj_t *root)
@@ -201,7 +253,6 @@ void lz_scr_contacts(lv_obj_t *root)
     lv_obj_set_style_pad_hor(body, 7, 0);
     lv_obj_set_style_pad_bottom(body, 8, 0);
     lv_obj_set_style_pad_row(body, 3, 0);
-    lz_nav_set_scroll(body);
 
     if(contact_n == 0) {
         lv_obj_t *empty = lz_text(body,
@@ -214,48 +265,7 @@ void lz_scr_contacts(lv_obj_t *root)
         return;
     }
 
-    for(int i = 0; i < contact_n; i++) {
-        lz_node_rt *n = contact_list[i];
-        char ago[8], snrs[8];
-        lz_fmt_ago(n->last_heard, ago, sizeof ago);
-        snprintf(snrs, sizeof snrs, "%+.1f", (double)n->snr);
-        lv_obj_t *row = lz_row(body, i == S.focus);
-        lv_obj_set_style_radius(row, 10, 0);
-        if(!LZ_MESHCORE_ENABLED && n->net == LZ_NET_MC)
-            lv_obj_set_style_opa(row, LV_OPA_50, 0);   /* MeshCore locked: Stage 2 */
-
-        lv_obj_t *avwrap = lz_box(row);
-        lv_obj_set_size(avwrap, 32, 32);
-        lv_obj_t *av = lz_dot(avwrap, 31, lz_av_color(n->net));
-        lv_obj_t *sc = lz_text(av, n->shortcode, LZ_F_SMALL, lv_color_white());
-        lv_obj_center(sc);
-        lv_obj_t *ring = lz_dot(avwrap, 11, LZ_SCREEN_BG);
-        lv_obj_align(ring, LV_ALIGN_BOTTOM_RIGHT, 1, 1);
-        lv_obj_t *nd = lz_dot(ring, 7, lz_net_color(n->net));
-        lv_obj_center(nd);
-
-        lv_obj_t *cl = lz_box(row);
-        lv_obj_set_flex_grow(cl, 1);
-        lv_obj_set_height(cl, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(cl, 1, 0);
-        lz_text(cl, n->name, LZ_F_BODY, LZ_TEXT);
-        char meta[40]; snprintf(meta, sizeof meta, "%s - %s", n->id, n->role);
-        lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x838A93));
-
-        lv_obj_t *r = lz_box(row);
-        lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-        lz_text(r, ago, LZ_F_SMALL, LZ_TEXT_META);
-        /* Meshtastic reports SNR; MeshCore doesn't, so show distance instead of
-         * a number that would look like a (red) SNR reading */
-        if(n->net == LZ_NET_MT)
-            lz_text(r, snrs, LZ_F_SMALL, lz_snr_color(n->snr));
-        else
-            lz_text(r, n->dist, LZ_F_SMALL, LZ_TEXT_3);
-        lz_nav_track(row, i);
-    }
+    lz_vlist(body, 0, contact_n, CONTACT_STRIDE, 0, contact_row_cb, NULL);
     lz_nav_set(1, contact_n, contacts_activate);
     lz_nav_set_skip(contact_locked);
 }

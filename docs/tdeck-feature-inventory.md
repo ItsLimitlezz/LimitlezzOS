@@ -77,7 +77,7 @@ Status labels:
 | Conversation view | Functional/Partial | compose, in-place draft text refresh, bubbles, status colors, resend long-press, persisted sent-DM delivery metadata | Stock-device ACK/retry interop and hardware chat-log latency still need validation. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, companion toggle | Emergency channel row is disabled. |
 | MeshCore manager | Prototype/Partial | "Coming soon" unless gate is flipped; deeper screen exists behind gate | Do not enable until MeshCore message path works. |
-| Contacts/detail | Functional/Partial | contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked. |
+| Contacts/detail | Functional/Partial | virtualized contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked; hardware long-list scroll needs validation. |
 | Settings | Functional/Partial | network toggles, Wi-Fi, brightness, time, system, touch calibration, Developer Mode, `settings.cfg` persistence | Add migration/versioning if the settings schema grows. |
 | Wi-Fi setup | Functional, needs validation | async scan/connect, saved SSID/password, auto-connect | Credentials are plaintext on SD; only one saved network. |
 | System/battery page | Functional/Partial | live stats and battery arc | Hardware values need calibration/validation. |
