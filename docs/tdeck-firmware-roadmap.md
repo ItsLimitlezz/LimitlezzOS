@@ -101,16 +101,16 @@ Goal: let the official Meshtastic app connect wirelessly to the T-Deck radio aft
 
 Deliverables:
 
-- Add BLE transport for the Meshtastic companion protocol.
-- Reuse the USB companion handshake/model where possible so node DB, channel, config, and packet forwarding behavior stay consistent.
-- Add clear UI state for USB companion, BLE companion, and normal serial console mode.
-- Define what happens when USB and BLE companion clients compete for the radio.
-- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical.
+- Add BLE transport for the Meshtastic companion protocol. Implemented in firmware with NimBLE-Arduino and the official Meshtastic BLE GATT service UUIDs: `ToRadio` writes, `FromRadio` reads, and `FromNum` read/notify/write.
+- Reuse the USB companion handshake/model where possible so node DB, channel, config, and packet forwarding behavior stay consistent. Implemented: USB and BLE both feed the same `ToRadio` handler and `FromRadio` builders.
+- Add clear UI state for USB companion, BLE companion, and normal serial console mode. Implemented: Meshtastic -> Nodes now has separate USB and BLE companion rows.
+- Define what happens when USB and BLE companion clients compete for the radio. Implemented: only one external app bridge is active at a time; enabling BLE disables USB companion mode, and enabling USB turns BLE advertising/connection off.
+- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical. Implemented: `companion ble on|off|test`, BLE status reporting, and a BLE mailbox/fromnum selftest.
 - Hardware-test pairing, reconnect, send, receive, and disconnect flows with the official app.
 
 Exit criteria:
 
-- A phone can pair over BLE, see the T-Deck as a Meshtastic companion radio, and send/receive through the T-Deck without USB.
+- A phone can pair over BLE, see the T-Deck as a Meshtastic companion radio, and send/receive through the T-Deck without USB. Firmware path is implemented; official app hardware validation remains open.
 - Normal on-device messaging still works when BLE companion is off.
 
 ## Phase 3 - V0.6 MeshCore Public Chat And Split Airtime Config

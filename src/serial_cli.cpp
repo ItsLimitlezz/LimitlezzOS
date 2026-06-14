@@ -23,6 +23,8 @@ extern "C" int  lz_backend_mc_id(char *buf, int n)        __attribute__((weak));
 extern "C" bool lz_backend_mc_advert_now(bool flood)      __attribute__((weak));
 extern "C" int  lz_backend_mc_selftest(char *buf, int n)  __attribute__((weak));
 extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
+extern "C" int  lz_mtc_ble_status(char *buf, int n)       __attribute__((weak));
+extern "C" int  lz_mtc_ble_selftest(char *buf, int n)     __attribute__((weak));
 extern "C" void lz_touch_set_transform(int swap, int invx, int invy) __attribute__((weak));
 extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
 extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
@@ -51,6 +53,7 @@ static void cmd_help(void)
         "  mc advert [local]    broadcast a MeshCore self-advert (flood, or zero-hop)\n"
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
+        "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  dm status            show pending sent-DM delivery state\n"
@@ -235,8 +238,23 @@ static void cmd_touch(char *args)
 
 static void cmd_companion(char *args)
 {
+    if(args && strncmp(args, "ble", 3) == 0) {
+        char state[8] = {0};
+        if(sscanf(args, "ble %7s", state) == 1) {
+            if(strcmp(state, "on") == 0)  lz_mtc_ble_set_enabled(true);
+            if(strcmp(state, "off") == 0) lz_mtc_ble_set_enabled(false);
+            if(strcmp(state, "test") == 0 && lz_mtc_ble_selftest) {
+                char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b);
+            }
+        }
+        if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+        else Serial.println("[--] BLE companion not present");
+        return;
+    }
     if(args && strcmp(args, "test") == 0) {
         if(lz_mtc_selftest) { char b[160]; lz_mtc_selftest(b, sizeof b); Serial.println(b); }
+        if(lz_mtc_ble_selftest) { char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b); }
+        if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
         else Serial.println("[--] not present");
         return;
     }
@@ -247,7 +265,8 @@ static void cmd_companion(char *args)
         return;
     }
     if(args && strcmp(args, "off") == 0) { lz_mtc_set_active(false); Serial.println("[ok] companion mode OFF"); return; }
-    Serial.printf("companion mode: %s  (on|off|test)\n", lz_mtc_active() ? "ON" : "off");
+    Serial.printf("USB companion mode: %s  (on|off|test)\n", lz_mtc_active() ? "ON" : "off");
+    if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
 static void cmd_nodes(void)

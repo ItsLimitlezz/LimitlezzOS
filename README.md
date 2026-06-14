@@ -69,6 +69,10 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - **MeshCore (whole network path)** — adverts transmit + remote nodes decode, but
   **receiving is not working yet**: no Public channel, can't see/send/receive
   MeshCore messages. The MeshCore app + settings are gated "Coming soon" for this Alpha.
+- **Meshtastic BLE companion** — the firmware exposes the official Meshtastic
+  BLE GATT service (`ToRadio`, `FromRadio`, `FromNum`) through NimBLE, with a
+  separate BLE companion toggle and serial diagnostics. Phone pairing plus
+  send/receive still need hardware validation before it moves to "working".
 
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
@@ -88,7 +92,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   updates the compose pill in place, Contacts uses virtualized rows, and Settings
   brightness adjusts without a full screen rebuild; chat rebuilds preserve scroll
   unless pinned to the newest message. Hardware regression is still open.
-- **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly).
+- **0.5 (beta)** — **BLE companion** for Meshtastic: firmware transport is in
+  place; phone pairing/send/receive hardware validation is next.
 
 ### 🔭 Later
 - **MeshCore** — receive + default Public channel, then a MeshCore companion bridge (currently "Coming soon").
@@ -195,8 +200,8 @@ CI runs the native simulator build, native codec selftest, T-Deck firmware build
 and T-Deck size report in `.github/workflows/firmware.yml`, then uploads the
 firmware artifacts from `.pio/build/tdeck`.
 
-Current footprint: ~1.23 MB flash (24.5% of the 5 MB OTA slot), 265 KB static RAM
-(80.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
+Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RAM
+(82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
 identity, user settings, the node database, and saved Wi-Fi credentials all live
 on the SD card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds
 the demo mesh.
@@ -252,6 +257,10 @@ the demo mesh.
   across reboots; nothing on screen is hard-coded demo data on hardware.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
   `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
+- **Companion bridge controls** — USB companion mode and BLE companion advertising
+  are separate rows in Meshtastic → Nodes. Only one external app transport owns
+  the bridge at a time: enabling BLE returns USB to the serial console; enabling
+  USB turns BLE advertising/connection off.
 - **Terminal / Files** — Developer Mode mono console with blinking cursor;
   read-only Files browser for the mounted SD/local store.
 

@@ -66,3 +66,10 @@ void lz_backend_mc_addr(char *buf, int n) { snprintf(buf, n, "MC-1ec77175"); }
 static bool g_sim_companion;
 bool lz_mtc_active(void) { return g_sim_companion; }                     /* no real bridge in the sim */
 void lz_mtc_set_active(bool on) { g_sim_companion = on; }
+bool lz_mtc_any_active(void) { return g_sim_companion; }
+void lz_mtc_ble_begin(void) {}
+void lz_mtc_ble_poll(void) {}
+bool lz_mtc_ble_enabled(void) { return false; }
+bool lz_mtc_ble_connected(void) { return false; }
+void lz_mtc_ble_set_enabled(bool on) { (void)on; }
+int  lz_mtc_ble_status(char *buf, int n) { return snprintf(buf, n, "BLE companion: unavailable in simulator"); }

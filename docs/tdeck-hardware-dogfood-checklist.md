@@ -29,7 +29,7 @@ dogfood belong to the later roadmap phases.
 - Open the USB console at 115200 baud.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
-- Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, and `companion`.
+- Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`, and `companion ble`.
 
 ## Hardware Evidence Log
 
@@ -42,6 +42,7 @@ dogfood belong to the later roadmap phases.
 - Direct ROM flashing with PlatformIO's packaged `esptool.py v4.5.1 --no-stub` on `COM8` succeeded; bootloader, partitions, `boot_app0.bin`, and firmware hashes all verified.
 - A local Windows COM8 attach with DTR/RTS preset low before opening the serial handle avoided the host reset loop and reached the LimitlezzOS `lz>` prompt; no Windows helper was added to the repo.
 - COM8 CLI smoke passed for `id`, `sys`, `net`, `rf`, `stats`, `wifi`, and `companion test`.
+- BLE companion firmware build proof is present in the V0.5 branch; still run official Meshtastic app pairing, reconnect, send, receive, and disconnect validation before marking BLE hardware-tested.
 - Companion self-test evidence: `27 frames | my_info=1 metadata=1 config=1 channel=1 complete=1 nonce=1234abcd -> PASS`.
 - Post-flash serial before the local attach fix showed ESP-ROM `SPI_FAST_FLASH_BOOT` and app entry at `0x403c98d0`, then `COM8` disconnected during USB handoff before the LimitlezzOS `lz>` prompt appeared.
 - The ROM saved PC `0x420c67ae` decoded against the flashed ELF to `esp_pm_impl_waiti`, which indicates the previous reset happened while the app was idle rather than at a decoded crash site.

@@ -267,7 +267,7 @@ static void handle_rx_mt(void)
             int hops_used = (int)f.hop_start - (int)f.hop_limit;
             if(hops_used < 0) hops_used = 0;
             /* companion mode: hand the whole decoded packet to the phone app */
-            if(lz_mtc_active())
+            if(lz_mtc_any_active())
                 lz_mtc_forward(f.from, f.to, f.id, 0, d.portnum, d.payload, d.plen,
                                snr, lz_svc_epoch(), f.hop_limit);
             if(d.portnum == MT_PORT_TEXT && d.plen) {

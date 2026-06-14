@@ -22,13 +22,52 @@
 #ifdef LZ_TARGET_TDECK
 
 #include <Arduino.h>
+#include <NimBLEDevice.h>
+#include <esp_heap_caps.h>
 #include <stdlib.h>
 #include "services/mesh.h"
 #include "services/mtproto.h"
 
-static bool g_companion;
+static bool g_companion;          /* USB serial companion mode */
 
 extern "C" bool lz_mtc_active(void) { return g_companion; }
+
+/* Meshtastic BLE API UUIDs:
+ * service   6ba1b218-15a8-461f-9fa8-5dcae273eafd
+ * FromRadio 2c55e69e-4993-11ed-b878-0242ac120002
+ * ToRadio   f75c76d2-129e-4dad-a1dd-7866124401e7
+ * FromNum   ed9da18c-a800-4f66-a670-aa7547e34453
+ */
+#define MTC_BLE_SERVICE_UUID   "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
+#define MTC_BLE_FROM_UUID      "2c55e69e-4993-11ed-b878-0242ac120002"
+#define MTC_BLE_TO_UUID        "f75c76d2-129e-4dad-a1dd-7866124401e7"
+#define MTC_BLE_FROMNUM_UUID   "ed9da18c-a800-4f66-a670-aa7547e34453"
+
+#define MTC_BLE_MAX_PACKET 512
+#define MTC_BLE_QUEUE_N    10
+
+static NimBLEServer *g_ble_server;
+static NimBLECharacteristic *g_ble_fromradio;
+static NimBLECharacteristic *g_ble_toradio;
+static NimBLECharacteristic *g_ble_fromnum;
+static bool g_ble_ready;
+static bool g_ble_enabled;
+static bool g_ble_connected;
+
+typedef struct {
+    uint32_t num;
+    uint16_t len;
+    uint8_t  data[MTC_BLE_MAX_PACKET];
+} ble_from_t;
+
+static ble_from_t *g_ble_q;
+static int g_ble_head, g_ble_count;
+static uint32_t g_ble_next_num = 1;
+static uint32_t g_ble_read_num = 1;
+
+extern "C" bool lz_mtc_ble_enabled(void) { return g_ble_enabled; }
+extern "C" bool lz_mtc_ble_connected(void) { return g_ble_connected; }
+extern "C" bool lz_mtc_any_active(void) { return g_companion || g_ble_connected; }
 
 /* ---------- protobuf encode helpers ---------- */
 static int pb_varint(uint8_t *b, uint64_t v)
@@ -74,7 +113,7 @@ static bool cap_reserve(int need)
     return true;
 }
 
-static void send_frame(const uint8_t *pb, int len)
+static void send_usb_frame(const uint8_t *pb, int len)
 {
     uint8_t hdr[4] = { 0x94, 0xC3, (uint8_t)(len >> 8), (uint8_t)(len & 0xFF) };
     if(g_capturing) {
@@ -87,6 +126,71 @@ static void send_frame(const uint8_t *pb, int len)
     Serial.write(hdr, 4);
     Serial.write(pb, len);
     Serial.flush();
+}
+
+static void ble_set_fromnum(uint32_t v, bool notify)
+{
+    if(!g_ble_fromnum) return;
+    uint8_t le[4] = {
+        (uint8_t)(v & 0xFF),
+        (uint8_t)((v >> 8) & 0xFF),
+        (uint8_t)((v >> 16) & 0xFF),
+        (uint8_t)((v >> 24) & 0xFF),
+    };
+    g_ble_fromnum->setValue(le, sizeof le);
+    if(notify && g_ble_connected) g_ble_fromnum->notify(le, sizeof le);
+}
+
+static bool ble_queue_ready(void)
+{
+    if(g_ble_q) return true;
+    g_ble_q = (ble_from_t *)heap_caps_calloc(MTC_BLE_QUEUE_N, sizeof(ble_from_t),
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if(!g_ble_q) g_ble_q = (ble_from_t *)calloc(MTC_BLE_QUEUE_N, sizeof(ble_from_t));
+    return g_ble_q != NULL;
+}
+
+static void ble_enqueue_fromradio(const uint8_t *pb, int len)
+{
+    if(!g_ble_ready || !g_ble_enabled || !g_ble_connected || len < 0) return;
+    if(!ble_queue_ready()) return;
+    if(len > MTC_BLE_MAX_PACKET) return;
+    if(g_ble_count >= MTC_BLE_QUEUE_N) {
+        g_ble_head = (g_ble_head + 1) % MTC_BLE_QUEUE_N;
+        g_ble_count--;
+    }
+    int idx = (g_ble_head + g_ble_count) % MTC_BLE_QUEUE_N;
+    g_ble_q[idx].num = g_ble_next_num++;
+    g_ble_q[idx].len = (uint16_t)len;
+    if(len) memcpy(g_ble_q[idx].data, pb, len);
+    g_ble_count++;
+    ble_set_fromnum(g_ble_q[idx].num, true);
+}
+
+static void ble_prepare_fromradio_value(void)
+{
+    if(!g_ble_fromradio) return;
+    if(!ble_queue_ready()) {
+        g_ble_fromradio->setValue((const uint8_t *)NULL, 0);
+        return;
+    }
+    int best = -1;
+    for(int i = 0; i < g_ble_count; i++) {
+        int idx = (g_ble_head + i) % MTC_BLE_QUEUE_N;
+        if(g_ble_q[idx].num >= g_ble_read_num) { best = idx; break; }
+    }
+    if(best < 0) {
+        g_ble_fromradio->setValue((const uint8_t *)NULL, 0);
+        return;
+    }
+    g_ble_fromradio->setValue(g_ble_q[best].data, g_ble_q[best].len);
+    g_ble_read_num = g_ble_q[best].num + 1;
+}
+
+static void send_frame(const uint8_t *pb, int len)
+{
+    if(g_capturing || g_companion) send_usb_frame(pb, len);
+    ble_enqueue_fromradio(pb, len);
 }
 
 /* wrap a sub-message as a FromRadio field and send it */
@@ -270,6 +374,176 @@ static void handle_toradio(const uint8_t *b, int len)
     }
 }
 
+/* ---------- BLE GATT transport ---------- */
+class MtcBleServerCallbacks : public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) override
+    {
+        g_ble_connected = true;
+        g_ble_read_num = g_ble_next_num;
+        if(server) {
+            server->updateConnParams(connInfo.getConnHandle(), 24, 48, 0, 180);
+            server->setDataLen(connInfo.getConnHandle(), 251);
+        }
+        ble_set_fromnum(g_ble_next_num ? g_ble_next_num - 1 : 0, false);
+    }
+    void onDisconnect(NimBLEServer *server, NimBLEConnInfo &connInfo, int reason) override
+    {
+        (void)server; (void)connInfo; (void)reason;
+        g_ble_connected = false;
+        g_ble_head = g_ble_count = 0;
+        if(g_ble_enabled) NimBLEDevice::startAdvertising();
+    }
+    void onMTUChange(uint16_t mtu, NimBLEConnInfo &connInfo) override
+    {
+        (void)mtu; (void)connInfo;
+    }
+};
+
+class MtcBleToRadioCallbacks : public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
+    {
+        (void)connInfo;
+        std::string v = chr->getValue();
+        if(!v.empty() && v.size() <= MTC_BLE_MAX_PACKET)
+            handle_toradio((const uint8_t *)v.data(), (int)v.size());
+    }
+};
+
+class MtcBleFromRadioCallbacks : public NimBLECharacteristicCallbacks {
+    void onRead(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
+    {
+        (void)chr; (void)connInfo;
+        ble_prepare_fromradio_value();
+    }
+};
+
+class MtcBleFromNumCallbacks : public NimBLECharacteristicCallbacks {
+    void onRead(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
+    {
+        (void)chr; (void)connInfo;
+        ble_set_fromnum(g_ble_next_num ? g_ble_next_num - 1 : 0, false);
+    }
+    void onWrite(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
+    {
+        (void)connInfo;
+        std::string v = chr->getValue();
+        if(v.size() >= 4) {
+            uint32_t want = (uint32_t)(uint8_t)v[0]
+                          | ((uint32_t)(uint8_t)v[1] << 8)
+                          | ((uint32_t)(uint8_t)v[2] << 16)
+                          | ((uint32_t)(uint8_t)v[3] << 24);
+            g_ble_read_num = want;
+        }
+    }
+};
+
+static MtcBleServerCallbacks g_ble_server_cb;
+static MtcBleToRadioCallbacks g_ble_to_cb;
+static MtcBleFromRadioCallbacks g_ble_from_cb;
+static MtcBleFromNumCallbacks g_ble_num_cb;
+
+extern "C" void lz_mtc_ble_begin(void)
+{
+    if(g_ble_ready) return;
+    const lz_identity_t *id = lz_svc_identity();
+    char name[32];
+    snprintf(name, sizeof name, "Limitlezz-%s", id->short_name[0] ? id->short_name : "TDeck");
+
+    NimBLEDevice::init(name);
+    NimBLEDevice::setMTU(MTC_BLE_MAX_PACKET);
+    g_ble_server = NimBLEDevice::createServer();
+    g_ble_server->setCallbacks(&g_ble_server_cb, false);
+
+    NimBLEService *svc = g_ble_server->createService(MTC_BLE_SERVICE_UUID);
+    g_ble_fromradio = svc->createCharacteristic(MTC_BLE_FROM_UUID,
+                                                NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY,
+                                                MTC_BLE_MAX_PACKET);
+    g_ble_toradio = svc->createCharacteristic(MTC_BLE_TO_UUID,
+                                              NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR,
+                                              MTC_BLE_MAX_PACKET);
+    g_ble_fromnum = svc->createCharacteristic(MTC_BLE_FROMNUM_UUID,
+                                              NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::WRITE,
+                                              4);
+    g_ble_fromradio->setCallbacks(&g_ble_from_cb);
+    g_ble_toradio->setCallbacks(&g_ble_to_cb);
+    g_ble_fromnum->setCallbacks(&g_ble_num_cb);
+    ble_set_fromnum(0, false);
+
+    g_ble_server->start();
+    NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+    adv->setName(name);
+    adv->addServiceUUID(MTC_BLE_SERVICE_UUID);
+    adv->enableScanResponse(true);
+    g_ble_ready = true;
+}
+
+extern "C" void lz_mtc_ble_set_enabled(bool on)
+{
+    if(!g_ble_ready) lz_mtc_ble_begin();
+    if(on && g_companion) g_companion = false;  /* one external app bridge at a time */
+    g_ble_enabled = on;
+    if(on) {
+        NimBLEDevice::startAdvertising();
+    } else {
+        NimBLEDevice::stopAdvertising();
+        if(g_ble_server && g_ble_connected) {
+            std::vector<uint16_t> peers = g_ble_server->getPeerDevices();
+            for(size_t i = 0; i < peers.size(); i++)
+                g_ble_server->disconnect(peers[i]);
+        }
+        g_ble_connected = false;
+        g_ble_head = g_ble_count = 0;
+    }
+}
+
+extern "C" void lz_mtc_ble_poll(void)
+{
+    if(g_ble_enabled && !g_ble_connected && g_ble_ready && !NimBLEDevice::getAdvertising()->isAdvertising())
+        NimBLEDevice::startAdvertising();
+}
+
+extern "C" int lz_mtc_ble_status(char *buf, int n)
+{
+    const char *state = !g_ble_enabled ? "off"
+                      : g_ble_connected ? "connected"
+                      : "advertising";
+    uint32_t latest = g_ble_next_num ? g_ble_next_num - 1 : 0;
+    return snprintf(buf, n, "BLE companion: %s | queued=%d latest_fromnum=%lu service=%s",
+                    state, g_ble_count, (unsigned long)latest, MTC_BLE_SERVICE_UUID);
+}
+
+extern "C" int lz_mtc_ble_selftest(char *buf, int n)
+{
+    if(!g_ble_ready) lz_mtc_ble_begin();
+    if(g_ble_connected || g_ble_count)
+        return snprintf(buf, n, "BLE mailbox selftest skipped (active connection/queue)");
+    bool old_enabled = g_ble_enabled;
+    bool old_connected = g_ble_connected;
+    int old_head = g_ble_head;
+    uint32_t old_next = g_ble_next_num;
+    uint32_t old_read = g_ble_read_num;
+
+    uint8_t sample[2] = { 0x38, 0x2A };   /* FromRadio.config_complete_id = 42 */
+    g_ble_enabled = true;
+    g_ble_connected = true;
+    g_ble_head = g_ble_count = 0;
+    g_ble_read_num = g_ble_next_num;
+    ble_enqueue_fromradio(sample, sizeof sample);
+    bool ok = g_ble_count == 1 && g_ble_q && g_ble_q[0].len == sizeof sample &&
+              memcmp(g_ble_q[0].data, sample, sizeof sample) == 0 &&
+              g_ble_q[0].num == old_next;
+
+    g_ble_enabled = old_enabled;
+    g_ble_connected = old_connected;
+    g_ble_head = old_head;
+    g_ble_count = 0;
+    g_ble_next_num = old_next;
+    g_ble_read_num = old_read;
+    ble_set_fromnum(g_ble_next_num ? g_ble_next_num - 1 : 0, false);
+
+    return snprintf(buf, n, "BLE mailbox enqueue/fromnum -> %s", ok ? "PASS" : "FAIL");
+}
+
 /* ---------- serial frame reader ---------- */
 extern "C" void lz_mtc_poll(void)
 {
@@ -293,10 +567,11 @@ extern "C" void lz_mtc_poll(void)
 /* ---------- mode control + self-test ---------- */
 extern "C" void lz_mtc_set_active(bool on)
 {
+    if(on && g_ble_enabled) lz_mtc_ble_set_enabled(false);
     g_companion = on;
     if(on) {
         uint8_t reb[2] = { 0x40, 0x01 };   /* FromRadio{rebooted=true} (field 8 varint) */
-        send_frame(reb, sizeof reb);
+        send_usb_frame(reb, sizeof reb);
     }
 }
 

@@ -5,7 +5,8 @@
 #include <string.h>
 
 /* node list row metrics (fixed, for virtualization) */
-#define MT_HEADER_H 50   /* companion-mode toggle row band */
+#define MT_HEADER_ROWS 2
+#define MT_HEADER_H (MT_HEADER_ROWS * 50)   /* USB/BLE companion toggle rows */
 #define MT_ROW_H    44
 #define MT_STRIDE   48
 
@@ -22,12 +23,13 @@ static void open_contact(int idx)
 
 static void open_longfast(int idx) { (void)idx; lz_open_convo(lz_svc_channel_thread()); }
 
-/* Companion mode: USB serial becomes a Meshtastic-app radio link. idx 0 is the
- * toggle row; heard nodes follow at 1+. */
+/* Companion rows: idx 0 = USB serial companion, idx 1 = BLE companion. Heard
+ * nodes follow at MT_HEADER_ROWS+. */
 static void mt_nodes_activate(int idx)
 {
     if(idx == 0) { lz_mtc_set_active(!lz_mtc_active()); lz_rebuild(); return; }
-    open_contact(idx - 1);
+    if(idx == 1) { lz_mtc_ble_set_enabled(!lz_mtc_ble_enabled()); lz_rebuild(); return; }
+    open_contact(idx - MT_HEADER_ROWS);
 }
 
 /* MeshCore self-advertise (so other nodes discover us) — only when MeshCore is
@@ -157,11 +159,11 @@ static lv_obj_t *mt_node_row_cb(lv_obj_t *content, int index, int y, bool focuse
     return row;
 }
 
-/* companion-mode toggle, drawn into the vlist content panel at the top (focus 0) */
+/* companion-mode toggles, drawn into the vlist content panel at the top */
 static void mt_companion_header(lv_obj_t *content)
 {
     lv_obj_t *crow = lz_row(content, 0 == S.focus);
-    lv_obj_set_height(crow, MT_HEADER_H - 4);
+    lv_obj_set_height(crow, 46);
     lv_obj_set_y(crow, 0);
     lv_obj_set_style_radius(crow, 10, 0);
     lv_obj_set_style_pad_column(crow, 8, 0);
@@ -176,6 +178,24 @@ static void mt_companion_header(lv_obj_t *content)
             LZ_F_SMALL, lv_color_hex(0x838A93));
     lz_toggle(crow, lz_mtc_active(), LZ_TOGGLE_ON);
     lz_nav_track(crow, 0);
+
+    lv_obj_t *brow = lz_row(content, 1 == S.focus);
+    lv_obj_set_height(brow, 46);
+    lv_obj_set_y(brow, 50);
+    lv_obj_set_style_radius(brow, 10, 0);
+    lv_obj_set_style_pad_column(brow, 8, 0);
+    lz_icon(brow, LZ_I_WIFI, &lz_icons_16f, LZ_CYAN);
+    lv_obj_t *bc = lz_box(brow);
+    lv_obj_set_flex_grow(bc, 1);
+    lv_obj_set_height(bc, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(bc, LV_FLEX_FLOW_COLUMN);
+    lz_text(bc, "BLE companion", LZ_F_BODY, LZ_TEXT);
+    lz_text(bc, lz_mtc_ble_connected() ? "Phone connected wirelessly"
+                                       : lz_mtc_ble_enabled() ? "Advertising to the Meshtastic app"
+                                                              : "Wireless app link is off",
+            LZ_F_SMALL, lv_color_hex(0x838A93));
+    lz_toggle(brow, lz_mtc_ble_enabled(), LZ_TOGGLE_ON);
+    lz_nav_track(brow, 1);
 }
 
 /* ===== Meshtastic ===== */
@@ -260,11 +280,11 @@ void lz_scr_meshtastic(lv_obj_t *root)
 
         /* Virtualized: only the on-screen rows (+2 buffer above/below) are ever
          * built as LVGL objects, recycled in place as the list scrolls — so a
-         * large mesh can't exhaust the object pool. focus 0 = companion header. */
+         * large mesh can't exhaust the object pool. focus 0/1 = companion rows. */
         lv_obj_t *content = lz_vlist(body, MT_HEADER_H, vis_count, MT_STRIDE,
-                                     1, mt_node_row_cb, NULL);
+                                     MT_HEADER_ROWS, mt_node_row_cb, NULL);
         mt_companion_header(content);
-        lz_nav_set(1, vis_count + 1, mt_nodes_activate);
+        lz_nav_set(1, vis_count + MT_HEADER_ROWS, mt_nodes_activate);
     } else {
         lz_nav_set_scroll(body);
         /* LongFast (Primary) is the live broadcast channel — tap to open it

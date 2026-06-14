@@ -165,6 +165,8 @@ extern "C" uint32_t lz_tick_ms(void) { return millis(); }
 void lz_cli_begin(void);                 /* serial console (serial_cli.cpp) */
 void lz_cli_poll(void);
 extern "C" void lz_mtc_poll(void);       /* Meshtastic companion bridge (mt_companion.cpp) */
+extern "C" void lz_mtc_ble_begin(void);
+extern "C" void lz_mtc_ble_poll(void);
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 {
@@ -453,6 +455,7 @@ void setup()
     lz_set_sysinfo_cb(tdeck_sysinfo);
     lz_svc_init(datadir, false);          /* false = no demo contacts/messages */
     lz_svc_set_dirty_cb(lz_rebuild);
+    lz_mtc_ble_begin();
     lz_wifi_init();
     Serial.printf("[%s] SX1262 radio (RadioLib begin=%d)\n",
                   lz_backend_ok() ? "ok" : "FAIL", lz_backend_begin_state());
@@ -534,6 +537,7 @@ void loop()
     if(input) g_last_input_ms = millis();
     kb_backlight_update();
 
+    lz_mtc_ble_poll();                   /* BLE advert/connection maintenance */
     if(lz_mtc_active()) lz_mtc_poll();   /* companion mode: USB speaks the Meshtastic app protocol */
     else lz_cli_poll();                  /* otherwise: the text command console */
     lz_svc_loop();
