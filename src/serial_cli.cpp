@@ -53,6 +53,7 @@ static void cmd_help(void)
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
+        "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
         "  nodes                list heard nodes\n"
         "  send <text>          broadcast text on the channel\n"
@@ -181,6 +182,12 @@ static void cmd_dm(char *args)
         else Serial.println("[--] PKI not present");
         return;
     }
+    if(args && strcmp(args, "status") == 0) {
+        char b[700];
+        lz_svc_delivery_diag(b, sizeof b);
+        Serial.print(b);
+        return;
+    }
     if(args && strncmp(args, "req ", 4) == 0) {           /* dm req <shortcode> */
         lz_node_rt *n = lz_svc_node_by_shortcode(args + 4);
         if(n) { lz_backend_request_nodeinfo(n->num); Serial.printf("[ok] requested NodeInfo from %s\n", n->name); }
@@ -201,7 +208,7 @@ static void cmd_dm(char *args)
         else Serial.println("[err] send failed");
         return;
     }
-    Serial.println("usage: dm test | dm req <shortcode> | dm send <shortcode> <text>");
+    Serial.println("usage: dm status | dm test | dm req <shortcode> | dm send <shortcode> <text>");
 }
 
 static void cmd_touch(char *args)
@@ -253,10 +260,20 @@ static void cmd_nodes(void)
     for(int i = 0; i < n; i++) {
         const lz_node_rt *nd = &nodes[i];
         lz_fmt_ago(nd->last_heard, ago, sizeof ago);
-        Serial.printf("  [%-4s] %-10s %-15s %s SNR %.1f %s%s%s\n",
+        char extra[48] = {0};
+        size_t ex = 0;
+        if(nd->pos_flags & LZ_NODE_POS_VALID)
+            ex += snprintf(extra + ex, sizeof extra - ex, " gps");
+        if((nd->telem_flags & LZ_NODE_TEL_VOLT) && ex < sizeof extra)
+            ex += snprintf(extra + ex, sizeof extra - ex, " %.2fV",
+                           (double)nd->voltage_mv / 1000.0);
+        if((nd->telem_flags & LZ_NODE_TEL_TEMP) && ex < sizeof extra)
+            ex += snprintf(extra + ex, sizeof extra - ex, " %.1fC",
+                           (double)nd->temp_c10 / 10.0);
+        Serial.printf("  [%-4s] %-10s %-15s %s SNR %.1f %s%s%s%s\n",
                       nd->shortcode, nd->id, nd->name, nd->net == LZ_NET_MC ? "MC" : "MT",
                       nd->snr, ago, nd->has_key ? " key" : "",
-                      nd->contact ? " *contact" : "");
+                      nd->contact ? " *contact" : "", extra);
     }
 }
 

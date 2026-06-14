@@ -6,6 +6,41 @@
 #include <string.h>
 #include <sys/stat.h>
 
+static void fmt_location(const lz_node_rt *n, char *out, size_t cap)
+{
+    if(n && (n->pos_flags & LZ_NODE_POS_VALID)) {
+        snprintf(out, cap, "%.4f, %.4f",
+                 (double)n->lat_i / 10000000.0,
+                 (double)n->lon_i / 10000000.0);
+    } else {
+        snprintf(out, cap, "-");
+    }
+}
+
+static void fmt_altitude(const lz_node_rt *n, char *out, size_t cap)
+{
+    if(n && (n->pos_flags & LZ_NODE_POS_ALT)) snprintf(out, cap, "%ld m", (long)n->alt_m);
+    else snprintf(out, cap, "-");
+}
+
+static void fmt_telemetry(const lz_node_rt *n, char *out, size_t cap)
+{
+    if(!n || !n->telem_flags) { snprintf(out, cap, "-"); return; }
+    if((n->telem_flags & LZ_NODE_TEL_TEMP) && (n->telem_flags & LZ_NODE_TEL_HUM)) {
+        snprintf(out, cap, "%.1fC %.0f%%",
+                 (double)n->temp_c10 / 10.0,
+                 (double)n->humidity10 / 10.0);
+    } else if(n->telem_flags & LZ_NODE_TEL_TEMP) {
+        snprintf(out, cap, "%.1fC", (double)n->temp_c10 / 10.0);
+    } else if(n->telem_flags & LZ_NODE_TEL_VOLT) {
+        snprintf(out, cap, "%.2fV", (double)n->voltage_mv / 1000.0);
+    } else if(n->telem_flags & LZ_NODE_TEL_PRESS) {
+        snprintf(out, cap, "%.0fhPa", (double)n->pressure10 / 10.0);
+    } else {
+        snprintf(out, cap, "updated");
+    }
+}
+
 /* ===== App Store ===== */
 
 static void store_timer_cb(lv_timer_t *tm)
@@ -350,9 +385,14 @@ void lz_scr_contact(lv_obj_t *root)
     char batt[8];
     if(n->batt >= 0) snprintf(batt, sizeof batt, "%d%%", n->batt);
     else snprintf(batt, sizeof batt, "-");
-    const char *ks[6] = { "Node ID", "Hardware", "Distance", "SNR", "Battery", "Last heard" };
-    const char *vs[6] = { n->id, n->hw, n->dist, snrs, batt, ago };
-    for(int i = 0; i < 6; i++) {
+    char loc[32], alt[16], telem[24];
+    fmt_location(n, loc, sizeof loc);
+    fmt_altitude(n, alt, sizeof alt);
+    fmt_telemetry(n, telem, sizeof telem);
+    const char *ks[8] = { "Node ID", "Hardware", "Location", "Altitude",
+                          "SNR", "Battery", "Telemetry", "Last heard" };
+    const char *vs[8] = { n->id, n->hw, loc, alt, snrs, batt, telem, ago };
+    for(int i = 0; i < 8; i++) {
         lv_obj_t *r = lz_box(card);
         lv_obj_set_width(r, lv_pct(100));
         lv_obj_set_height(r, LV_SIZE_CONTENT);
@@ -360,7 +400,7 @@ void lz_scr_contact(lv_obj_t *root)
         lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_hor(r, 11, 0);
         lv_obj_set_style_pad_ver(r, 7, 0);
-        if(i < 5) {
+        if(i < 7) {
             lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(r, 1, 0);
             lv_obj_set_style_border_color(r, lv_color_hex(0x21262D), 0);

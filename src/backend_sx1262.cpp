@@ -280,6 +280,42 @@ static void handle_rx_mt(void)
                 parse_user(d.payload, d.plen, f.from, snr);
                 /* a targeted NodeInfo request -> reply with ours (incl. our key) */
                 if(d.want_response && f.to == me) send_nodeinfo(f.from, false);
+            } else if(d.portnum == MT_PORT_POSITION) {
+                mt_position_t pos;
+                if(mt_position_decode(d.payload, d.plen, &pos) && pos.has_lat && pos.has_lon) {
+                    if(g_rxlog)
+                        Serial.printf("[rx]   position lat_i=%ld lon_i=%ld alt=%ld prec=%u\n",
+                                      (long)pos.latitude_i, (long)pos.longitude_i,
+                                      pos.has_alt ? (long)pos.altitude_m : 0L,
+                                      (unsigned)pos.precision_bits);
+                    lz_core_on_position(f.from, pos.latitude_i, pos.longitude_i,
+                                        pos.has_alt, pos.altitude_m, pos.time,
+                                        pos.precision_bits, snr);
+                }
+            } else if(d.portnum == MT_PORT_TELEMETRY) {
+                mt_telemetry_t mt;
+                if(mt_telemetry_decode(d.payload, d.plen, &mt)) {
+                    lz_node_telemetry_t tel;
+                    memset(&tel, 0, sizeof tel);
+                    tel.has_battery = mt.has_battery;
+                    tel.battery_pct = mt.battery_level;
+                    tel.has_voltage = mt.has_voltage;
+                    tel.voltage = mt.voltage;
+                    tel.has_uptime = mt.has_uptime;
+                    tel.uptime_s = mt.uptime_s;
+                    tel.has_temperature = mt.has_temperature;
+                    tel.temperature_c = mt.temperature_c;
+                    tel.has_humidity = mt.has_humidity;
+                    tel.humidity_pct = mt.humidity_pct;
+                    tel.has_pressure = mt.has_pressure;
+                    tel.pressure_hpa = mt.pressure_hpa;
+                    if(g_rxlog)
+                        Serial.printf("[rx]   telemetry batt=%s volt=%s env=%s\n",
+                                      mt.has_battery ? "Y" : "n",
+                                      mt.has_voltage ? "Y" : "n",
+                                      (mt.has_temperature || mt.has_humidity || mt.has_pressure) ? "Y" : "n");
+                    lz_core_on_telemetry(f.from, &tel, snr);
+                }
             } else if(d.portnum == MT_PORT_ROUTING && d.request_id) {
                 lz_core_on_ack(d.request_id);   /* delivery ack for one of our DMs */
             }

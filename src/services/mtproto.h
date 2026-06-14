@@ -51,6 +51,25 @@ typedef struct {
     uint32_t request_id;
 } mt_data_t;
 
+typedef struct {
+    bool     has_lat, has_lon, has_alt;
+    int32_t  latitude_i, longitude_i;
+    int32_t  altitude_m;
+    uint32_t time;
+    uint8_t  precision_bits;
+} mt_position_t;
+
+typedef struct {
+    bool     has_battery, has_voltage, has_uptime;
+    uint8_t  battery_level;
+    float    voltage;
+    uint32_t uptime_s;
+    bool     has_temperature, has_humidity, has_pressure;
+    float    temperature_c;
+    float    humidity_pct;
+    float    pressure_hpa;
+} mt_telemetry_t;
+
 /* ---- channel ---- */
 void    mt_set_channel(const char *name, const uint8_t *psk, int psk_len);
 uint8_t mt_channel_hash(void);           /* hash of the configured channel */
@@ -65,6 +84,8 @@ void mt_crypt(uint8_t *data, int len, uint32_t from, uint32_t packet_id);
 /* ---- protobuf Data ---- */
 int  mt_data_encode(uint8_t *buf, int cap, const mt_data_t *d);
 bool mt_data_decode(const uint8_t *buf, int len, mt_data_t *d);
+bool mt_position_decode(const uint8_t *buf, int len, mt_position_t *p);
+bool mt_telemetry_decode(const uint8_t *buf, int len, mt_telemetry_t *t);
 
 /* convenience: build a full TX frame for a text message */
 int  mt_build_text(uint8_t *out, int cap, uint32_t from, uint32_t to,

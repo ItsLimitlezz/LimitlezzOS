@@ -101,6 +101,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-firmware-audit.md`](docs/tdeck-firmware-audit.md) - current firmware audit and risk list.
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
+- [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
 
 ![screens](docs/screens.png)
 
@@ -243,7 +244,7 @@ the demo mesh.
   state are live; identity, settings, node table, and message history persist
   across reboots; nothing on screen is hard-coded demo data on hardware.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
-  `rf`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
+  `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
 - **Terminal / Files** — Developer Mode mono console with blinking cursor;
   read-only Files browser for the mounted SD/local store.
 
@@ -263,9 +264,9 @@ listen/retune; both on = 50/50 split, one on = 100%). MeshCore ADVERTs are
 decoded so nodes appear by name + role on the amber side of the UI; the airtime
 split bar reflects the live schedule.
 
-Still ahead: ACK/routing diagnostics and retransmit queues, position/telemetry
-decode, MeshCore encrypted-payload (DM/channel) decode, the Lua app sandbox,
-App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
+Still ahead: ACK/routing interop tests, map/weather consumers for decoded
+position/telemetry, MeshCore encrypted-payload (DM/channel) decode, the Lua app
+sandbox, App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
 
 ## Flashing & first hardware test
 

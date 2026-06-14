@@ -32,6 +32,30 @@ extern "C" {
 #define LZ_MESHCORE_ENABLED 0
 
 typedef struct {
+    bool     has_battery;
+    int      battery_pct;
+    bool     has_voltage;
+    float    voltage;
+    bool     has_uptime;
+    uint32_t uptime_s;
+    bool     has_temperature;
+    float    temperature_c;
+    bool     has_humidity;
+    float    humidity_pct;
+    bool     has_pressure;
+    float    pressure_hpa;
+} lz_node_telemetry_t;
+
+#define LZ_NODE_POS_VALID   0x01u
+#define LZ_NODE_POS_ALT     0x02u
+#define LZ_NODE_POS_PREC    0x04u
+#define LZ_NODE_TEL_VOLT    0x01u
+#define LZ_NODE_TEL_TEMP    0x02u
+#define LZ_NODE_TEL_HUM     0x04u
+#define LZ_NODE_TEL_PRESS   0x08u
+#define LZ_NODE_TEL_UPTIME  0x10u
+
+typedef struct {
     uint32_t num;                /* node number (low 32 of MAC on Meshtastic) */
     char     id[16];             /* "!7c3af1d0" / "MC-4f8e" */
     char     name[28];
@@ -46,9 +70,21 @@ typedef struct {
     bool     contact;            /* purposely added by the user */
     uint8_t  pubkey[32];         /* Meshtastic X25519 public key (PKI DMs) */
     bool     has_key;            /* pubkey known (learned from NodeInfo this session) */
+    uint8_t  pos_flags;          /* LZ_NODE_POS_* */
+    int32_t  lat_i, lon_i;       /* Meshtastic degrees * 1e7 */
+    int32_t  alt_m;              /* meters, if LZ_NODE_POS_ALT */
+    uint32_t pos_time;           /* GPS epoch/timestamp if sent */
+    uint8_t  precision_bits;
+    uint8_t  telem_flags;        /* LZ_NODE_TEL_* */
+    uint16_t voltage_mv;
+    int16_t  temp_c10;
+    uint16_t humidity10;
+    uint16_t pressure10;
+    uint32_t uptime_s;
 } lz_node_rt;
 
 #define LZ_BROADCAST 0xFFFFFFFFu     /* Meshtastic broadcast addr (primary channel) */
+#define LZ_MSG_RETRY_MAX 3
 
 typedef struct {
     char     addr[16];           /* node id string; also the log file key */
@@ -66,11 +102,19 @@ typedef struct {
 
 /* delivery status for our own DMs */
 enum { LZ_MSG_NONE = 0, LZ_MSG_SENDING, LZ_MSG_DELIVERED, LZ_MSG_FAILED };
+enum {
+    LZ_FAIL_NONE = 0,
+    LZ_FAIL_RADIO_SEND,
+    LZ_FAIL_ACK_TIMEOUT,
+    LZ_FAIL_RETRY_LIMIT
+};
 
 typedef struct {
     bool     self;
     uint32_t ts;
     char     text[LZ_TEXT_MAX];
+    uint8_t  retries;            /* manual resend attempts after the first send */
+    uint8_t  fail_reason;        /* LZ_FAIL_* when status == LZ_MSG_FAILED */
     uint8_t  status;             /* LZ_MSG_* — sent DMs only */
     uint32_t pkt_id;             /* packet id, to match the ROUTING ack */
     uint32_t sent_ms;            /* lz_tick_ms() at send, for ack timeout */
@@ -107,6 +151,8 @@ void lz_svc_open_thread(lz_thread_rt *t);               /* load tail, clear unre
 int  lz_svc_tail(const lz_msg_rt **out);                /* tail of the open thread */
 bool lz_svc_send_text(lz_thread_rt *t, const char *text);
 bool lz_svc_resend(int tail_idx);     /* retry a failed sent DM (long-press) */
+const char *lz_svc_delivery_fail_label(uint8_t reason);
+int  lz_svc_delivery_diag(char *buf, int n);  /* serial: pending DM ACK state */
 
 /* ---- radio stats (airtime accounting) ---- */
 typedef struct { uint32_t tx_count, rx_count; float util_pct; } lz_radio_stats_t;
@@ -205,6 +251,10 @@ void lz_core_on_nodeinfo(uint32_t from, const char *id, const char *long_name,
                          const char *short_name, int role, const char *hw, float snr);
 void lz_core_on_heard(uint32_t from, float snr);        /* any packet from a node */
 void lz_core_on_battery(uint32_t from, int batt);
+void lz_core_on_position(uint32_t from, int32_t lat_i, int32_t lon_i,
+                         bool has_alt, int32_t alt_m, uint32_t pos_time,
+                         uint8_t precision_bits, float snr);
+void lz_core_on_telemetry(uint32_t from, const lz_node_telemetry_t *telem, float snr);
 void lz_core_on_ack(uint32_t request_id);
 /* MeshCore: learn a node from a (signed, unencrypted) ADVERT.
  * adv_type: 1=Chat 2=Repeater 3=Room 4=Sensor */

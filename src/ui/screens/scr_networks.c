@@ -143,7 +143,8 @@ static lv_obj_t *mt_node_row_cb(lv_obj_t *content, int index, int y, bool focuse
     lz_text(top, n->name, LZ_F_BODY, LZ_TEXT);
     role_badge(top, n->role, lv_color_hex(0x8B939C));
     char meta[56];
-    snprintf(meta, sizeof meta, "%s - %s - %s", n->id, n->dist, ago);
+    snprintf(meta, sizeof meta, "%s - %s - %s",
+             n->id, (n->pos_flags & LZ_NODE_POS_VALID) ? "GPS" : n->dist, ago);
     lz_text(cl, meta, LZ_F_SMALL, lv_color_hex(0x838A93));
 
     lv_obj_t *r = lz_box(row);

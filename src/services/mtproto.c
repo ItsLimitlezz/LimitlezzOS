@@ -179,6 +179,45 @@ static uint64_t pb_read_varint(const uint8_t *b, int len, int *pos)
     return v;
 }
 
+static bool pb_skip(const uint8_t *b, int len, int *pos, int wire)
+{
+    if(wire == 0) {
+        pb_read_varint(b, len, pos);
+        return *pos <= len;
+    } else if(wire == 2) {
+        uint64_t l = pb_read_varint(b, len, pos);
+        if((uint64_t)*pos + l > (uint64_t)len) return false;
+        *pos += (int)l;
+        return true;
+    } else if(wire == 5) {
+        if(*pos + 4 > len) return false;
+        *pos += 4;
+        return true;
+    } else if(wire == 1) {
+        if(*pos + 8 > len) return false;
+        *pos += 8;
+        return true;
+    }
+    return false;
+}
+
+static uint32_t pb_read_fixed32(const uint8_t *b, int len, int *pos, bool *ok)
+{
+    if(*pos + 4 > len) { *ok = false; return 0; }
+    uint32_t v = (uint32_t)b[*pos] | ((uint32_t)b[*pos + 1] << 8) |
+                 ((uint32_t)b[*pos + 2] << 16) | ((uint32_t)b[*pos + 3] << 24);
+    *pos += 4;
+    return v;
+}
+
+static float pb_read_float(const uint8_t *b, int len, int *pos, bool *ok)
+{
+    uint32_t raw = pb_read_fixed32(b, len, pos, ok);
+    float f = 0.0f;
+    memcpy(&f, &raw, sizeof f);
+    return f;
+}
+
 int mt_data_encode(uint8_t *buf, int cap, const mt_data_t *d)
 {
     int n = 0;
@@ -245,6 +284,113 @@ bool mt_data_decode(const uint8_t *buf, int len, mt_data_t *d)
             else if(wire == 5) pos += 4;
             else if(wire == 1) pos += 8;
             else return false;
+        }
+    }
+    return true;
+}
+
+bool mt_position_decode(const uint8_t *buf, int len, mt_position_t *p)
+{
+    if(!p) return false;
+    memset(p, 0, sizeof *p);
+    int pos = 0;
+    bool ok = true;
+    while(pos < len) {
+        uint64_t tag = pb_read_varint(buf, len, &pos);
+        int field = (int)(tag >> 3);
+        int wire = (int)(tag & 0x07);
+        if(field == 1 && wire == 5) {
+            p->latitude_i = (int32_t)pb_read_fixed32(buf, len, &pos, &ok);
+            p->has_lat = ok;
+        } else if(field == 2 && wire == 5) {
+            p->longitude_i = (int32_t)pb_read_fixed32(buf, len, &pos, &ok);
+            p->has_lon = ok;
+        } else if(field == 3 && wire == 0) {
+            p->altitude_m = (int32_t)pb_read_varint(buf, len, &pos);
+            p->has_alt = true;
+        } else if((field == 4 || field == 7) && wire == 5) {
+            p->time = pb_read_fixed32(buf, len, &pos, &ok);
+        } else if(field == 23 && wire == 0) {
+            uint64_t v = pb_read_varint(buf, len, &pos);
+            p->precision_bits = v > 255 ? 255 : (uint8_t)v;
+        } else if(!pb_skip(buf, len, &pos, wire)) {
+            return false;
+        }
+        if(!ok) return false;
+    }
+    return true;
+}
+
+static bool mt_device_metrics_decode(const uint8_t *buf, int len, mt_telemetry_t *t)
+{
+    int pos = 0;
+    bool ok = true;
+    while(pos < len) {
+        uint64_t tag = pb_read_varint(buf, len, &pos);
+        int field = (int)(tag >> 3);
+        int wire = (int)(tag & 0x07);
+        if(field == 1 && wire == 0) {
+            uint64_t v = pb_read_varint(buf, len, &pos);
+            t->battery_level = v > 255 ? 255 : (uint8_t)v;
+            t->has_battery = true;
+        } else if(field == 2 && wire == 5) {
+            t->voltage = pb_read_float(buf, len, &pos, &ok);
+            t->has_voltage = ok;
+        } else if(field == 5 && wire == 0) {
+            t->uptime_s = (uint32_t)pb_read_varint(buf, len, &pos);
+            t->has_uptime = true;
+        } else if(!pb_skip(buf, len, &pos, wire)) {
+            return false;
+        }
+        if(!ok) return false;
+    }
+    return true;
+}
+
+static bool mt_environment_metrics_decode(const uint8_t *buf, int len, mt_telemetry_t *t)
+{
+    int pos = 0;
+    bool ok = true;
+    while(pos < len) {
+        uint64_t tag = pb_read_varint(buf, len, &pos);
+        int field = (int)(tag >> 3);
+        int wire = (int)(tag & 0x07);
+        if(field == 1 && wire == 5) {
+            t->temperature_c = pb_read_float(buf, len, &pos, &ok);
+            t->has_temperature = ok;
+        } else if(field == 2 && wire == 5) {
+            t->humidity_pct = pb_read_float(buf, len, &pos, &ok);
+            t->has_humidity = ok;
+        } else if(field == 3 && wire == 5) {
+            t->pressure_hpa = pb_read_float(buf, len, &pos, &ok);
+            t->has_pressure = ok;
+        } else if(!pb_skip(buf, len, &pos, wire)) {
+            return false;
+        }
+        if(!ok) return false;
+    }
+    return true;
+}
+
+bool mt_telemetry_decode(const uint8_t *buf, int len, mt_telemetry_t *t)
+{
+    if(!t) return false;
+    memset(t, 0, sizeof *t);
+    int pos = 0;
+    while(pos < len) {
+        uint64_t tag = pb_read_varint(buf, len, &pos);
+        int field = (int)(tag >> 3);
+        int wire = (int)(tag & 0x07);
+        if((field == 2 || field == 3) && wire == 2) {
+            uint64_t l = pb_read_varint(buf, len, &pos);
+            if((uint64_t)pos + l > (uint64_t)len) return false;
+            bool ok = field == 2
+                    ? mt_device_metrics_decode(buf + pos, (int)l, t)
+                    : mt_environment_metrics_decode(buf + pos, (int)l, t);
+            if(!ok) return false;
+            pos += (int)l;
+        } else if(!pb_skip(buf, len, &pos, wire)) {
+            return false;
         }
     }
     return true;

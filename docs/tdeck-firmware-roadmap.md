@@ -70,23 +70,25 @@ Goal: make the Meshtastic-only user experience feel complete enough to ship inde
 Deliverables:
 
 - Implement roadmap items 0.42 through 0.45:
-  - unread highlighting in Messages
-  - Messages launcher badge with 1-9 and plus behavior
-  - silence/mute for public/group chats
-  - responsiveness pass for Settings, chat log, keyboard input, and long lists
+  - unread highlighting in Messages. Implemented: unread rows use the dark-mint emphasis and brighter sender text.
+  - Messages launcher badge with 1-9 and plus behavior. Implemented: the Home Messages tile shows 1-9, then `9+`, excluding muted chats.
+  - silence/mute for public/group chats. Implemented: long-press toggles mute and shows the crescent indicator.
+  - responsiveness pass for Settings, chat log, keyboard input, and long lists. Still open: complete hardware latency/scroll regression pass after the current feature work.
 - Make delivery state durable:
-  - persist sent-message packet IDs and delivery status. Implemented for newly sent DMs through message-log v2 metadata.
+  - persist sent-message packet IDs and delivery status. Implemented for newly sent DMs through message-log metadata.
   - reflect immediate backend send failures. Implemented: failed transmit attempts mark the sent bubble failed.
-  - retain failed/sending/delivered state across conversation reopen and reboot. Implemented for newly sent DMs; persisted retry queues remain below.
+  - retain failed/sending/delivered state across conversation reopen and reboot. Implemented for newly sent DMs, including queued retry metadata.
 - Expand routing/ACK behavior:
-  - retransmit queue
-  - retry limits
-  - failure reason display
-  - serial diagnostics for pending messages
+  - retransmit queue. Implemented for tracked sent-DM records: expired pending messages recover their text from the log and retry automatically up to the cap.
+  - retry limits. Implemented for manual failed-DM resend with a capped retry count.
+  - failure reason display. Implemented for radio-send failure, ACK timeout, and retry-limit exhaustion.
+  - serial diagnostics for pending messages. Implemented as `dm status` in the USB console.
 - Decode Meshtastic position and telemetry packets for node detail and future apps.
+  Implemented for basic GPS position, altitude, precision, device battery/voltage/uptime,
+  and environment temperature/humidity/pressure metrics.
 - Keep radio settings simple in the primary UI; advanced region/preset/channel controls, if added, belong in Developer Mode.
 - Replace static Files screen with a read-only SD/appfs browser. Implemented for mounted SD/local store; appfs mount support remains V0.95 app-platform work.
-- Add hardware dogfood checklist against stock Meshtastic devices.
+- Add hardware dogfood checklist against stock Meshtastic devices. Created as `docs/tdeck-hardware-dogfood-checklist.md`; execute it before calling Phase 1 shippable.
 
 Exit criteria:
 

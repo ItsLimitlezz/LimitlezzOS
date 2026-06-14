@@ -453,18 +453,37 @@ void lz_scr_convo(lv_obj_t *root)
             lv_obj_add_event_cb(bub, channel_longpress_cb, LV_EVENT_LONG_PRESSED, NULL);
         }
         /* long-press a failed (red) sent bubble to resend it */
-        if(self && msgs[i].status == LZ_MSG_FAILED) {
+        if(self && msgs[i].status == LZ_MSG_FAILED &&
+           msgs[i].retries < LZ_MSG_RETRY_MAX) {
             lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(bub, resend_cb, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
         }
 
         /* status line under a sent DM bubble */
         char ts[16]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
+        char stbuf[24];
         const char *st = "";
         if(self) switch(msgs[i].status) {
-            case LZ_MSG_SENDING:   st = "  sending"; break;
+            case LZ_MSG_SENDING:
+                if(msgs[i].retries) {
+                    snprintf(stbuf, sizeof stbuf, "  retrying %u/%u",
+                             (unsigned)msgs[i].retries,
+                             (unsigned)LZ_MSG_RETRY_MAX);
+                    st = stbuf;
+                } else {
+                    st = "  sending";
+                }
+                break;
             case LZ_MSG_DELIVERED: st = "  delivered"; break;
-            case LZ_MSG_FAILED:    st = "  failed - hold to resend"; break;
+            case LZ_MSG_FAILED:
+                st = msgs[i].retries >= LZ_MSG_RETRY_MAX
+                   ? "  failed - retry limit"
+                   : msgs[i].fail_reason == LZ_FAIL_RADIO_SEND
+                   ? "  failed - radio send"
+                   : msgs[i].fail_reason == LZ_FAIL_ACK_TIMEOUT
+                   ? "  failed - ack timeout"
+                   : "  failed - hold to resend";
+                break;
             default: break;
         }
         char tl[40]; snprintf(tl, sizeof tl, "%s%s", ts, st);

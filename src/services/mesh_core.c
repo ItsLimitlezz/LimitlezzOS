@@ -6,6 +6,7 @@
 #include "mesh.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <math.h>
 #include <time.h>
 
@@ -14,8 +15,10 @@ void lz_store_init(const char *datadir);
 const char *lz_store_file_root(void);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
+bool lz_store_find_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out);
 bool lz_store_update_delivery(const char *addr, uint32_t old_pkt_id,
-                              uint32_t new_pkt_id, uint8_t status);
+                              uint32_t new_pkt_id, uint8_t status,
+                              uint8_t retries, uint8_t fail_reason);
 void lz_store_save_threads(const lz_thread_rt *t, int n);
 int  lz_store_load_threads(lz_thread_rt *out, int cap);
 void lz_store_save_nodes(const lz_node_rt *nodes, int n);
@@ -35,6 +38,7 @@ static lz_msg_rt     g_tail[LZ_TAIL_MAX];
 static int           g_tail_count;
 static lz_thread_rt *g_open;
 static void        (*g_dirty)(void);
+static uint32_t      g_pkt_seq;
 /* placeholder until onboarding sets the real name (and MAC sets the num) */
 static lz_identity_t g_id = { 0x7c3af1d0, "!7c3af1d0", "Node", "NODE" };
 static bool          g_have_identity;            /* false until onboarding done */
@@ -45,9 +49,12 @@ static char          g_tz_std_ab[6] = "UTC";     /* abbrev in standard time */
 static char          g_tz_dst_ab[6] = "UTC";     /* abbrev in daylight time */
 
 #define LZ_DELIVERY_PEND 16
+#define LZ_DELIVERY_ACK_TIMEOUT_MS 30000u
 static struct {
     bool used;
     uint32_t pkt_id;
+    uint32_t sent_ms;
+    uint8_t retries;
     char addr[16];
 } g_delivery[LZ_DELIVERY_PEND];
 
@@ -58,12 +65,24 @@ static uint32_t now_epoch(void)                  /* UTC */
     return g_epoch_base + lz_tick_ms() / 1000;
 }
 
-static void delivery_track(const char *addr, uint32_t pkt_id)
+static uint32_t next_packet_id(void)
+{
+    uint32_t pid = lz_tick_ms();
+    if(!pid) pid = 1;
+    if(pid <= g_pkt_seq) pid = g_pkt_seq + 1;
+    if(!pid) pid = 1;
+    g_pkt_seq = pid;
+    return pid;
+}
+
+static void delivery_track(const char *addr, uint32_t pkt_id, uint8_t retries)
 {
     if(!pkt_id) return;
     for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
         if(g_delivery[i].used && g_delivery[i].pkt_id == pkt_id) {
             snprintf(g_delivery[i].addr, sizeof g_delivery[i].addr, "%s", addr);
+            g_delivery[i].sent_ms = lz_tick_ms();
+            g_delivery[i].retries = retries;
             return;
         }
     }
@@ -71,6 +90,8 @@ static void delivery_track(const char *addr, uint32_t pkt_id)
         if(!g_delivery[i].used) {
             g_delivery[i].used = true;
             g_delivery[i].pkt_id = pkt_id;
+            g_delivery[i].sent_ms = lz_tick_ms();
+            g_delivery[i].retries = retries;
             snprintf(g_delivery[i].addr, sizeof g_delivery[i].addr, "%s", addr);
             return;
         }
@@ -84,6 +105,13 @@ static const char *delivery_addr(uint32_t pkt_id)
     return NULL;
 }
 
+static uint8_t delivery_retries(uint32_t pkt_id)
+{
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++)
+        if(g_delivery[i].used && g_delivery[i].pkt_id == pkt_id) return g_delivery[i].retries;
+    return 0;
+}
+
 static void delivery_forget(uint32_t pkt_id)
 {
     for(int i = 0; i < LZ_DELIVERY_PEND; i++)
@@ -91,6 +119,39 @@ static void delivery_forget(uint32_t pkt_id)
             g_delivery[i].used = false;
             return;
         }
+}
+
+const char *lz_svc_delivery_fail_label(uint8_t reason)
+{
+    switch(reason) {
+        case LZ_FAIL_RADIO_SEND:  return "radio send";
+        case LZ_FAIL_ACK_TIMEOUT: return "ack timeout";
+        case LZ_FAIL_RETRY_LIMIT: return "retry limit";
+        default:                  return "failed";
+    }
+}
+
+static const char *delivery_status_label(uint8_t status)
+{
+    switch(status) {
+        case LZ_MSG_SENDING:   return "sending";
+        case LZ_MSG_DELIVERED: return "delivered";
+        case LZ_MSG_FAILED:    return "failed";
+        default:               return "none";
+    }
+}
+
+static int buf_appendf(char *buf, int n, int pos, const char *fmt, ...)
+{
+    if(!buf || n <= 0 || pos >= n) return pos;
+    va_list ap;
+    va_start(ap, fmt);
+    int wrote = vsnprintf(buf + pos, (size_t)(n - pos), fmt, ap);
+    va_end(ap);
+    if(wrote < 0) return pos;
+    pos += wrote;
+    if(pos >= n) pos = n - 1;
+    return pos;
 }
 
 /* days since 1970-01-01 for a civil date (Howard Hinnant's algorithm) */
@@ -116,6 +177,15 @@ static int last_sunday(int y, int m, int last_day)
     return last_day - weekday(days_from_civil(y, m, last_day));
 }
 
+static void lz_gmtime(const time_t *t, struct tm *out)
+{
+#if defined(_WIN32)
+    gmtime_s(out, t);
+#else
+    gmtime_r(t, out);
+#endif
+}
+
 /* is daylight saving in effect at this UTC instant for the active zone? */
 static bool dst_at(uint32_t utc)
 {
@@ -123,7 +193,7 @@ static bool dst_at(uint32_t utc)
     if(g_dst_rule == LZ_DST_US) {
         /* 2nd Sun Mar 02:00 .. 1st Sun Nov 02:00, in local standard time */
         time_t t = (time_t)(utc + g_tz_std_min * 60);
-        struct tm tm; gmtime_r(&t, &tm);
+        struct tm tm; lz_gmtime(&t, &tm);
         int m = tm.tm_mon + 1, d = tm.tm_mday, h = tm.tm_hour;
         int y = tm.tm_year + 1900;
         if(m < 3 || m > 11) return false;
@@ -133,7 +203,7 @@ static bool dst_at(uint32_t utc)
     }
     /* EU: last Sun Mar 01:00 UTC .. last Sun Oct 01:00 UTC */
     time_t t = (time_t)utc;
-    struct tm tm; gmtime_r(&t, &tm);
+    struct tm tm; lz_gmtime(&t, &tm);
     int m = tm.tm_mon + 1, d = tm.tm_mday, h = tm.tm_hour, y = tm.tm_year + 1900;
     if(m < 3 || m > 10) return false;
     if(m > 3 && m < 10) return true;
@@ -326,7 +396,7 @@ void lz_svc_set_clock(int y, int mo, int d, int h, int mi)
 void lz_svc_get_clock(int *y, int *mo, int *d, int *h, int *mi)
 {
     time_t t = (time_t)now_local();
-    struct tm tmv; gmtime_r(&t, &tmv);
+    struct tm tmv; lz_gmtime(&t, &tmv);
     *y = tmv.tm_year + 1900; *mo = tmv.tm_mon + 1; *d = tmv.tm_mday;
     *h = tmv.tm_hour; *mi = tmv.tm_min;
 }
@@ -340,7 +410,7 @@ const char *lz_fmt_date(char *buf, size_t n)
     if(!g_time_synced) { snprintf(buf, n, "Set time in Settings"); return buf; }
     time_t t = (time_t)now_local();
     struct tm tmv;
-    gmtime_r(&t, &tmv);
+    lz_gmtime(&t, &tmv);
     strftime(buf, n, "%A, %b %e", &tmv);
     return buf;
 }
@@ -447,6 +517,13 @@ static lz_thread_rt *find_thread(uint32_t num)
     return NULL;
 }
 
+static lz_thread_rt *find_thread_by_addr(const char *addr)
+{
+    for(int i = 0; i < g_thread_count; i++)
+        if(strcmp(g_threads[i].addr, addr) == 0) return &g_threads[i];
+    return NULL;
+}
+
 static void touch_thread_meta(lz_thread_rt *t, const char *text, uint32_t ts, bool inc_unread)
 {
     snprintf(t->last_text, sizeof t->last_text, "%s", text);
@@ -523,7 +600,8 @@ void lz_svc_open_thread(lz_thread_rt *t)
 
 int lz_svc_tail(const lz_msg_rt **out) { *out = g_tail; return g_tail_count; }
 
-static void tail_push(bool self, const char *text, uint32_t ts, uint8_t status, uint32_t pkt_id)
+static void tail_push(bool self, const char *text, uint32_t ts, uint8_t status,
+                      uint32_t pkt_id, uint8_t retries, uint8_t fail_reason)
 {
     lz_msg_rt *m;
     if(g_tail_count < LZ_TAIL_MAX) m = &g_tail[g_tail_count++];
@@ -531,22 +609,58 @@ static void tail_push(bool self, const char *text, uint32_t ts, uint8_t status, 
            m = &g_tail[LZ_TAIL_MAX - 1]; }
     memset(m, 0, sizeof *m);
     m->self = self; m->ts = ts;
-    m->status = status; m->pkt_id = pkt_id; m->sent_ms = lz_tick_ms();
+    m->status = status; m->pkt_id = pkt_id; m->retries = retries;
+    m->fail_reason = status == LZ_MSG_FAILED ? fail_reason : LZ_FAIL_NONE;
+    m->sent_ms = status == LZ_MSG_SENDING ? lz_tick_ms() : 0;
     snprintf(m->text, sizeof m->text, "%s", text);
 }
 
-static bool tail_mark_delivery(uint32_t old_pkt_id, uint32_t new_pkt_id, uint8_t status)
+static bool tail_mark_delivery(uint32_t old_pkt_id, uint32_t new_pkt_id,
+                               uint8_t status, uint8_t retries,
+                               uint8_t fail_reason)
 {
     bool changed = false;
     for(int i = 0; i < g_tail_count; i++) {
         if(g_tail[i].self && g_tail[i].pkt_id == old_pkt_id) {
+            uint8_t next_retries = retries;
+            if(status != LZ_MSG_SENDING && next_retries == 0 && g_tail[i].retries)
+                next_retries = g_tail[i].retries;
             g_tail[i].status = status;
             g_tail[i].pkt_id = new_pkt_id;
+            g_tail[i].retries = next_retries;
+            g_tail[i].fail_reason = status == LZ_MSG_FAILED ? fail_reason : LZ_FAIL_NONE;
             g_tail[i].sent_ms = status == LZ_MSG_SENDING ? lz_tick_ms() : 0;
             changed = true;
         }
     }
     return changed;
+}
+
+static uint8_t tail_delivery_retries(uint32_t pkt_id)
+{
+    for(int i = 0; i < g_tail_count; i++)
+        if(g_tail[i].self && g_tail[i].pkt_id == pkt_id) return g_tail[i].retries;
+    return 0;
+}
+
+static bool tail_find_delivery(uint32_t pkt_id, lz_msg_rt *out)
+{
+    if(!out) return false;
+    for(int i = 0; i < g_tail_count; i++) {
+        if(g_tail[i].self && g_tail[i].pkt_id == pkt_id) {
+            *out = g_tail[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool load_queued_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out)
+{
+    if(g_open && strcmp(g_open->addr, addr) == 0 &&
+       tail_find_delivery(pkt_id, out))
+        return true;
+    return lz_store_find_delivery(addr, pkt_id, out);
 }
 
 static void track_loaded_delivery(lz_thread_rt *t)
@@ -555,23 +669,26 @@ static void track_loaded_delivery(lz_thread_rt *t)
     for(int i = 0; i < g_tail_count; i++)
         if(g_tail[i].self && g_tail[i].pkt_id &&
            g_tail[i].status == LZ_MSG_SENDING)
-            delivery_track(t->addr, g_tail[i].pkt_id);
+            delivery_track(t->addr, g_tail[i].pkt_id, g_tail[i].retries);
 }
 
-bool lz_svc_send_text(lz_thread_rt *t, const char *text)
+static void track_stored_delivery(void)
 {
-    if(!t || !text[0] || !t->messageable) return false;
-    uint32_t ts = now_epoch();
-    uint32_t pid = lz_tick_ms(); if(!pid) pid = 1;
-    bool track = !t->is_channel;          /* DMs get delivery status; channels don't */
-    uint8_t status = track ? LZ_MSG_SENDING : LZ_MSG_NONE;
-    lz_msg_rt m = { .self = true, .ts = ts, .status = status,
-                    .pkt_id = track ? pid : 0, .sent_ms = lz_tick_ms() };
-    snprintf(m.text, sizeof m.text, "%s", text);
-    lz_store_append(t->addr, &m);
-    if(g_open == t) tail_push(true, text, ts, status, track ? pid : 0);
-    touch_thread_meta(t, text, ts, false);
+    static lz_msg_rt ring[LZ_TAIL_MAX];
+    for(int t = 0; t < g_thread_count; t++) {
+        if(g_threads[t].is_channel) continue;
+        int n = lz_store_load_tail(g_threads[t].addr, ring, LZ_TAIL_MAX);
+        for(int i = 0; i < n; i++)
+            if(ring[i].self && ring[i].pkt_id &&
+               ring[i].status == LZ_MSG_SENDING)
+                delivery_track(g_threads[t].addr, ring[i].pkt_id,
+                               ring[i].retries);
+    }
+}
 
+static bool send_text_packet(lz_thread_rt *t, const char *text, uint32_t pid)
+{
+    if(!t || !text) return false;
     lz_mt_packet_t p;
     memset(&p, 0, sizeof p);
     p.to = t->node_num;                  /* LZ_BROADCAST for the channel */
@@ -585,13 +702,33 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
     if(len > sizeof p.payload) len = sizeof p.payload;
     memcpy(p.payload, text, len);
     p.plen = (uint8_t)len;
-    bool sent = lz_backend_send(&p);
+    return lz_backend_send(&p);
+}
+
+bool lz_svc_send_text(lz_thread_rt *t, const char *text)
+{
+    if(!t || !text[0] || !t->messageable) return false;
+    uint32_t ts = now_epoch();
+    uint32_t pid = next_packet_id();
+    bool track = !t->is_channel;          /* DMs get delivery status; channels don't */
+    uint8_t status = track ? LZ_MSG_SENDING : LZ_MSG_NONE;
+    lz_msg_rt m = { .self = true, .ts = ts, .status = status,
+                    .pkt_id = track ? pid : 0, .sent_ms = lz_tick_ms() };
+    snprintf(m.text, sizeof m.text, "%s", text);
+    lz_store_append(t->addr, &m);
+    if(g_open == t) tail_push(true, text, ts, status, track ? pid : 0,
+                              0, LZ_FAIL_NONE);
+    touch_thread_meta(t, text, ts, false);
+
+    bool sent = send_text_packet(t, text, pid);
     if(track) {
         if(sent) {
-            delivery_track(t->addr, pid);
+            delivery_track(t->addr, pid, 0);
         } else {
-            lz_store_update_delivery(t->addr, pid, pid, LZ_MSG_FAILED);
-            if(g_open == t) tail_mark_delivery(pid, pid, LZ_MSG_FAILED);
+            lz_store_update_delivery(t->addr, pid, pid, LZ_MSG_FAILED,
+                                     0, LZ_FAIL_RADIO_SEND);
+            if(g_open == t) tail_mark_delivery(pid, pid, LZ_MSG_FAILED,
+                                               0, LZ_FAIL_RADIO_SEND);
         }
     }
 
@@ -608,28 +745,85 @@ bool lz_svc_resend(int tail_idx)
     lz_msg_rt *m = &g_tail[tail_idx];
     if(!m->self || m->status != LZ_MSG_FAILED) return false;
     uint32_t old_pid = m->pkt_id;
-    uint32_t pid = lz_tick_ms(); if(!pid) pid = 1;
+    if(m->retries >= LZ_MSG_RETRY_MAX) {
+        m->fail_reason = LZ_FAIL_RETRY_LIMIT;
+        if(old_pid)
+            lz_store_update_delivery(g_open->addr, old_pid, old_pid,
+                                     LZ_MSG_FAILED, m->retries,
+                                     LZ_FAIL_RETRY_LIMIT);
+        mark_dirty();
+        return false;
+    }
+    uint32_t pid = next_packet_id();
+    uint8_t retries = (uint8_t)(m->retries + 1);
     m->pkt_id = pid; m->sent_ms = lz_tick_ms(); m->status = LZ_MSG_SENDING;
+    m->retries = retries; m->fail_reason = LZ_FAIL_NONE;
 
-    lz_mt_packet_t p;
-    memset(&p, 0, sizeof p);
-    p.to = g_open->node_num; p.from = g_id.num; p.id = pid;
-    p.hop_limit = 3; p.hop_start = 3; p.want_ack = !g_open->is_channel; p.portnum = 1;
-    size_t len = strlen(m->text);
-    if(len > sizeof p.payload) len = sizeof p.payload;
-    memcpy(p.payload, m->text, len); p.plen = (uint8_t)len;
-    bool sent = lz_backend_send(&p);
+    bool sent = send_text_packet(g_open, m->text, pid);
     if(old_pid) lz_store_update_delivery(g_open->addr, old_pid, pid,
-                                         sent ? LZ_MSG_SENDING : LZ_MSG_FAILED);
+                                         sent ? LZ_MSG_SENDING : LZ_MSG_FAILED,
+                                         retries,
+                                         sent ? LZ_FAIL_NONE : LZ_FAIL_RADIO_SEND);
     if(sent) {
         if(old_pid) delivery_forget(old_pid);
-        delivery_track(g_open->addr, pid);
+        delivery_track(g_open->addr, pid, retries);
     } else {
         m->status = LZ_MSG_FAILED;
         m->sent_ms = 0;
+        m->fail_reason = LZ_FAIL_RADIO_SEND;
     }
     mark_dirty();
     return true;
+}
+
+int lz_svc_delivery_diag(char *buf, int n)
+{
+    if(!buf || n <= 0) return 0;
+    buf[0] = 0;
+    int pos = 0;
+    uint32_t now = lz_tick_ms();
+    int pending = 0;
+
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++)
+        if(g_delivery[i].used) pending++;
+
+    if(pending) {
+        pos = buf_appendf(buf, n, pos, "delivery: %d pending sent DM%s\n",
+                          pending, pending == 1 ? "" : "s");
+        for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
+            if(!g_delivery[i].used) continue;
+            lz_thread_rt *t = find_thread_by_addr(g_delivery[i].addr);
+            uint32_t age_s = (now - g_delivery[i].sent_ms) / 1000;
+            pos = buf_appendf(buf, n, pos,
+                              "  %08lx  %s  %s  age=%lus retry=%u/%u\n",
+                              (unsigned long)g_delivery[i].pkt_id,
+                              t ? t->name : g_delivery[i].addr,
+                              delivery_status_label(LZ_MSG_SENDING),
+                              (unsigned long)age_s,
+                              (unsigned)g_delivery[i].retries,
+                              (unsigned)LZ_MSG_RETRY_MAX);
+        }
+    } else {
+        pos = buf_appendf(buf, n, pos, "delivery: no pending sent DMs\n");
+    }
+
+    if(g_open) {
+        int failed = 0;
+        for(int i = 0; i < g_tail_count; i++) {
+            if(!g_tail[i].self || g_tail[i].status != LZ_MSG_FAILED) continue;
+            if(!failed++)
+                pos = buf_appendf(buf, n, pos, "open thread failures:\n");
+            const char *reason = g_tail[i].retries >= LZ_MSG_RETRY_MAX
+                               ? lz_svc_delivery_fail_label(LZ_FAIL_RETRY_LIMIT)
+                               : lz_svc_delivery_fail_label(g_tail[i].fail_reason);
+            pos = buf_appendf(buf, n, pos,
+                              "  %08lx  %s  retry=%u/%u\n",
+                              (unsigned long)g_tail[i].pkt_id, reason,
+                              (unsigned)g_tail[i].retries,
+                              (unsigned)LZ_MSG_RETRY_MAX);
+        }
+    }
+    return pos;
 }
 
 /* ---------- inbound events from backends ---------- */
@@ -671,7 +865,8 @@ void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used
     lz_msg_rt m = { .self = false, .ts = ts };
     snprintf(m.text, sizeof m.text, "%s", stored);
     lz_store_append(t->addr, &m);
-    if(g_open == t) tail_push(false, stored, ts, LZ_MSG_NONE, 0);
+    if(g_open == t) tail_push(false, stored, ts, LZ_MSG_NONE, 0,
+                              0, LZ_FAIL_NONE);
     touch_thread_meta(t, stored, ts, g_open != t);
 
     reorder_threads();
@@ -719,7 +914,84 @@ void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, f
 void lz_core_on_battery(uint32_t from, int batt)
 {
     lz_node_rt *n = find_node(from);
-    if(n) { n->batt = batt; mark_dirty(); }
+    if(n) {
+        n->batt = batt;
+        n->last_heard = now_epoch();
+        lz_store_save_nodes(g_nodes, g_node_count);
+        mark_dirty();
+    }
+}
+
+void lz_core_on_position(uint32_t from, int32_t lat_i, int32_t lon_i,
+                         bool has_alt, int32_t alt_m, uint32_t pos_time,
+                         uint8_t precision_bits, float snr)
+{
+    lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);
+    if(!n) return;
+    if(!isnan(snr)) n->snr = snr;
+    n->last_heard = now_epoch();
+    n->pos_flags |= LZ_NODE_POS_VALID;
+    n->lat_i = lat_i;
+    n->lon_i = lon_i;
+    if(has_alt) {
+        n->pos_flags |= LZ_NODE_POS_ALT;
+        n->alt_m = alt_m;
+    }
+    if(precision_bits) {
+        n->pos_flags |= LZ_NODE_POS_PREC;
+        n->precision_bits = precision_bits;
+    }
+    n->pos_time = pos_time ? pos_time : n->last_heard;
+    lz_store_save_nodes(g_nodes, g_node_count);
+    mark_dirty();
+}
+
+static uint16_t clamp_u16(float v, float scale)
+{
+    if(v < 0.0f) return 0;
+    float s = v * scale + 0.5f;
+    if(s > 65535.0f) return 65535;
+    return (uint16_t)s;
+}
+
+static int16_t clamp_i16(float v, float scale)
+{
+    float s = v * scale + (v >= 0.0f ? 0.5f : -0.5f);
+    if(s > 32767.0f) return 32767;
+    if(s < -32768.0f) return -32768;
+    return (int16_t)s;
+}
+
+void lz_core_on_telemetry(uint32_t from, const lz_node_telemetry_t *telem, float snr)
+{
+    if(!telem) return;
+    lz_node_rt *n = ensure_node(from, NULL, LZ_NET_MT);
+    if(!n) return;
+    if(!isnan(snr)) n->snr = snr;
+    n->last_heard = now_epoch();
+    if(telem->has_battery) n->batt = telem->battery_pct;
+    if(telem->has_voltage) {
+        n->telem_flags |= LZ_NODE_TEL_VOLT;
+        n->voltage_mv = clamp_u16(telem->voltage, 1000.0f);
+    }
+    if(telem->has_uptime) {
+        n->telem_flags |= LZ_NODE_TEL_UPTIME;
+        n->uptime_s = telem->uptime_s;
+    }
+    if(telem->has_temperature) {
+        n->telem_flags |= LZ_NODE_TEL_TEMP;
+        n->temp_c10 = clamp_i16(telem->temperature_c, 10.0f);
+    }
+    if(telem->has_humidity) {
+        n->telem_flags |= LZ_NODE_TEL_HUM;
+        n->humidity10 = clamp_u16(telem->humidity_pct, 10.0f);
+    }
+    if(telem->has_pressure) {
+        n->telem_flags |= LZ_NODE_TEL_PRESS;
+        n->pressure10 = clamp_u16(telem->pressure_hpa, 10.0f);
+    }
+    lz_store_save_nodes(g_nodes, g_node_count);
+    mark_dirty();
 }
 
 /* Meshtastic PKI: store a node's X25519 public key learned from its NodeInfo.
@@ -745,15 +1017,20 @@ bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32])
 /* a ROUTING ack came back for one of our sent DMs -> mark it delivered */
 void lz_core_on_ack(uint32_t request_id)
 {
-    bool changed = tail_mark_delivery(request_id, request_id, LZ_MSG_DELIVERED);
+    uint8_t retries = delivery_retries(request_id);
+    if(!retries) retries = tail_delivery_retries(request_id);
+    bool changed = tail_mark_delivery(request_id, request_id, LZ_MSG_DELIVERED,
+                                      retries, LZ_FAIL_NONE);
     const char *addr = delivery_addr(request_id);
     if(addr) {
-        lz_store_update_delivery(addr, request_id, request_id, LZ_MSG_DELIVERED);
+        lz_store_update_delivery(addr, request_id, request_id,
+                                 LZ_MSG_DELIVERED, retries, LZ_FAIL_NONE);
         delivery_forget(request_id);
         changed = true;
     } else if(g_open) {
         changed = lz_store_update_delivery(g_open->addr, request_id, request_id,
-                                           LZ_MSG_DELIVERED) || changed;
+                                           LZ_MSG_DELIVERED, retries,
+                                           LZ_FAIL_NONE) || changed;
     }
     if(changed) mark_dirty();
 }
@@ -762,14 +1039,104 @@ void lz_core_on_ack(uint32_t request_id)
 static void age_sent_status(void)
 {
     uint32_t now = lz_tick_ms();
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
+        if(!g_delivery[i].used) continue;
+        if(now - g_delivery[i].sent_ms <= LZ_DELIVERY_ACK_TIMEOUT_MS) continue;
+        uint32_t old_pid = g_delivery[i].pkt_id;
+        uint8_t retries = g_delivery[i].retries;
+        char addr[16];
+        snprintf(addr, sizeof addr, "%s", g_delivery[i].addr);
+
+        if(retries >= LZ_MSG_RETRY_MAX) {
+            lz_store_update_delivery(addr, old_pid, old_pid, LZ_MSG_FAILED,
+                                     retries, LZ_FAIL_RETRY_LIMIT);
+            if(g_open && strcmp(g_open->addr, addr) == 0)
+                tail_mark_delivery(old_pid, old_pid, LZ_MSG_FAILED,
+                                   retries, LZ_FAIL_RETRY_LIMIT);
+            g_delivery[i].used = false;
+            mark_dirty();
+            continue;
+        }
+
+        lz_thread_rt *t = find_thread_by_addr(addr);
+        lz_msg_rt queued;
+        if(!t || t->is_channel || !t->messageable ||
+           !load_queued_delivery(addr, old_pid, &queued)) {
+            lz_store_update_delivery(addr, old_pid, old_pid, LZ_MSG_FAILED,
+                                     retries, LZ_FAIL_ACK_TIMEOUT);
+            if(g_open && strcmp(g_open->addr, addr) == 0)
+                tail_mark_delivery(old_pid, old_pid, LZ_MSG_FAILED,
+                                   retries, LZ_FAIL_ACK_TIMEOUT);
+            g_delivery[i].used = false;
+            mark_dirty();
+            continue;
+        }
+
+        uint8_t next_retries = (uint8_t)(retries + 1);
+        uint32_t new_pid = next_packet_id();
+        bool sent = send_text_packet(t, queued.text, new_pid);
+        lz_store_update_delivery(addr, old_pid, sent ? new_pid : old_pid,
+                                 sent ? LZ_MSG_SENDING : LZ_MSG_FAILED,
+                                 next_retries,
+                                 sent ? LZ_FAIL_NONE : LZ_FAIL_RADIO_SEND);
+        if(g_open && strcmp(g_open->addr, addr) == 0)
+            tail_mark_delivery(old_pid, sent ? new_pid : old_pid,
+                               sent ? LZ_MSG_SENDING : LZ_MSG_FAILED,
+                               next_retries,
+                               sent ? LZ_FAIL_NONE : LZ_FAIL_RADIO_SEND);
+        if(sent) {
+            g_delivery[i].pkt_id = new_pid;
+            g_delivery[i].sent_ms = now;
+            g_delivery[i].retries = next_retries;
+        } else {
+            g_delivery[i].used = false;
+        }
+        mark_dirty();
+    }
+    now = lz_tick_ms();
     for(int i = 0; i < g_tail_count; i++)
         if(g_tail[i].self && g_tail[i].status == LZ_MSG_SENDING &&
-           now - g_tail[i].sent_ms > 30000) {
-            uint32_t pid = g_tail[i].pkt_id;
-            g_tail[i].status = LZ_MSG_FAILED;
-            g_tail[i].sent_ms = 0;
-            if(g_open && pid) lz_store_update_delivery(g_open->addr, pid, pid, LZ_MSG_FAILED);
-            if(pid) delivery_forget(pid);
+           now - g_tail[i].sent_ms > LZ_DELIVERY_ACK_TIMEOUT_MS) {
+            uint32_t old_pid = g_tail[i].pkt_id;
+            uint8_t retries = g_tail[i].retries;
+            if(retries >= LZ_MSG_RETRY_MAX) {
+                g_tail[i].status = LZ_MSG_FAILED;
+                g_tail[i].sent_ms = 0;
+                g_tail[i].fail_reason = LZ_FAIL_RETRY_LIMIT;
+                if(g_open && old_pid)
+                    lz_store_update_delivery(g_open->addr, old_pid, old_pid,
+                                             LZ_MSG_FAILED, retries,
+                                             LZ_FAIL_RETRY_LIMIT);
+                if(old_pid) delivery_forget(old_pid);
+                mark_dirty();
+                continue;
+            }
+
+            uint8_t next_retries = (uint8_t)(retries + 1);
+            uint32_t new_pid = next_packet_id();
+            bool sent = g_open && send_text_packet(g_open, g_tail[i].text, new_pid);
+            if(sent) {
+                if(g_open && old_pid)
+                    lz_store_update_delivery(g_open->addr, old_pid, new_pid,
+                                             LZ_MSG_SENDING, next_retries,
+                                             LZ_FAIL_NONE);
+                if(old_pid) delivery_forget(old_pid);
+                g_tail[i].pkt_id = new_pid;
+                g_tail[i].sent_ms = now;
+                g_tail[i].retries = next_retries;
+                g_tail[i].fail_reason = LZ_FAIL_NONE;
+                if(g_open) delivery_track(g_open->addr, new_pid, next_retries);
+            } else {
+                g_tail[i].status = LZ_MSG_FAILED;
+                g_tail[i].sent_ms = 0;
+                g_tail[i].retries = next_retries;
+                g_tail[i].fail_reason = LZ_FAIL_RADIO_SEND;
+                if(g_open && old_pid)
+                    lz_store_update_delivery(g_open->addr, old_pid, old_pid,
+                                             LZ_MSG_FAILED, next_retries,
+                                             LZ_FAIL_RADIO_SEND);
+                if(old_pid) delivery_forget(old_pid);
+            }
             mark_dirty();
         }
 }
@@ -804,6 +1171,7 @@ void lz_svc_init(const char *datadir, bool seed_demo)
 
     if(seed_demo && g_thread_count == 0) lz_seed_demo();
     lz_svc_channel_thread();              /* LongFast always present, even on a clean device */
+    track_stored_delivery();
     reorder_threads();
     lz_backend_init();
 }

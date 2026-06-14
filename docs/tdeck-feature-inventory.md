@@ -44,13 +44,13 @@ Status labels:
 | Channel send/receive | Functional, needs validation | `lz_svc_channel_thread`, `lz_core_on_text`, `lz_backend_send` | Add delivery/error handling for TX failures. |
 | Node discovery | Functional, needs validation | NodeInfo parse, heard-node table, 250-node cap | Add role/hardware enum coverage beyond current minimal parse. |
 | Node table persistence | Functional | `nodes.db` save/load | Add versioning/migration for future schema changes. |
-| Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Add persisted retry queue and interop validation. |
+| Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Add stock-device interop validation. |
 | PKI encrypted DMs | Functional, needs validation | `mtpki.cpp`, NodeInfo public key capture | Add test vectors or a deterministic host test. |
-| Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, persisted sent-DM status metadata, bubble status colors | Add richer ACK diagnostics and hardware interop coverage. |
-| Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend`; immediate backend failures mark the bubble failed | No persisted retry queue or retry-limit UI yet. |
+| Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, persisted sent-DM status metadata, failure reasons, bubble status colors, serial `dm status` | Add ACK/retransmit tests and hardware interop coverage. |
+| Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend`; expired pending sent DMs retry automatically from persisted log metadata up to the retry cap | Needs hardware ACK/retransmit validation. |
 | Managed flood rebroadcast | Functional, needs validation | `rebroadcast` in `backend_sx1262.cpp` | Needs airtime/backoff validation in busy meshes. |
 | USB companion bridge | Functional, needs validation | `mt_companion.cpp`, serial commands, UI toggle | Config coverage is minimal; Meshtastic BLE companion is V0.5. |
-| Position/telemetry decode | Planned | README lists as still ahead | Needed for maps, weather, and richer node detail. |
+| Position/telemetry decode | Partial, needs validation | POSITION and TELEMETRY payloads decode into node detail, node DB, serial `nodes`, and codec selftest fixtures | Add stock-device validation plus app-facing map/weather consumers. |
 | Emergency channel/beacon | Prototype/Planned | Emergency row appears but is disabled; design spec covers SOS | Implement after feedback manager and dual-network send. |
 
 ## MeshCore
@@ -72,9 +72,9 @@ Status labels:
 | --- | --- | --- | --- |
 | First-boot onboarding | Functional | `scr_onboard.c`, identity persistence | MeshCore network row is visible but locked. |
 | Lock screen | Functional | clock, battery, network icons, notification card | Add per-network badges once MeshCore is active. |
-| Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default | V0.95: support added apps and multiple Home screens. |
-| Unified inbox | Functional/Partial | Messages tabs, filters, unread badges, channel tab | MeshCore filter is gated; unread icon badge is roadmap. |
-| Conversation view | Functional/Partial | compose, bubbles, status colors, resend long-press | Long drafts handled, but delivery persistence is incomplete. |
+| Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default, Messages unread counter badge | V0.95: support added apps and multiple Home screens; run hardware visual regression for badge layout. |
+| Unified inbox | Functional/Partial | Messages tabs, filters, unread highlighting, per-thread badges, mute indicator, channel tab | MeshCore filter is gated; finish hardware responsiveness pass. |
+| Conversation view | Functional/Partial | compose, bubbles, status colors, resend long-press, persisted sent-DM delivery metadata | Stock-device ACK/retry interop still needs hardware validation. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, companion toggle | Emergency channel row is disabled. |
 | MeshCore manager | Prototype/Partial | "Coming soon" unless gate is flipped; deeper screen exists behind gate | Do not enable until MeshCore message path works. |
 | Contacts/detail | Functional/Partial | contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked. |
