@@ -15,16 +15,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
 
       - name: Cache PlatformIO packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.platformio/.cache
@@ -68,7 +67,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload T-Deck artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tdeck-firmware-${{ github.sha }}
           if-no-files-found: error
