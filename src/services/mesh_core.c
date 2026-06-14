@@ -1304,6 +1304,7 @@ void lz_svc_init(const char *datadir, bool seed_demo)
 
     if(seed_demo && g_thread_count == 0) lz_seed_demo();
     lz_svc_channel_thread();              /* LongFast always present, even on a clean device */
+    if(LZ_MESHCORE_ENABLED) lz_svc_mc_channel_thread();   /* MeshCore Public always in Channels too */
     track_stored_delivery();
     reorder_threads();
     lz_backend_init();
