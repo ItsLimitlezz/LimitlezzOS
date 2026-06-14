@@ -326,7 +326,7 @@ void lz_scr_messages(lv_obj_t *root)
         vis_thread_count = 0;
         for(int i = 0; i < tn; i++) {
             lz_thread_rt *th = lz_svc_thread_at(i);
-            if(th->is_channel) vis_threads[vis_thread_count++] = th;
+            if(th->is_channel && filter_match(th->net)) vis_threads[vis_thread_count++] = th;
         }
         for(int i = 0; i < vis_thread_count; i++) {
             lz_thread_rt *t = vis_threads[i];

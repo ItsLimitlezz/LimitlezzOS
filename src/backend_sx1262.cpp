@@ -74,9 +74,16 @@ static rf_prof_t g_prof[2] = {
 static bool     g_net_mt = true;          /* Meshtastic enabled */
 static bool     g_net_mc = false;         /* MeshCore enabled   */
 static int      g_active = PROF_MT;       /* profile the radio is tuned to now */
-static uint32_t g_slot_until;             /* millis() when the current dwell ends (0 = no switching) */
+static uint32_t g_slot_until;             /* millis() when the current dwell ends (0 = LOCKED sentinel, no switching) */
 static uint32_t g_rx_guard_until;         /* hard cap for deferring a switch while a packet is mid-RX */
-static const uint32_t SLOT_MS = 250;      /* dwell per profile when both on — short so we switch fast */
+static uint32_t g_ack_dwell_until;        /* no-yield window after our MC DM to catch its ACK (both-on only) */
+/* Asymmetric dwell FLOORS (both-on). MT (SF11/BW250) is ~3.5x slower on air than
+ * MC (SF7/BW62.5), so MT gets more listen time -> ~60/40 wall-clock toward MT.
+ * These are minimums: a blocking TX can run a slot long (the loop only re-evaluates
+ * between blocking ops). Set equal for 50/50. */
+static const uint32_t SLOT_MS_MT  = 300;
+static const uint32_t SLOT_MS_MC  = 200;
+static const uint32_t ACK_DWELL_MC = 700; /* linger on MC after our want-ack DM (peer TXT_ACK_DELAY 200 + ack airtime + ~1 hop) */
 static uint32_t g_rx_mt, g_rx_mc;         /* per-network packet counts */
 static uint32_t g_switches;               /* TDM profile switches */
 
@@ -102,8 +109,43 @@ static void apply_profile(int which)
 static void slot_begin(int which, uint32_t now)
 {
     apply_profile(which);
-    g_slot_until = now + SLOT_MS;
+    g_slot_until = now + (which == PROF_MT ? SLOT_MS_MT : SLOT_MS_MC);
     g_rx_guard_until = g_slot_until + (which == PROF_MT ? 2000u : 600u);
+    g_ack_dwell_until = 0;   /* any retune ends a prior MC ACK-dwell; the MC DM re-arms after */
+}
+
+static void handle_rx_mt(void);   /* fwd */
+static void handle_rx_mc(void);   /* fwd */
+
+/* drain a completed frame on the current profile (clears g_rx_flag) */
+static void drain_rx(void)
+{
+    if(g_rx_flag) { g_rx_flag = false; if(g_active == PROF_MT) handle_rx_mt(); else handle_rx_mc(); }
+}
+
+/* Retune for a SEND/RETRY (off the loop's yield path). The loop's mid-RX guard
+ * only covers timer-driven switches; a send, a 30s DM retry, or a NodeInfo
+ * request can also retune and would standby() the radio mid-RX, clobbering an
+ * inbound frame. This finishes any in-flight RX first, then retunes. In LOCKED
+ * (one net) it never writes the g_slot_until sentinel. */
+static void retune_guarded(int target, uint32_t now)
+{
+    if(g_active == target) return;                 /* already tuned (incl. LOCKED): nothing to do */
+    if(g_net_mt && g_net_mc) {
+        drain_rx();                                /* a completed frame is waiting */
+        uint16_t irq = radio.getIrqStatus();
+        if((irq & RADIOLIB_SX126X_IRQ_HEADER_VALID) && !(irq & RADIOLIB_SX126X_IRQ_RX_DONE)) {
+            uint32_t cap = now + (g_active == PROF_MT ? 2000u : 600u);   /* current profile's max airtime */
+            while((uint32_t)millis() < cap) {      /* let the in-flight frame finish */
+                if(g_rx_flag) { drain_rx(); break; }
+                if(radio.getIrqStatus() & RADIOLIB_SX126X_IRQ_RX_DONE) { drain_rx(); break; }
+                delay(2);
+            }
+        }
+        slot_begin(target, now);                   /* both-on: retune + (re)start dwell */
+    } else {
+        apply_profile(target);                     /* single-net edge: retune, keep sentinel */
+    }
 }
 
 /* dedup ring of recently-seen (from,id) so we don't reprocess/rebroadcast */
@@ -497,7 +539,7 @@ static void send_routing_ack(uint32_t to, uint32_t req_id)
 extern "C" void lz_backend_request_nodeinfo(uint32_t to)
 {
     if(!g_ok || !g_net_mt || to == MT_BROADCAST) return;
-    if(g_active != PROF_MT) slot_begin(PROF_MT, millis());
+    retune_guarded(PROF_MT, millis());
     send_nodeinfo(to, true);
 }
 
@@ -580,7 +622,7 @@ static bool broadcast_mc_advert(bool flood)
 
 static bool mc_send_one(const lz_identity_t *id, const char *text)
 {
-    if(g_active != PROF_MC) slot_begin(PROF_MC, millis());
+    retune_guarded(PROF_MC, millis());
     uint8_t frame[200];
     int n = mc_group_encode(frame, sizeof frame, MC_PUBLIC_SECRET,
                             lz_svc_epoch(), id->long_name, text);
@@ -605,7 +647,7 @@ extern "C" bool lz_backend_mc_send_public(const char *text)
         int slice = budget - 6;                               /* leave room for "(i/n) " */
         if(slice < 8) slice = 8;
         int nparts = (tlen + slice - 1) / slice;
-        if(nparts > 9) nparts = 9;                            /* single-digit markers; chat is short */
+        if(nparts > 4) nparts = 4;                            /* cap: a multi-part burst blocks the loop (no RX, UI frozen) ~1.5s/part */
         ok = true;
         for(int i = 0; i < nparts; i++) {
             char part[180];
@@ -630,7 +672,7 @@ static struct { uint8_t ack4[4]; char peer[24]; uint32_t t_ms; bool used; } g_mc
 
 static void send_mc_ack(const uint8_t ack4[4])
 {
-    if(g_active != PROF_MC) slot_begin(PROF_MC, millis());
+    retune_guarded(PROF_MC, millis());
     uint8_t frame[8]; int fl = 0;
     frame[fl++] = (MC_PAYLOAD_ACK << MC_TYPE_SHIFT) | MC_ROUTE_FLOOD;
     frame[fl++] = 0;                                  /* path_len = 0 */
@@ -712,7 +754,7 @@ extern "C" bool lz_backend_mc_dm(const char *name, const char *text)
         }
     if(!found) return false;                          /* unknown peer: need their advert first */
 
-    if(g_active != PROF_MC) slot_begin(PROF_MC, millis());
+    retune_guarded(PROF_MC, millis());
     uint8_t shared[32];
     mc_ed25519_dh(shared, ppub, g_mc_prv);
     uint8_t frame[200], ack4[4];
@@ -730,6 +772,8 @@ extern "C" bool lz_backend_mc_dm(const char *name, const char *text)
         snprintf(g_mc_dm_pend[slot].peer, sizeof g_mc_dm_pend[slot].peer, "%s", pname);
         g_mc_dm_pend[slot].t_ms = millis();
         g_mc_dm_pend[slot].used = true;
+        if(g_net_mt && g_net_mc)                      /* both-on: linger on MC to catch the ACK */
+            g_ack_dwell_until = millis() + ACK_DWELL_MC;
     }
     return sent;
 }
@@ -791,22 +835,29 @@ void lz_backend_loop(void)
     /* Process a completed packet FIRST, on the profile we received it on: a retune
      * (apply_profile -> standby) would drop the just-received frame still in the
      * radio buffer. */
-    if(g_rx_flag) {
-        g_rx_flag = false;
-        if(g_active == PROF_MT) handle_rx_mt();
-        else                    handle_rx_mc();
-    }
+    drain_rx();
+
+    /* age out stale MC-DM delivery-tracking entries so the table can't fill (30s) */
+    for(int i = 0; i < MC_DM_PEND_N; i++)
+        if(g_mc_dm_pend[i].used && (uint32_t)(now - g_mc_dm_pend[i].t_ms) > 30000u)
+            g_mc_dm_pend[i].used = false;
 
     /* TDM: hand the radio to the other profile when the dwell expires — but never
      * mid-packet. If a valid LoRa header is mid-reception, hold the slot open and
      * switch the instant the packet finishes (RX_DONE) or the guard elapses, so a
      * stuck/aborted header can't freeze the cycle. */
-    if(g_net_mt && g_net_mc && g_slot_until && now >= g_slot_until) {
+    if(g_net_mt && g_net_mc && g_slot_until && (int32_t)(now - g_slot_until) >= 0) {
+        drain_rx();                       /* same-tick: a frame may have completed since the top */
+        now = millis();
         uint16_t irq = radio.getIrqStatus();
         bool rx_in_flight = (irq & RADIOLIB_SX126X_IRQ_HEADER_VALID) &&
                            !(irq & RADIOLIB_SX126X_IRQ_RX_DONE);
-        if(!(rx_in_flight && now < g_rx_guard_until)) {
-            slot_begin(g_active == PROF_MT ? PROF_MC : PROF_MT, now);
+        if(rx_in_flight && (int32_t)(now - g_rx_guard_until) < 0) {
+            /* hold: finish the in-flight frame */
+        } else if((int32_t)(now - g_ack_dwell_until) < 0) {
+            /* hold: lingering on MC to catch our DM's ACK (g_ack_dwell_until=0 => no hold) */
+        } else {
+            slot_begin(g_active == PROF_MT ? PROF_MC : PROF_MT, now);   /* clears g_ack_dwell_until */
             g_switches++;
         }
     }
@@ -850,7 +901,7 @@ bool lz_backend_send(lz_mt_packet_t *p)
     /* a Meshtastic frame must go out on the MT profile; if a TDM slot has us on
      * MeshCore right now, retune to MT for the transmit (the scheduler resumes
      * round-robin on its next tick) */
-    if(g_active != PROF_MT) slot_begin(PROF_MT, millis());
+    retune_guarded(PROF_MT, millis());
 
     /* wrap the service payload in a Data protobuf, encrypt, frame, transmit */
     mt_data_t d;
@@ -936,6 +987,8 @@ extern "C" void lz_backend_set_networks(bool mt, bool mc)
     g_net_mt = mt;
     g_net_mc = mc;
     if(!g_ok) return;
+    drain_rx();                          /* don't drop a frame just received on the old profile */
+    g_ack_dwell_until = 0;
     if(mt && mc) {                       /* share the radio, start on Meshtastic */
         slot_begin(PROF_MT, millis());
     } else if(mt) {
@@ -956,7 +1009,7 @@ extern "C" void lz_backend_mc_tune(float freq, float bw, int sf, int cr, int syn
     if(sf >= 5 && sf <= 12) { g_prof[PROF_MC].sf = sf; g_prof[PROF_MC].preamble = sf <= 8 ? 32 : 16; }
     if(cr >= 5 && cr <= 8)  g_prof[PROF_MC].cr = cr;
     if(sync >= 0)           g_prof[PROF_MC].sync = (uint8_t)sync;
-    if(g_active == PROF_MC) apply_profile(PROF_MC);   /* take effect now */
+    if(g_active == PROF_MC) { drain_rx(); apply_profile(PROF_MC); }   /* take effect now (don't drop a just-RXed frame) */
 }
 
 /* MeshCore identity (pubkey hex) for the serial console */
@@ -1000,10 +1053,10 @@ extern "C" bool lz_backend_mc_advert_now(bool flood)
 {
     if(!g_ok || !g_mc_id_ok) return false;
     int prev = g_active;
-    if(g_active != PROF_MC) apply_profile(PROF_MC);
+    retune_guarded(PROF_MC, millis());   /* coherent slot under split; plain retune in LOCKED */
     bool ok = broadcast_mc_advert(flood);
     g_last_mc_advert = millis();
-    if(prev != PROF_MC && !(g_net_mt && g_net_mc)) apply_profile(prev);  /* restore if not round-robin */
+    if(prev != PROF_MC && !(g_net_mt && g_net_mc)) { drain_rx(); apply_profile(prev); }  /* restore if not round-robin */
     return ok;
 }
 
