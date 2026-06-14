@@ -312,7 +312,7 @@ static void move(lz_key_t dir)
     if(S.view == LZ_V_SETTINGS && lz_settings_slider_focused() &&
        (dir == LZ_K_LEFT || dir == LZ_K_RIGHT)) {
         lz_settings_bright_adjust(dir == LZ_K_RIGHT ? 6 : -6);
-        lz_rebuild();
+        if(!lz_settings_brightness_refresh()) lz_rebuild();
         return;
     }
     /* tab switching with left/right on single-column tabbed screens; rolling
@@ -793,6 +793,7 @@ void lz_settings_bright_adjust(int delta)
     int b = S.settings.bright + delta;
     if(b < 5) b = 5;
     if(b > 100) b = 100;
+    if(b == S.settings.bright) return;
     S.settings.bright = b;
     lz_apply_brightness();               /* live backlight update on hardware */
     lz_settings_save();

@@ -162,6 +162,7 @@ void lz_apply_brightness(void);                  /* push the brightness setting 
 /* settings helpers shared between key handling and the settings screen */
 bool lz_settings_slider_focused(void);
 void lz_settings_bright_adjust(int delta);
+bool lz_settings_brightness_refresh(void);  /* update Settings slider without rebuilding */
 
 #ifdef __cplusplus
 }

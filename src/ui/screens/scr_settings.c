@@ -7,6 +7,8 @@ static const char *TXPOW[]    = { "Low", "Medium", "High", "Max" };
 static const int   TXPOW_DBM[] = { 2, 8, 17, 22 };
 static const char *TIMEOUTS[] = { "15s", "30s", "1m", "5m", "Never" };
 static const char *KBLIGHT[]  = { "Auto", "On", "Off" };
+static lv_obj_t *g_bright_fill;
+static lv_obj_t *g_bright_knob;
 
 enum { ROW_VALUE, ROW_TOGGLE, ROW_SLIDER, ROW_NAV };
 
@@ -170,8 +172,19 @@ static void value_chevron(lv_obj_t *row, const char *value)
     lz_icon(row, LZ_I_CHEV_R, &lz_icons_14, LZ_TEXT_3);
 }
 
+bool lz_settings_brightness_refresh(void)
+{
+    if(S.view != LZ_V_SETTINGS || !g_bright_fill || !g_bright_knob) return false;
+    lv_obj_set_width(g_bright_fill, lv_pct(S.settings.bright));
+    lv_obj_align(g_bright_knob, LV_ALIGN_LEFT_MID,
+                 (96 * S.settings.bright) / 100 - 5, 0);
+    return true;
+}
+
 void lz_scr_settings(lv_obj_t *root)
 {
+    g_bright_fill = NULL;
+    g_bright_knob = NULL;
     bool mt = S.net_mt, mc = S.net_mc, both = mt && mc;
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lz_navbar(root, "Settings", NULL);
@@ -307,13 +320,13 @@ void lz_scr_settings(lv_obj_t *root)
                     lv_obj_set_style_radius(track, 3, 0);
                     lv_obj_set_style_bg_color(track, lv_color_hex(0x22272F), 0);
                     lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
-                    lv_obj_t *fillb = lz_box(track);
-                    lv_obj_set_size(fillb, lv_pct(S.settings.bright), 5);
-                    lv_obj_set_style_radius(fillb, 3, 0);
-                    lv_obj_set_style_bg_color(fillb, LZ_SLIDER_HI, 0);
-                    lv_obj_set_style_bg_opa(fillb, LV_OPA_COVER, 0);
-                    lv_obj_t *knob = lz_dot(track, 11, LZ_KNOB);
-                    lv_obj_align(knob, LV_ALIGN_LEFT_MID, (96 * S.settings.bright) / 100 - 5, 0);
+                    g_bright_fill = lz_box(track);
+                    lv_obj_set_size(g_bright_fill, lv_pct(S.settings.bright), 5);
+                    lv_obj_set_style_radius(g_bright_fill, 3, 0);
+                    lv_obj_set_style_bg_color(g_bright_fill, LZ_SLIDER_HI, 0);
+                    lv_obj_set_style_bg_opa(g_bright_fill, LV_OPA_COVER, 0);
+                    g_bright_knob = lz_dot(track, 11, LZ_KNOB);
+                    lz_settings_brightness_refresh();
                     break;
                 }
                 case 6: value_chevron(row, KBLIGHT[S.settings.kb_light]); break;
