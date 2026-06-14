@@ -1,8 +1,10 @@
 /* App Store (install flow), Contacts directory, Contact detail,
  * Terminal, Files */
 #include "../ui.h"
+#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* ===== App Store ===== */
 
@@ -552,17 +554,181 @@ void lz_scr_terminal(lv_obj_t *root)
 
 /* ===== Files ===== */
 
+#if !defined(S_IFMT) && defined(_S_IFMT)
+#define S_IFMT _S_IFMT
+#endif
+#if !defined(S_IFDIR) && defined(_S_IFDIR)
+#define S_IFDIR _S_IFDIR
+#endif
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#endif
+
+#define FILE_ROW_MAX 24
+
+typedef struct {
+    char name[40];
+    char meta[16];
+    char path[112];
+    bool dir;
+    bool parent;
+} file_row_t;
+
+static file_row_t file_rows[FILE_ROW_MAX];
+static int file_n;
+static bool file_more;
+static char file_root[96];
+static char file_path[112];
+
+static bool path_under_root(const char *root, const char *path)
+{
+    size_t n = strlen(root);
+    return strcmp(root, path) == 0 ||
+           (strncmp(path, root, n) == 0 && path[n] == '/');
+}
+
+static const char *files_prepare_root(void)
+{
+    const char *root = lz_svc_file_root();
+    if(!root || !root[0]) {
+        file_root[0] = 0;
+        file_path[0] = 0;
+        return NULL;
+    }
+    if(strcmp(file_root, root) != 0 || !file_path[0] || !path_under_root(root, file_path)) {
+        snprintf(file_root, sizeof file_root, "%s", root);
+        snprintf(file_path, sizeof file_path, "%s", root);
+        S.focus = 0;
+    }
+    return file_root;
+}
+
+static bool files_at_root(void)
+{
+    return file_root[0] && strcmp(file_path, file_root) == 0;
+}
+
+static void files_parent(void)
+{
+    if(files_at_root()) return;
+    char *slash = strrchr(file_path, '/');
+    if(slash && slash > file_path) *slash = 0;
+    else snprintf(file_path, sizeof file_path, "%s", file_root);
+    if(!path_under_root(file_root, file_path))
+        snprintf(file_path, sizeof file_path, "%s", file_root);
+}
+
+static void files_join(char *out, size_t n, const char *base, const char *name)
+{
+    size_t bl = strlen(base);
+    snprintf(out, n, "%s%s%s", base, (bl && base[bl - 1] == '/') ? "" : "/", name);
+}
+
+static void files_size_meta(char *out, size_t n, const struct stat *st, bool dir)
+{
+    if(dir) { snprintf(out, n, "dir"); return; }
+    unsigned long sz = st->st_size < 0 ? 0 : (unsigned long)st->st_size;
+    if(sz < 1024UL) {
+        snprintf(out, n, "%lu B", sz);
+    } else if(sz < 1024UL * 1024UL) {
+        unsigned long kb10 = (sz * 10UL + 512UL) / 1024UL;
+        if(kb10 < 100UL) snprintf(out, n, "%lu.%lu KB", kb10 / 10UL, kb10 % 10UL);
+        else             snprintf(out, n, "%lu KB", (sz + 512UL) / 1024UL);
+    } else {
+        unsigned long mb10 = (sz * 10UL + 524288UL) / (1024UL * 1024UL);
+        snprintf(out, n, "%lu.%lu MB", mb10 / 10UL, mb10 % 10UL);
+    }
+}
+
+static int files_cmp(const file_row_t *a, const file_row_t *b)
+{
+    if(a->parent != b->parent) return a->parent ? -1 : 1;
+    if(a->dir != b->dir) return a->dir ? -1 : 1;
+    return strcmp(a->name, b->name);
+}
+
+static void files_sort(void)
+{
+    for(int i = 1; i < file_n; i++) {
+        file_row_t key = file_rows[i];
+        int j = i - 1;
+        while(j >= 0 && files_cmp(&key, &file_rows[j]) < 0) {
+            file_rows[j + 1] = file_rows[j];
+            j--;
+        }
+        file_rows[j + 1] = key;
+    }
+}
+
+static bool files_load(void)
+{
+    file_n = 0;
+    file_more = false;
+    DIR *d = opendir(file_path);
+    if(!d) return false;
+
+    if(!files_at_root() && file_n < FILE_ROW_MAX) {
+        file_row_t *r = &file_rows[file_n++];
+        memset(r, 0, sizeof *r);
+        snprintf(r->name, sizeof r->name, "..");
+        snprintf(r->meta, sizeof r->meta, "up");
+        r->dir = true;
+        r->parent = true;
+    }
+
+    struct dirent *e;
+    while((e = readdir(d)) != NULL) {
+        if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if(file_n >= FILE_ROW_MAX) { file_more = true; break; }
+
+        char full[112];
+        files_join(full, sizeof full, file_path, e->d_name);
+
+        struct stat st;
+        if(stat(full, &st) != 0) continue;
+
+        file_row_t *r = &file_rows[file_n++];
+        memset(r, 0, sizeof *r);
+        snprintf(r->name, sizeof r->name, "%s", e->d_name);
+        snprintf(r->path, sizeof r->path, "%s", full);
+        r->dir = S_ISDIR(st.st_mode);
+        files_size_meta(r->meta, sizeof r->meta, &st, r->dir);
+    }
+    closedir(d);
+    files_sort();
+    if(S.focus >= file_n) S.focus = file_n > 0 ? file_n - 1 : 0;
+    return true;
+}
+
+static void files_activate(int idx)
+{
+    if(idx < 0 || idx >= file_n) return;
+    file_row_t *r = &file_rows[idx];
+    if(r->parent) files_parent();
+    else if(r->dir) snprintf(file_path, sizeof file_path, "%s", r->path);
+    else return;
+    S.focus = 0;
+    lz_rebuild();
+}
+
 void lz_scr_files(lv_obj_t *root)
 {
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lz_navbar(root, "Files", NULL);
+
+    const char *root_path = files_prepare_root();
+    bool have_root = root_path != NULL;
+    bool opened = have_root && files_load();
 
     lv_obj_t *path = lz_box(root);
     lv_obj_set_size(path, LZ_W, 19);
     lv_obj_set_style_border_side(path, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(path, 1, 0);
     lv_obj_set_style_border_color(path, lv_color_hex(0x171B21), 0);
-    lv_obj_t *pl = lz_text(path, "/sdcard", LZ_F_MONO, lv_color_hex(0x7F868F));
+    lv_obj_t *pl = lz_text(path, have_root ? file_path : "/sd unavailable",
+                           LZ_F_MONO, lv_color_hex(0x7F868F));
+    lv_obj_set_width(pl, LZ_W - 22);
+    lv_label_set_long_mode(pl, LV_LABEL_LONG_DOT);
     lv_obj_align(pl, LV_ALIGN_LEFT_MID, 11, 0);
 
     lv_obj_t *body = lz_vflex(root);
@@ -572,16 +738,34 @@ void lz_scr_files(lv_obj_t *root)
     lv_obj_set_style_pad_row(body, 2, 0);
     lz_nav_set_scroll(body);
 
-    /* read-only browser: rows are display-only (no drill-in yet), so they are
-     * not focusable — up/down scrolls the list instead of landing on dead rows */
-    for(int i = 0; i < 7; i++) {
-        const lz_file_t *f = &LZ_FILES[i];
-        lv_obj_t *row = lz_row(body, false);
+    if(!have_root || !opened || file_n == 0) {
+        const char *msg = !have_root ? "No SD/appfs mounted.\nFiles is read-only once storage is available."
+                        : !opened    ? "Cannot read this folder."
+                                     : "Folder is empty.";
+        lv_obj_t *empty = lz_text(body, msg, LZ_F_SMALL, LZ_TEXT_3);
+        lv_obj_set_width(empty, lv_pct(100));
+        lv_obj_set_style_text_align(empty, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_pad_top(empty, 60, 0);
+        lz_nav_set(1, 0, NULL);
+        return;
+    }
+
+    for(int i = 0; i < file_n; i++) {
+        file_row_t *f = &file_rows[i];
+        lv_obj_t *row = lz_row(body, i == S.focus);
         lz_icon(row, f->dir ? LZ_I_FOLDER : LZ_I_DESCRIPTION, &lz_icons_18,
                 f->dir ? LZ_FILE_FOLDER : lv_color_hex(0x8B939C));
         lv_obj_t *name = lz_text(row, f->name, LZ_F_BODY, LZ_TEXT_SETTING);
         lv_obj_set_flex_grow(name, 1);
+        lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
         lz_text(row, f->meta, LZ_F_MONO, LZ_TEXT_META);
+        lz_nav_track(row, i);
     }
-    lz_nav_set(1, 0, NULL);   /* scroll-only */
+
+    if(file_more) {
+        lv_obj_t *more = lz_text(body, "Showing first 24 entries", LZ_F_SMALL, LZ_TEXT_3);
+        lv_obj_set_style_pad_top(more, 3, 0);
+    }
+
+    lz_nav_set(1, file_n, files_activate);
 }

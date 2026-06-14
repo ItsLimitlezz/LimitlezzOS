@@ -85,7 +85,7 @@ Deliverables:
   - serial diagnostics for pending messages
 - Decode Meshtastic position and telemetry packets for node detail and future apps.
 - Keep radio settings simple in the primary UI; advanced region/preset/channel controls, if added, belong in Developer Mode.
-- Replace static Files screen with a read-only SD/appfs browser.
+- Replace static Files screen with a read-only SD/appfs browser. Implemented for mounted SD/local store; appfs mount support remains V0.95 app-platform work.
 - Add hardware dogfood checklist against stock Meshtastic devices.
 
 Exit criteria:

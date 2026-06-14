@@ -80,6 +80,7 @@ typedef struct {
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
 void lz_svc_set_dirty_cb(void (*cb)(void));             /* UI refresh request      */
+const char *lz_svc_file_root(void);                     /* read-only Files browser root */
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

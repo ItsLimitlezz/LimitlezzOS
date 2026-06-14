@@ -83,7 +83,7 @@ Status labels:
 | System/battery page | Functional/Partial | live stats and battery arc | Hardware values need calibration/validation. |
 | App Store | Prototype | `LZ_STORE` static catalog and timer-based GET -> OPEN | Disabled from Home; no catalog, download, install, manifest, or launch. |
 | Terminal | Functional/Partial | interactive UI terminal behind Developer Mode; serial CLI always available over USB | Expand diagnostics once Developer Mode grows into a full power-user surface. |
-| Files | Prototype | static `LZ_FILES` rows | Needs real SD/appfs listing and navigation. |
+| Files | Functional/Partial | read-only bounded filesystem browser rooted at mounted SD/local store | Add appfs mount support and gated file actions later. |
 
 ## App Platform And Ecosystem
 

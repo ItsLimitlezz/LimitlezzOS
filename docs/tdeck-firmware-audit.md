@@ -130,7 +130,7 @@ The LVGL UI is broad and polished for alpha:
 - Terminal
 - Files prototype
 
-The UI still mixes real product surfaces with demos/prototypes. The biggest examples are App Store fake install state and static Files rows. Terminal now sits behind Developer Mode instead of the default Home launcher.
+The UI still mixes real product surfaces with demos/prototypes. The biggest example is App Store fake install state. Terminal now sits behind Developer Mode instead of the default Home launcher, and Files now reads the mounted SD/local store instead of static sample rows.
 
 ## Findings And Risks
 
@@ -143,7 +143,7 @@ The UI still mixes real product surfaces with demos/prototypes. The biggest exam
 | P1 | Persistence | Identity, Wi-Fi, touch calibration, keys, nodes, threads, logs, and user settings persist. Wi-Fi and keys are still plaintext on SD. | Credentials and keys are exposed if the SD card is read. | Move credentials to NVS or encrypted store; add optional device PIN/password before encrypting all local data. |
 | P1 | Delivery status | Newly sent DM packet IDs and `SENDING/DELIVERED/FAILED` state persist in message-log v2 records, and immediate backend send failures now mark the bubble failed. | Retry behavior is still session-oriented and lacks richer ACK/failure diagnostics. | Add persisted retry queue, retry limits, failure reasons, serial diagnostics, and ACK/retransmit tests. |
 | P2 | App launcher | Terminal is hidden behind Developer Mode; App Store is shown but disabled. | The power-user flow is now gated, but the app ecosystem is still a prototype. | Make App Store real or remove it until usable; expand Developer Mode diagnostics later. |
-| P2 | Files | Files screen renders static sample rows from `LZ_FILES`. | It looks like a file browser but does not inspect SD/appfs. | Implement a read-only SD/appfs browser, then gated file actions. |
+| P2 | Files | Files now renders a bounded read-only listing from the mounted SD/local store. | It is useful for inspection, but appfs mounting and guarded file actions are still future work. | Add appfs mount support, then gated file actions after the app platform exists. |
 | P2 | GPS/position/telemetry | GPS toggle and sample map/weather data exist, but GPS driver and Meshtastic position/telemetry decode are not present. | Map, weather, telemetry, and emergency features lack data plumbing. | Add decoders and platform hooks before building user-facing apps that depend on them. |
 | P2 | Feedback/emergency | Master spec calls for LED, buzzer, DND, priority feedback, and SOS, but no service owns those outputs. | Notifications and emergency behavior are screen-only. | Add a Feedback Manager service before emergency beacon and OTA status UX. |
 | P3 | Documentation consistency | README says MeshCore is both "landed" and "not receiving"; feature claims mix hardware-tested, code-present, and prototype states. | Contributors may work from an inaccurate mental model. | Link this audit and feature inventory from README; keep README status labels aligned with code gates. |

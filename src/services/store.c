@@ -32,6 +32,14 @@ void lz_store_init(const char *datadir)
     }
 }
 
+const char *lz_store_file_root(void)
+{
+    if(!g_persist) return NULL;
+    if(strcmp(g_dir, "/sd") == 0 || strncmp(g_dir, "/sd/", 4) == 0) return "/sd";
+    if(strcmp(g_dir, "/appfs") == 0 || strncmp(g_dir, "/appfs/", 7) == 0) return "/appfs";
+    return g_dir;  /* simulator/local POSIX data directory */
+}
+
 static void path_for(char *out, size_t n, const char *name)
 {
     snprintf(out, n, "%s/%s", g_dir, name);

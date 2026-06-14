@@ -245,7 +245,7 @@ the demo mesh.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
   `rf`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
 - **Terminal / Files** — Developer Mode mono console with blinking cursor;
-  /sdcard listing.
+  read-only Files browser for the mounted SD/local store.
 
 ## Status against the master-spec roadmap
 

@@ -11,6 +11,7 @@
 
 /* store.c */
 void lz_store_init(const char *datadir);
+const char *lz_store_file_root(void);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
 bool lz_store_update_delivery(const char *addr, uint32_t old_pkt_id,
@@ -149,6 +150,11 @@ bool lz_svc_needs_onboarding(void) { return !g_have_identity; }
 
 void lz_svc_set_dirty_cb(void (*cb)(void)) { g_dirty = cb; }
 static void mark_dirty(void) { if(g_dirty) g_dirty(); }
+
+const char *lz_svc_file_root(void)
+{
+    return lz_store_file_root();
+}
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)
 {
