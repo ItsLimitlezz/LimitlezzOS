@@ -77,6 +77,7 @@ static int  g_convo_scroll_y;
 static bool g_convo_stick_bottom = true;
 static bool g_convo_force_bottom = true;
 static bool g_convo_skip_capture;
+static bool g_bright_dirty;      /* brightness adjusted but not yet written to SD */
 
 static int clamp_i(int v, int lo, int hi)
 {
@@ -165,6 +166,14 @@ void lz_settings_save(void)
         S.settings.developer,
     };
     lz_store_save_settings(&p);
+    g_bright_dirty = false;      /* any full save also commits brightness */
+}
+
+/* Commit a pending brightness change (deferred during slider drags so a
+ * key-repeat burst doesn't rewrite settings.cfg on every 6% step). */
+static void lz_settings_flush(void)
+{
+    if(g_bright_dirty) lz_settings_save();
 }
 
 static void settings_apply_runtime(void)
@@ -299,6 +308,7 @@ void lz_rebuild(void)
 
 void lz_go(lz_view_t v)
 {
+    lz_settings_flush();
     if(S.nav_depth < (int)(sizeof(S.nav_stack)/sizeof(S.nav_stack[0])))
         S.nav_stack[S.nav_depth++] = S.view;
     if(v == LZ_V_CONVO) convo_scroll_reset();
@@ -310,6 +320,7 @@ void lz_go(lz_view_t v)
 
 void lz_back(void)
 {
+    lz_settings_flush();
     lz_view_t v = LZ_V_HOME;
     if(S.nav_depth > 0) v = S.nav_stack[--S.nav_depth];
     if(v == LZ_V_LOCK) v = LZ_V_HOME;
@@ -322,6 +333,7 @@ void lz_back(void)
 
 static void unlock(void)
 {
+    lz_settings_flush();
     S.nav_depth = 0;
     S.view = LZ_V_HOME;
     S.focus = 0;
@@ -332,6 +344,7 @@ static void unlock(void)
 void lz_lock(void)
 {
     if(S.view == LZ_V_ONBOARD || S.view == LZ_V_LOCK) return;
+    lz_settings_flush();
     S.nav_depth = 0;
     S.view = LZ_V_LOCK;
     S.focus = 0;
@@ -349,6 +362,7 @@ static void move(lz_key_t dir)
         if(!lz_settings_brightness_refresh()) lz_rebuild();
         return;
     }
+    lz_settings_flush();   /* any other navigation commits a pending brightness change */
     /* tab switching with left/right on single-column tabbed screens; rolling
      * left past the first tab goes back (the T-Deck has no dedicated back key) */
     if(dir == LZ_K_LEFT || dir == LZ_K_RIGHT) {
@@ -831,5 +845,5 @@ void lz_settings_bright_adjust(int delta)
     if(b == S.settings.bright) return;
     S.settings.bright = b;
     lz_apply_brightness();               /* live backlight update on hardware */
-    lz_settings_save();
+    g_bright_dirty = true;               /* persisted on focus-change / screen-leave */
 }

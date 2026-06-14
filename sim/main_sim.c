@@ -376,6 +376,106 @@ static int codec_selftest(void)
     CHECK(pl > 0 && mt_data_decode(pb, pl, &back), "routing Data encodes/decodes");
     CHECK(back.request_id == 0xdeadbeef, "request_id (fixed32) round-trips");
 
+    /* 5. POSITION decode: lat/lon fixed32, altitude varint, precision_bits */
+    {
+        uint8_t pos[] = {
+            0x0D, 0x44,0x33,0x22,0x11,     /* field 1  latitude_i  = 0x11223344 */
+            0x15, 0x0D,0x0C,0x0B,0x0A,     /* field 2  longitude_i = 0x0A0B0C0D */
+            0x18, 0x32,                    /* field 3  altitude_m  = 50         */
+            0xB8,0x01, 0x20,               /* field 23 precision_bits = 32      */
+        };
+        mt_position_t p;
+        CHECK(mt_position_decode(pos, sizeof pos, &p), "POSITION decodes");
+        CHECK(p.has_lat && p.latitude_i == 0x11223344, "POSITION latitude (fixed32)");
+        CHECK(p.has_lon && p.longitude_i == 0x0A0B0C0D, "POSITION longitude (fixed32)");
+        CHECK(p.has_alt && p.altitude_m == 50, "POSITION altitude (varint)");
+        CHECK(p.precision_bits == 32, "POSITION precision_bits (field 23)");
+        uint8_t unk[] = { 0x4A,0x01,0x00, 0x0D,0x01,0x00,0x00,0x00 }; /* unknown f9 + lat */
+        mt_position_t pu;
+        CHECK(mt_position_decode(unk, sizeof unk, &pu) && pu.has_lat,
+              "POSITION skips unknown fields");
+        uint8_t trunc[] = { 0x0D, 0x44, 0x33 };               /* fixed32 cut short */
+        mt_position_t pt;
+        CHECK(!mt_position_decode(trunc, sizeof trunc, &pt), "POSITION truncated rejected");
+        uint8_t ovf[] = { 0x0A, 0x7F };                       /* wire-2 len past buffer */
+        mt_position_t po;
+        CHECK(!mt_position_decode(ovf, sizeof ovf, &po), "POSITION oversized length rejected");
+    }
+
+    /* 6. TELEMETRY device metrics: battery varint, voltage float, uptime varint */
+    {
+        float voltage = 4.10f;
+        uint8_t dm[16]; int dn = 0;
+        dm[dn++] = 0x08; dm[dn++] = 87;                          /* f1 battery = 87   */
+        dm[dn++] = 0x15; memcpy(dm + dn, &voltage, 4); dn += 4;  /* f2 voltage float  */
+        dm[dn++] = 0x28; dm[dn++] = 0x90; dm[dn++] = 0x1C;       /* f5 uptime = 3600  */
+        uint8_t tel[24]; int tn = 0;
+        tel[tn++] = 0x12; tel[tn++] = (uint8_t)dn;               /* f2 device_metrics */
+        memcpy(tel + tn, dm, dn); tn += dn;
+        mt_telemetry_t t;
+        CHECK(mt_telemetry_decode(tel, tn, &t), "TELEMETRY device metrics decode");
+        CHECK(t.has_battery && t.battery_level == 87, "TELEMETRY battery_level");
+        CHECK(t.has_voltage && t.voltage > 4.09f && t.voltage < 4.11f, "TELEMETRY voltage (float)");
+        CHECK(t.has_uptime && t.uptime_s == 3600, "TELEMETRY uptime");
+    }
+
+    /* 7. TELEMETRY env metrics: a hostile NaN float must decode without OOB and
+     *    be preserved as NaN so the clamp layer (not the decoder) rejects it */
+    {
+        uint32_t nanbits = 0x7FC00000u; float humidity = 55.0f, pressure = 1013.0f;
+        uint8_t em[16]; int en = 0;
+        em[en++] = 0x0D; memcpy(em + en, &nanbits, 4); en += 4;   /* f1 temperature NaN */
+        em[en++] = 0x15; memcpy(em + en, &humidity, 4); en += 4;  /* f2 humidity        */
+        em[en++] = 0x1D; memcpy(em + en, &pressure, 4); en += 4;  /* f3 pressure        */
+        uint8_t tel[24]; int tn = 0;
+        tel[tn++] = 0x1A; tel[tn++] = (uint8_t)en;                /* f3 environment      */
+        memcpy(tel + tn, em, en); tn += en;
+        mt_telemetry_t t;
+        CHECK(mt_telemetry_decode(tel, tn, &t), "TELEMETRY env metrics (NaN temp) decode");
+        uint32_t tbits; memcpy(&tbits, &t.temperature_c, 4);
+        CHECK(t.has_temperature && (tbits & 0x7F800000u) == 0x7F800000u &&
+              (tbits & 0x007FFFFFu) != 0, "TELEMETRY NaN temperature preserved");
+        CHECK(t.has_humidity && t.humidity_pct > 54.9f && t.humidity_pct < 55.1f, "TELEMETRY humidity");
+        CHECK(t.has_pressure && t.pressure_hpa > 1012.0f && t.pressure_hpa < 1014.0f, "TELEMETRY pressure");
+        uint8_t bad[] = { 0x12, 0x7F, 0x08 };                    /* submsg len past buffer */
+        mt_telemetry_t tb;
+        CHECK(!mt_telemetry_decode(bad, sizeof bad, &tb), "TELEMETRY oversized submsg rejected");
+    }
+
+    /* 8. store delivery-metadata round-trip: updating a DM that is NOT the first
+     *    self-record must not desync the scan over the preceding v3 meta record. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_append(const char *addr, const lz_msg_rt *m);
+        extern bool lz_store_update_delivery(const char *addr, uint32_t old_pkt_id,
+                                             uint32_t new_pkt_id, uint8_t status,
+                                             uint8_t retries, uint8_t fail_reason);
+        extern int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
+        const char *addr = "selftestdm";
+        remove("./m_selftestdm.log");
+        lz_store_init(".");
+        for(int i = 0; i < 3; i++) {
+            lz_msg_rt m; memset(&m, 0, sizeof m);
+            m.self = true; m.ts = 1000 + i; m.status = LZ_MSG_SENDING;
+            m.pkt_id = 0x1000 + i;
+            snprintf(m.text, sizeof m.text, "dm number %d", i);
+            lz_store_append(addr, &m);
+        }
+        /* mark the SECOND DM delivered; the first is a non-matching meta record */
+        bool upd = lz_store_update_delivery(addr, 0x1001, 0x1001,
+                                            LZ_MSG_DELIVERED, 0, LZ_FAIL_NONE);
+        CHECK(upd, "store update_delivery finds a non-first DM");
+        lz_msg_rt ring[LZ_TAIL_MAX];
+        int rn = lz_store_load_tail(addr, ring, LZ_TAIL_MAX);
+        CHECK(rn == 3, "store reloaded all 3 DMs (no desync)");
+        CHECK(rn == 3 && ring[1].pkt_id == 0x1001 && ring[1].status == LZ_MSG_DELIVERED,
+              "store: 2nd DM persisted as DELIVERED");
+        CHECK(rn == 3 && ring[0].status == LZ_MSG_SENDING,
+              "store: 1st DM left untouched");
+        remove("./m_selftestdm.log");
+        lz_store_init(NULL);              /* back to RAM-only */
+    }
+
     #undef CHECK
     printf(fails ? "\nCODEC SELFTEST: %d FAILURE(S)\n" : "\nCODEC SELFTEST: all passed\n", fails);
     return fails;

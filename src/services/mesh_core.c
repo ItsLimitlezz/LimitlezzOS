@@ -39,6 +39,8 @@ static int           g_tail_count;
 static lz_thread_rt *g_open;
 static void        (*g_dirty)(void);
 static uint32_t      g_pkt_seq;
+static bool          g_nodes_dirty;        /* node DB has unsaved high-freq fields */
+static uint32_t      g_nodes_dirty_ms;     /* tick when it first became dirty */
 /* placeholder until onboarding sets the real name (and MAC sets the num) */
 static lz_identity_t g_id = { 0x7c3af1d0, "!7c3af1d0", "Node", "NODE" };
 static bool          g_have_identity;            /* false until onboarding done */
@@ -75,27 +77,35 @@ static uint32_t next_packet_id(void)
     return pid;
 }
 
-static void delivery_track(const char *addr, uint32_t pkt_id, uint8_t retries)
+static bool delivery_track(const char *addr, uint32_t pkt_id, uint8_t retries)
 {
-    if(!pkt_id) return;
+    if(!pkt_id) return false;
+    int oldest = -1;
     for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
         if(g_delivery[i].used && g_delivery[i].pkt_id == pkt_id) {
             snprintf(g_delivery[i].addr, sizeof g_delivery[i].addr, "%s", addr);
             g_delivery[i].sent_ms = lz_tick_ms();
             g_delivery[i].retries = retries;
-            return;
+            return true;
         }
+        if(g_delivery[i].used &&
+           (oldest < 0 || (int32_t)(g_delivery[i].sent_ms - g_delivery[oldest].sent_ms) < 0))
+            oldest = i;
     }
-    for(int i = 0; i < LZ_DELIVERY_PEND; i++) {
-        if(!g_delivery[i].used) {
-            g_delivery[i].used = true;
-            g_delivery[i].pkt_id = pkt_id;
-            g_delivery[i].sent_ms = lz_tick_ms();
-            g_delivery[i].retries = retries;
-            snprintf(g_delivery[i].addr, sizeof g_delivery[i].addr, "%s", addr);
-            return;
-        }
-    }
+    int slot = -1;
+    for(int i = 0; i < LZ_DELIVERY_PEND; i++)
+        if(!g_delivery[i].used) { slot = i; break; }
+    /* table full: evict the oldest pending so the newest send is never dropped
+     * (a silently-untracked DM would sit in SENDING forever). The evicted one
+     * is still persisted as SENDING and re-tracked on reopen/reboot. */
+    if(slot < 0) slot = oldest;
+    if(slot < 0) return false;
+    g_delivery[slot].used = true;
+    g_delivery[slot].pkt_id = pkt_id;
+    g_delivery[slot].sent_ms = lz_tick_ms();
+    g_delivery[slot].retries = retries;
+    snprintf(g_delivery[slot].addr, sizeof g_delivery[slot].addr, "%s", addr);
+    return true;
 }
 
 static const char *delivery_addr(uint32_t pkt_id)
@@ -220,6 +230,18 @@ bool lz_svc_needs_onboarding(void) { return !g_have_identity; }
 
 void lz_svc_set_dirty_cb(void (*cb)(void)) { g_dirty = cb; }
 static void mark_dirty(void) { if(g_dirty) g_dirty(); }
+
+/* Position/telemetry/battery arrive far more often than NodeInfo and each used
+ * to rewrite the whole nodes.db synchronously from the RX path (flash wear +
+ * dropped packets). Coalesce those into one bounded periodic flush. */
+#define LZ_NODES_FLUSH_MS 5000u
+static void nodes_save_now(void)  { lz_store_save_nodes(g_nodes, g_node_count); g_nodes_dirty = false; }
+static void nodes_mark_dirty(void){ if(!g_nodes_dirty) { g_nodes_dirty = true; g_nodes_dirty_ms = lz_tick_ms(); } }
+static void nodes_flush(void)
+{
+    if(g_nodes_dirty && (uint32_t)(lz_tick_ms() - g_nodes_dirty_ms) >= LZ_NODES_FLUSH_MS)
+        nodes_save_now();
+}
 
 const char *lz_svc_file_root(void)
 {
@@ -619,7 +641,6 @@ static bool tail_mark_delivery(uint32_t old_pkt_id, uint32_t new_pkt_id,
                                uint8_t status, uint8_t retries,
                                uint8_t fail_reason)
 {
-    bool changed = false;
     for(int i = 0; i < g_tail_count; i++) {
         if(g_tail[i].self && g_tail[i].pkt_id == old_pkt_id) {
             uint8_t next_retries = retries;
@@ -630,10 +651,10 @@ static bool tail_mark_delivery(uint32_t old_pkt_id, uint32_t new_pkt_id,
             g_tail[i].retries = next_retries;
             g_tail[i].fail_reason = status == LZ_MSG_FAILED ? fail_reason : LZ_FAIL_NONE;
             g_tail[i].sent_ms = status == LZ_MSG_SENDING ? lz_tick_ms() : 0;
-            changed = true;
+            return true;   /* one in-flight message per pkt_id; stop at the first */
         }
     }
-    return changed;
+    return false;
 }
 
 static uint8_t tail_delivery_retries(uint32_t pkt_id)
@@ -666,10 +687,18 @@ static bool load_queued_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *o
 static void track_loaded_delivery(lz_thread_rt *t)
 {
     if(!t) return;
-    for(int i = 0; i < g_tail_count; i++)
-        if(g_tail[i].self && g_tail[i].pkt_id &&
-           g_tail[i].status == LZ_MSG_SENDING)
+    for(int i = 0; i < g_tail_count; i++) {
+        if(!g_tail[i].self || !g_tail[i].pkt_id) continue;
+        /* keep newly-minted ids ahead of any reloaded one so a fresh DM cannot
+         * reuse a still-tracked pkt_id (which would mis-route its ACK/timeout) */
+        if(g_tail[i].pkt_id > g_pkt_seq) g_pkt_seq = g_tail[i].pkt_id;
+        if(g_tail[i].status == LZ_MSG_SENDING) {
+            /* lz_store_load_tail() zeroes sent_ms; give reopened in-flight DMs a
+             * fresh ACK window instead of instantly aging them to FAILED */
+            g_tail[i].sent_ms = lz_tick_ms();
             delivery_track(t->addr, g_tail[i].pkt_id, g_tail[i].retries);
+        }
+    }
 }
 
 static void track_stored_delivery(void)
@@ -678,11 +707,13 @@ static void track_stored_delivery(void)
     for(int t = 0; t < g_thread_count; t++) {
         if(g_threads[t].is_channel) continue;
         int n = lz_store_load_tail(g_threads[t].addr, ring, LZ_TAIL_MAX);
-        for(int i = 0; i < n; i++)
-            if(ring[i].self && ring[i].pkt_id &&
-               ring[i].status == LZ_MSG_SENDING)
+        for(int i = 0; i < n; i++) {
+            if(!ring[i].self || !ring[i].pkt_id) continue;
+            if(ring[i].pkt_id > g_pkt_seq) g_pkt_seq = ring[i].pkt_id;
+            if(ring[i].status == LZ_MSG_SENDING)
                 delivery_track(g_threads[t].addr, ring[i].pkt_id,
                                ring[i].retries);
+        }
     }
 }
 
@@ -917,7 +948,7 @@ void lz_core_on_battery(uint32_t from, int batt)
     if(n) {
         n->batt = batt;
         n->last_heard = now_epoch();
-        lz_store_save_nodes(g_nodes, g_node_count);
+        nodes_mark_dirty();
         mark_dirty();
     }
 }
@@ -942,13 +973,13 @@ void lz_core_on_position(uint32_t from, int32_t lat_i, int32_t lon_i,
         n->precision_bits = precision_bits;
     }
     n->pos_time = pos_time ? pos_time : n->last_heard;
-    lz_store_save_nodes(g_nodes, g_node_count);
+    nodes_mark_dirty();
     mark_dirty();
 }
 
 static uint16_t clamp_u16(float v, float scale)
 {
-    if(v < 0.0f) return 0;
+    if(!isfinite(v) || v < 0.0f) return 0;   /* NaN/Inf from a hostile packet */
     float s = v * scale + 0.5f;
     if(s > 65535.0f) return 65535;
     return (uint16_t)s;
@@ -956,6 +987,7 @@ static uint16_t clamp_u16(float v, float scale)
 
 static int16_t clamp_i16(float v, float scale)
 {
+    if(!isfinite(v)) return 0;               /* NaN->int cast is UB; reject it */
     float s = v * scale + (v >= 0.0f ? 0.5f : -0.5f);
     if(s > 32767.0f) return 32767;
     if(s < -32768.0f) return -32768;
@@ -990,7 +1022,7 @@ void lz_core_on_telemetry(uint32_t from, const lz_node_telemetry_t *telem, float
         n->telem_flags |= LZ_NODE_TEL_PRESS;
         n->pressure10 = clamp_u16(telem->pressure_hpa, 10.0f);
     }
-    lz_store_save_nodes(g_nodes, g_node_count);
+    nodes_mark_dirty();
     mark_dirty();
 }
 
@@ -1017,21 +1049,27 @@ bool lz_svc_node_pubkey(uint32_t num, uint8_t out32[32])
 /* a ROUTING ack came back for one of our sent DMs -> mark it delivered */
 void lz_core_on_ack(uint32_t request_id)
 {
+    if(!request_id) return;
+    const char *addr = delivery_addr(request_id);
+    /* fall back to the open conversation only if it actually owns this pkt_id,
+     * so a late/duplicate ACK can't flip an unrelated message in whatever
+     * thread happens to be open */
+    if(!addr && g_open) {
+        lz_msg_rt probe;
+        if(tail_find_delivery(request_id, &probe)) addr = g_open->addr;
+    }
+    if(!addr) return;            /* not a message we are tracking -> ignore */
+
     uint8_t retries = delivery_retries(request_id);
     if(!retries) retries = tail_delivery_retries(request_id);
-    bool changed = tail_mark_delivery(request_id, request_id, LZ_MSG_DELIVERED,
-                                      retries, LZ_FAIL_NONE);
-    const char *addr = delivery_addr(request_id);
-    if(addr) {
-        lz_store_update_delivery(addr, request_id, request_id,
-                                 LZ_MSG_DELIVERED, retries, LZ_FAIL_NONE);
-        delivery_forget(request_id);
+    bool changed = false;
+    if(g_open && strcmp(g_open->addr, addr) == 0)
+        changed = tail_mark_delivery(request_id, request_id, LZ_MSG_DELIVERED,
+                                     retries, LZ_FAIL_NONE);
+    if(lz_store_update_delivery(addr, request_id, request_id,
+                                LZ_MSG_DELIVERED, retries, LZ_FAIL_NONE))
         changed = true;
-    } else if(g_open) {
-        changed = lz_store_update_delivery(g_open->addr, request_id, request_id,
-                                           LZ_MSG_DELIVERED, retries,
-                                           LZ_FAIL_NONE) || changed;
-    }
+    delivery_forget(request_id);
     if(changed) mark_dirty();
 }
 
@@ -1180,6 +1218,7 @@ void lz_svc_loop(void)
 {
     lz_backend_loop();
     age_sent_status();        /* SENDING -> FAILED after the ack timeout */
+    nodes_flush();            /* commit coalesced position/telemetry/battery */
 }
 
 void lz_svc_radio_stats(lz_radio_stats_t *out) { lz_backend_stats(out); }

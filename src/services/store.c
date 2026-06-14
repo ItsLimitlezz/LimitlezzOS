@@ -265,7 +265,10 @@ bool lz_store_update_delivery(const char *addr, uint32_t old_pkt_id,
                 break;
             }
         }
-        if(fseek(f, len, SEEK_CUR) != 0) break;
+        /* non-matching extended-meta records carry 2 trailing metadata bytes
+         * (retries, fail_reason) that we did NOT consume above; skip them too
+         * or the scan desyncs and every later record is misread. */
+        if(fseek(f, len + (extended && meta ? 2 : 0), SEEK_CUR) != 0) break;
     }
     fclose(f);
     return ok;
