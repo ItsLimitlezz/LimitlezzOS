@@ -134,6 +134,11 @@ void lz_scr_lock(lv_obj_t *root)
 
 /* ===== Home ===== */
 
+static bool app_visible(const char *id)
+{
+    return strcmp(id, "terminal") != 0 || S.settings.developer;
+}
+
 /* apps not usable in this beta are grayed out and inert */
 static bool app_enabled(const char *id)
 {
@@ -142,27 +147,59 @@ static bool app_enabled(const char *id)
     return true;
 }
 
+static int home_app_index(int visible_idx)
+{
+    int seen = 0;
+    for(int i = 0; i < 8; i++) {
+        if(!app_visible(LZ_APPS[i].id)) continue;
+        if(seen == visible_idx) return i;
+        seen++;
+    }
+    return -1;
+}
+
+static int home_visible_count(void)
+{
+    int n = 0;
+    for(int i = 0; i < 8; i++) if(app_visible(LZ_APPS[i].id)) n++;
+    return n;
+}
+
+static lz_view_t app_view(const char *id)
+{
+    if(strcmp(id, "messages") == 0) return LZ_V_MESSAGES;
+    if(strcmp(id, "meshtastic") == 0) return LZ_V_MESHTASTIC;
+    if(strcmp(id, "meshcore") == 0) return LZ_V_MESHCORE;
+    if(strcmp(id, "contacts") == 0) return LZ_V_CONTACTS;
+    if(strcmp(id, "appstore") == 0) return LZ_V_APPSTORE;
+    if(strcmp(id, "terminal") == 0) return LZ_V_TERMINAL;
+    if(strcmp(id, "files") == 0) return LZ_V_FILES;
+    return LZ_V_SETTINGS;
+}
+
 static void home_activate(int idx)
 {
-    static const lz_view_t views[8] = {
-        LZ_V_MESSAGES, LZ_V_MESHTASTIC, LZ_V_MESHCORE, LZ_V_CONTACTS,
-        LZ_V_APPSTORE, LZ_V_TERMINAL, LZ_V_FILES, LZ_V_SETTINGS,
-    };
-    if(idx >= 0 && idx < 8 && app_enabled(LZ_APPS[idx].id)) lz_go(views[idx]);
+    int app_idx = home_app_index(idx);
+    if(app_idx >= 0 && app_enabled(LZ_APPS[app_idx].id)) lz_go(app_view(LZ_APPS[app_idx].id));
 }
 
 static bool home_disabled(int idx)
 {
-    return idx >= 0 && idx < 8 && !app_enabled(LZ_APPS[idx].id);
+    int app_idx = home_app_index(idx);
+    return app_idx >= 0 && !app_enabled(LZ_APPS[app_idx].id);
 }
 
 void lz_scr_home(lv_obj_t *root)
 {
     lz_status_bar(root);
 
+    int count = home_visible_count();
+    if(S.focus >= count) S.focus = count > 0 ? count - 1 : 0;
+
     /* 4-column grid: padding 11px 12px, cell 71px + 4px gap, row gap 9 */
-    for(int i = 0; i < 8; i++) {
-        const lz_app_t *a = &LZ_APPS[i];
+    for(int i = 0; i < count; i++) {
+        int app_idx = home_app_index(i);
+        const lz_app_t *a = &LZ_APPS[app_idx];
         bool foc = (i == S.focus);
         bool en = app_enabled(a->id);
         int col = i % 4, row = i / 4;
@@ -234,6 +271,6 @@ void lz_scr_home(lv_obj_t *root)
         lz_nav_track(tile, i);
     }
 
-    lz_nav_set(4, 8, home_activate);
+    lz_nav_set(4, count, home_activate);
     lz_nav_set_skip(home_disabled);
 }

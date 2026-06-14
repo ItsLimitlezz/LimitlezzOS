@@ -129,6 +129,7 @@ typedef struct {
     int  tz_idx;
     bool clock24;
     bool save;
+    bool developer;
 } lz_user_settings_t;
 
 void lz_store_save_settings(const lz_user_settings_t *s);

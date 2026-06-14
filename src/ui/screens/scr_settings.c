@@ -32,8 +32,9 @@ static const srow_t SROWS[] = {   /* unsized: never drops a row when one is adde
     { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=11 */
     { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=12 */
     { "Calibrate touch",  LZ_I_LOCATION,   ROW_NAV    },  /* f=13 */
+    { "Developer Mode",   LZ_I_TERMINAL,   ROW_TOGGLE },  /* f=14 */
 };
-#define SETTINGS_FOCUS_COUNT 14   /* 2 network rows + 12 SROWS */
+#define SETTINGS_FOCUS_COUNT 15   /* 2 network rows + 13 SROWS */
 
 /* Named regions people recognize. Each carries a STANDARD-time offset plus a
  * daylight rule, so the clock follows DST automatically — pick "Eastern" once
@@ -107,6 +108,7 @@ static void settings_activate(int f)
         case 11: S.settings.save = !S.settings.save; break;
         case 12: lz_go(LZ_V_SYSTEM); return;
         case 13: S.cal_step = 0; lz_go(LZ_V_TOUCHCAL); return;
+        case 14: S.settings.developer = !S.settings.developer; break;
         default: persist = false; break;
     }
     if(persist) lz_settings_save();
@@ -281,7 +283,7 @@ void lz_scr_settings(lv_obj_t *root)
     static const struct { const char *title; int first, count; } GROUPS[6] = {
         { "RADIO",        2, 1 }, { "CONNECTIVITY", 3, 2 },
         { "DISPLAY",      5, 3 }, { "TIME",         8, 3 },
-        { "POWER",       11, 1 }, { "DEVICE",      12, 2 },
+        { "POWER",       11, 1 }, { "DEVICE",      12, 3 },
     };
     char bval[8];
     for(int g = 0; g < 6; g++) {
@@ -330,6 +332,7 @@ void lz_scr_settings(lv_obj_t *root)
                     value_chevron(row, sb); break;
                 }
                 case 13: value_chevron(row, ""); break;   /* Calibrate touch (NAV) */
+                case 14: lz_toggle(row, S.settings.developer, LZ_TOGGLE_ON); break;
             }
             lz_nav_track(row, f);
         }

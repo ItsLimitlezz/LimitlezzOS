@@ -61,6 +61,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   silence it** (crescent moon; no notification, no badge).
 - **sym + L = lock** — a keyboard shortcut to drop straight to the lock screen from
   anywhere (still types a `"` inside a message, password, or the terminal).
+- **Developer Mode gate** — Terminal is hidden from Home by default and only
+  appears after enabling Developer Mode in Settings.
 - **Serial console** — USB-CDC command shell for control + diagnostics (`help`, `time`, `tz`, `net`, `rf`, `mc`, `companion`, `touch`, …).
 
 ### 🧪 In testing
@@ -80,10 +82,10 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - ✅ **0.43** — unread **counter badge** on the Messages icon (1–9, then "9+"); muted excluded.
 - 🚀 **0.44 — this release** — **silence** chats (long-press to mute: crescent moon, no
   notification/badge) and the **sym + L** keyboard shortcut to lock the screen from anywhere.
+- ✅ **Phase 0 hardening** — persistent user settings and a **Developer Mode**
+  launcher gate for Terminal.
 - **0.45** — responsiveness pass (Settings, chat log, keyboard input latency).
-- **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly), and
-  **Developer mode**: the **Terminal** app is hidden from the home screen by default
-  and only appears once Developer mode is enabled in Settings.
+- **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly).
 
 ### 🔭 Later
 - **MeshCore** — receive + default Public channel, then a MeshCore companion bridge (currently "Coming soon").
@@ -220,7 +222,8 @@ the demo mesh.
   **manual clock editor**, with **NTP auto-sync** over Wi-Fi; **System & battery**
   page with a live arc gauge, stat bars, self-updating uptime, and battery-health
   readout derived from resting voltage. User-facing settings save to
-  `settings.cfg` and are applied again at boot.
+  `settings.cfg` and are applied again at boot, including the Developer Mode
+  toggle that reveals Terminal on Home.
 - **Wi-Fi** — scan, join (masked password entry), remembers one network's
   credentials on the SD card, an **auto-connect** toggle (rejoin on boot / on
   reappearance / after a drop, or never), and long-press-to-forget so you can
@@ -241,7 +244,8 @@ the demo mesh.
   across reboots; nothing on screen is hard-coded demo data on hardware.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
   `rf`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
-- **Terminal / Files** — mono console with blinking cursor; /sdcard listing.
+- **Terminal / Files** — Developer Mode mono console with blinking cursor;
+  /sdcard listing.
 
 ## Status against the master-spec roadmap
 

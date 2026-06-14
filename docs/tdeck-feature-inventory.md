@@ -72,17 +72,17 @@ Status labels:
 | --- | --- | --- | --- |
 | First-boot onboarding | Functional | `scr_onboard.c`, identity persistence | MeshCore network row is visible but locked. |
 | Lock screen | Functional | clock, battery, network icons, notification card | Add per-network badges once MeshCore is active. |
-| Home launcher | Partial | 4x2 app grid | V0.95: support added apps and multiple Home screens; Terminal should move behind Developer Mode. |
+| Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default | V0.95: support added apps and multiple Home screens. |
 | Unified inbox | Functional/Partial | Messages tabs, filters, unread badges, channel tab | MeshCore filter is gated; unread icon badge is roadmap. |
 | Conversation view | Functional/Partial | compose, bubbles, status colors, resend long-press | Long drafts handled, but delivery persistence is incomplete. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, companion toggle | Emergency channel row is disabled. |
 | MeshCore manager | Prototype/Partial | "Coming soon" unless gate is flipped; deeper screen exists behind gate | Do not enable until MeshCore message path works. |
 | Contacts/detail | Functional/Partial | contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked. |
-| Settings | Functional/Partial | network toggles, Wi-Fi, brightness, time, system, touch calibration, `settings.cfg` persistence | Add migration/versioning if the settings schema grows. |
+| Settings | Functional/Partial | network toggles, Wi-Fi, brightness, time, system, touch calibration, Developer Mode, `settings.cfg` persistence | Add migration/versioning if the settings schema grows. |
 | Wi-Fi setup | Functional, needs validation | async scan/connect, saved SSID/password, auto-connect | Credentials are plaintext on SD; only one saved network. |
 | System/battery page | Functional/Partial | live stats and battery arc | Hardware values need calibration/validation. |
 | App Store | Prototype | `LZ_STORE` static catalog and timer-based GET -> OPEN | Disabled from Home; no catalog, download, install, manifest, or launch. |
-| Terminal | Functional/Partial | interactive UI terminal and serial CLI | Should move behind Developer Mode. |
+| Terminal | Functional/Partial | interactive UI terminal behind Developer Mode; serial CLI always available over USB | Expand diagnostics once Developer Mode grows into a full power-user surface. |
 | Files | Prototype | static `LZ_FILES` rows | Needs real SD/appfs listing and navigation. |
 
 ## App Platform And Ecosystem

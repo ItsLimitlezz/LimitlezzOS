@@ -55,7 +55,7 @@ Deliverables:
 - Add a release checklist covering build, flash, boot log, display, touch, keyboard, trackball, SD, radio, Wi-Fi, companion, and sleep.
 - Update README status wording so "working", "partial", "prototype", and "planned" are distinct.
 - Persist user settings beyond identity/Wi-Fi/touch/keys: brightness, timeout, clock format, time zone, keyboard light, TX power, network toggles, power saving. Implemented through `settings.cfg`; Wi-Fi credential hardening remains V0.96.
-- Hide Terminal behind a temporary Developer Mode setting or remove it from the default launcher until Developer Mode exists.
+- Hide Terminal behind a temporary Developer Mode setting or remove it from the default launcher until Developer Mode exists. Implemented: Terminal is hidden from Home until Developer Mode is enabled in Settings.
 
 Exit criteria:
 

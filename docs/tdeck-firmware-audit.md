@@ -32,7 +32,7 @@ Primary source files reviewed:
 
 LimitlezzOS is a strong alpha firmware base rather than a complete OS. The Meshtastic path is the most real: there is T-Deck hardware bring-up, a real SX1262 backend, Meshtastic LongFast framing, NodeInfo parsing, public channel messaging, PKI direct-message crypto, routing ACK handling, SD-backed message/node persistence, Wi-Fi, USB companion mode, and a polished LVGL UI shell.
 
-The incomplete areas are also clear. MeshCore has important groundwork, including a second RF profile, TDM scheduling, ADVERT parsing, and signed self-adverts, but it is globally gated off from the product UI (`LZ_MESHCORE_ENABLED 0`) and does not yet provide MeshCore public channels, DMs, group messaging, encrypted payload handling, or a MeshCore companion flow. The App Store is currently a UI prototype with fake install state; the Home launcher disables it. Lua apps, app catalog download, OTA, hardware feedback manager, emergency beacon, BLE companion, developer mode, and encrypted local storage are not implemented yet.
+The incomplete areas are also clear. MeshCore has important groundwork, including a second RF profile, TDM scheduling, ADVERT parsing, and signed self-adverts, but it is globally gated off from the product UI (`LZ_MESHCORE_ENABLED 0`) and does not yet provide MeshCore public channels, DMs, group messaging, encrypted payload handling, or a MeshCore companion flow. The App Store is currently a UI prototype with fake install state; the Home launcher disables it. Lua apps, app catalog download, OTA, hardware feedback manager, emergency beacon, BLE companion, full Developer Mode diagnostics, and encrypted local storage are not implemented yet.
 
 The roadmap should therefore focus on preserving the simple end-user product while turning the existing alpha into a reliable firmware: first harden the build/test/release loop, then finish Meshtastic polish, then bring MeshCore online end-to-end, then build the app platform/store and OTA/update lifecycle.
 
@@ -130,7 +130,7 @@ The LVGL UI is broad and polished for alpha:
 - Terminal
 - Files prototype
 
-The UI still mixes real product surfaces with demos/prototypes. The biggest examples are App Store fake install state, static Files rows, and Terminal being visible in the main launcher.
+The UI still mixes real product surfaces with demos/prototypes. The biggest examples are App Store fake install state and static Files rows. Terminal now sits behind Developer Mode instead of the default Home launcher.
 
 ## Findings And Risks
 
@@ -142,7 +142,7 @@ The UI still mixes real product surfaces with demos/prototypes. The biggest exam
 | P1 | Build workflow | T-Deck build emitted artifacts locally but hit Windows file-lock/timeouts. Native simulator cannot run without SDL2 tooling. | Contributors cannot rely on a single clean command across common host setups. | Add CI plus documented Windows/macOS/Linux prerequisites; make simulator dependency detection fail with a clear message. |
 | P1 | Persistence | Identity, Wi-Fi, touch calibration, keys, nodes, threads, logs, and user settings persist. Wi-Fi and keys are still plaintext on SD. | Credentials and keys are exposed if the SD card is read. | Move credentials to NVS or encrypted store; add optional device PIN/password before encrypting all local data. |
 | P1 | Delivery status | Sent DMs track `SENDING/DELIVERED/FAILED` only in the open in-memory tail; `lz_svc_send_text` does not act on the immediate `lz_backend_send` return value. | Delivery UI can be wrong after reopen/reboot or after immediate TX failure. | Persist sent-message status, record backend failures, and add retransmit/ACK tests. |
-| P2 | App launcher | Terminal is on the main home screen; App Store is shown but disabled. | Product simplicity goal is undermined by exposing developer tools while hiding the app ecosystem. | Introduce Developer Mode and move Terminal/diagnostics behind it; make App Store real or remove it until usable. |
+| P2 | App launcher | Terminal is hidden behind Developer Mode; App Store is shown but disabled. | The power-user flow is now gated, but the app ecosystem is still a prototype. | Make App Store real or remove it until usable; expand Developer Mode diagnostics later. |
 | P2 | Files | Files screen renders static sample rows from `LZ_FILES`. | It looks like a file browser but does not inspect SD/appfs. | Implement a read-only SD/appfs browser, then gated file actions. |
 | P2 | GPS/position/telemetry | GPS toggle and sample map/weather data exist, but GPS driver and Meshtastic position/telemetry decode are not present. | Map, weather, telemetry, and emergency features lack data plumbing. | Add decoders and platform hooks before building user-facing apps that depend on them. |
 | P2 | Feedback/emergency | Master spec calls for LED, buzzer, DND, priority feedback, and SOS, but no service owns those outputs. | Notifications and emergency behavior are screen-only. | Add a Feedback Manager service before emergency beacon and OTA status UX. |
@@ -155,4 +155,4 @@ The UI still mixes real product surfaces with demos/prototypes. The biggest exam
 3. Finish Meshtastic release polish before expanding scope: unread highlighting, badge, mute/silence, persistent delivery state, and ACK/retransmit.
 4. Bring MeshCore online behind tests, not optimism: TDM soak, ADVERT interop, public channel, DM/group message decode/send, and unified inbox behavior.
 5. Turn App Store into an actual platform incrementally: local SD app scanning first, then Lua sandbox, then network catalog/download/update.
-6. Hide advanced tools behind Developer Mode to keep the primary OS simple.
+6. Expand Developer Mode diagnostics only after the primary OS remains simple by default.

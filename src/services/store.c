@@ -229,10 +229,10 @@ void lz_store_save_settings(const lz_user_settings_t *s)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if(!f) return;
-    fprintf(f, "1 %d %d %d %d %d %d %d %d %d %d\n",
+    fprintf(f, "2 %d %d %d %d %d %d %d %d %d %d %d\n",
             s->net_mt ? 1 : 0, s->net_mc ? 1 : 0, s->tx, s->gps ? 1 : 0,
             s->bright, s->timeout, s->kb_light, s->tz_idx,
-            s->clock24 ? 1 : 0, s->save ? 1 : 0);
+            s->clock24 ? 1 : 0, s->save ? 1 : 0, s->developer ? 1 : 0);
     fclose(f);
     remove(path);
     rename(tmp, path);
@@ -245,12 +245,15 @@ bool lz_store_load_settings(lz_user_settings_t *s)
     path_for(path, sizeof path, "settings.cfg");
     FILE *f = fopen(path, "r");
     if(!f) return false;
-    int ver, mt, mc, tx, gps, bright, timeout, kb, tz, clock24, save;
-    bool ok = fscanf(f, "%d %d %d %d %d %d %d %d %d %d %d",
-                     &ver, &mt, &mc, &tx, &gps, &bright, &timeout, &kb, &tz,
-                     &clock24, &save) == 11 && ver == 1;
+    char line[160];
+    bool have_line = fgets(line, sizeof line, f) != NULL;
     fclose(f);
-    if(!ok) return false;
+    if(!have_line) return false;
+    int ver, mt, mc, tx, gps, bright, timeout, kb, tz, clock24, save, developer = 0;
+    int got = sscanf(line, "%d %d %d %d %d %d %d %d %d %d %d %d",
+                     &ver, &mt, &mc, &tx, &gps, &bright, &timeout, &kb, &tz,
+                     &clock24, &save, &developer);
+    if(!((ver == 1 && got == 11) || (ver == 2 && got == 12))) return false;
     s->net_mt = mt != 0;
     s->net_mc = mc != 0;
     s->tx = tx;
@@ -261,6 +264,7 @@ bool lz_store_load_settings(lz_user_settings_t *s)
     s->tz_idx = tz;
     s->clock24 = clock24 != 0;
     s->save = save != 0;
+    s->developer = ver >= 2 && developer != 0;
     return true;
 }
 

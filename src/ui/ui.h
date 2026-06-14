@@ -76,6 +76,7 @@ typedef struct {
         int kb_light;                         /* 0 Auto, 1 On, 2 Off */
         int tz_idx;                           /* timezone: offset hours = tz_idx - 12 */
         bool clock24;                         /* 24-hour vs 12-hour (AM/PM) */
+        bool developer;                       /* show power-user tools on Home */
     } settings;
 } lz_state_t;
 

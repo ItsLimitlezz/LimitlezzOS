@@ -100,6 +100,7 @@ static void settings_defaults(void)
     S.settings.kb_light = 0;  /* Auto */
     S.settings.tz_idx = 0;    /* Eastern (EST/EDT, DST-aware) by default */
     S.settings.clock24 = false;
+    S.settings.developer = false;
 }
 
 static void settings_sanitize(void)
@@ -126,6 +127,7 @@ static void settings_load(void)
     S.settings.tz_idx = p.tz_idx;
     S.settings.clock24 = p.clock24;
     S.settings.save = p.save;
+    S.settings.developer = p.developer;
     settings_sanitize();
 }
 
@@ -136,6 +138,7 @@ void lz_settings_save(void)
         S.net_mt, S.net_mc, S.settings.tx, S.settings.gps,
         S.settings.bright, S.settings.timeout, S.settings.kb_light,
         S.settings.tz_idx, S.settings.clock24, S.settings.save,
+        S.settings.developer,
     };
     lz_store_save_settings(&p);
 }
