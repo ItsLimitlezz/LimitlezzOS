@@ -11,8 +11,22 @@
  *   1 / 2 / 3   Messages network filter
  *   typing      conversation composer
  *
- * `--shots <dir>` renders every screen headless and dumps BMPs for visual
- * verification, then exits.
+ * Simulated-radio controls (Ctrl + key, so they don't collide with the
+ * conversation composer):
+ *   Ctrl+D   receive a MeshCore DM from "Limitlezz"
+ *   Ctrl+P   receive a MeshCore Public-channel message
+ *   Ctrl+N   a new/refreshed MeshCore node appears (real ADVERT)
+ *   Ctrl+M   receive a Meshtastic LongFast broadcast
+ *   Ctrl+T   receive a Meshtastic DM to us
+ *   Ctrl+I   receive Meshtastic NodeInfo / Position / Telemetry (rotates)
+ *   Ctrl+B   burst: one of everything (stress the inbox)
+ *   Ctrl+A   toggle ambient auto-traffic on/off
+ *
+ * `--shots <dir>` renders every screen headless and dumps BMPs.
+ * `--simtest`    runs a deterministic radio scenario and asserts the resulting
+ *                inbox state (threads/decode/dedup/self-echo/ACK/TDM), then
+ *                exits non-zero on any failure. CI regression value.
+ * `--selftest`   runs the codec round-trip tests.
  */
 #include "lvgl.h"
 #include "ui/ui.h"
@@ -20,6 +34,7 @@
 #include "services/mtproto.h"
 #include "services/mcproto.h"
 #include "services/mc_x25519.h"
+#include "sim_radio.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,12 +174,18 @@ static void shots(const char *dir)
         lz_ui_key(LZ_K_ENTER, 0); pump(30);             /* finish -> inbox */
     }
 
-    /* seed a few MeshCore nodes (as if heard via ADVERT) so the MeshCore screen
-     * has content; enable the network so it renders active */
+    /* Populate MeshCore via the simulated radio (REAL ADVERT frames decoded
+     * through mc_parse/mc_advert_decode, plus Public chat + a DM from the
+     * maintainer's test peer "Limitlezz") so the MeshCore screen renders active
+     * and the inbox shows MeshCore threads. net_mc must be tuned in for the TDM
+     * gate to deliver MeshCore traffic. */
     S.net_mc = true;
-    { uint8_t k1[32] = { 0x7a, 0x3f }; lz_core_on_mc_node(k1, "Trail Runner", 1, 6.0f); }
-    { uint8_t k2[32] = { 0x4f, 0x8e }; lz_core_on_mc_node(k2, "Ridge Repeater", 2, -3.5f); }
-    { uint8_t k3[32] = { 0xb2, 0x10 }; lz_core_on_mc_node(k3, "Base Camp", 3, 2.0f); }
+    lz_backend_set_networks(S.net_mt, S.net_mc);   /* tell the sim radio MC is tuned in */
+    sim_inject_mc_advert();                          /* a few MeshCore nodes appear */
+    sim_inject_mc_advert();
+    sim_inject_mc_advert();
+    sim_inject_mc_public("Limitlezz", "anyone copy on the public channel?");
+    sim_inject_mc_dm_from_limitlezz("hey - testing MeshCore DM, you read me?");
 
     lz_node_rt *ava = lz_svc_node_by_name("Ava Reyes");
     for(unsigned i = 0; i < sizeof(SHOTS) / sizeof(SHOTS[0]); i++) {
@@ -552,6 +573,7 @@ static int codec_selftest(void)
 int main(int argc, char **argv)
 {
     if(argc >= 2 && strcmp(argv[1], "--selftest") == 0) return codec_selftest();
+    if(argc >= 2 && strcmp(argv[1], "--simtest") == 0)  return sim_scenario_run();
 
     bool headless = argc >= 3 && strcmp(argv[1], "--shots") == 0;
     g_headless = headless;
@@ -610,6 +632,29 @@ int main(int argc, char **argv)
             if(e.type == SDL_QUIT) quit = true;
             else if(e.type == SDL_KEYDOWN) {
                 SDL_Keycode k = e.key.keysym.sym;
+                /* Ctrl+key: simulated-radio injection controls (don't reach the
+                 * UI composer). Ctrl held -> SDL_TEXTINPUT won't fire for these. */
+                if(e.key.keysym.mod & KMOD_CTRL) {
+                    switch(k) {
+                        case SDLK_d: sim_inject_mc_dm_from_limitlezz("hey, you on MeshCore now?"); break;
+                        case SDLK_p: sim_inject_mc_public("Limitlezz", "public net check, all good here"); break;
+                        case SDLK_n: sim_inject_mc_advert(); break;
+                        case SDLK_m: sim_inject_mt_channel_text("anyone on the ridge?"); break;
+                        case SDLK_t: sim_inject_mt_dm_to_us("Ridge Hiker", "you copy? need a relay check"); break;
+                        case SDLK_i: { static int r; switch(r++ % 3) {
+                                          case 0: sim_inject_mt_nodeinfo(); break;
+                                          case 1: sim_inject_mt_position(); break;
+                                          case 2: sim_inject_mt_telemetry(); break; } break; }
+                        case SDLK_b: sim_inject_burst(); break;
+                        case SDLK_a: sim_set_auto_traffic(!sim_get_auto_traffic());
+                                     printf("[sim] ambient traffic %s\n",
+                                            sim_get_auto_traffic() ? "ON" : "OFF"); break;
+                        default: break;
+                    }
+                    lz_note_activity();   /* injected radio activity wakes the screen */
+                    lz_rebuild();
+                    break;                /* consume; don't fall through to UI keys */
+                }
                 if(k == SDLK_UP)            lz_ui_key(LZ_K_UP, 0);
                 else if(k == SDLK_DOWN)     lz_ui_key(LZ_K_DOWN, 0);
                 else if(k == SDLK_LEFT)     lz_ui_key(LZ_K_LEFT, 0);

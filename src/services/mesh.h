@@ -28,8 +28,8 @@ extern "C" {
 #define LZ_TEXT_MAX     200
 
 /* MeshCore (2nd RF profile, TDM with Meshtastic) is built but not receive-ready,
- * so it's shown as "Coming soon" / grayed for the Alpha. Default off; a dev build
- * can enable the V0.6 work with -D LZ_MESHCORE_ENABLED=1. */
+ * so it's shown as "Coming soon" / grayed for the Alpha. Default off; a dev/sim
+ * build can enable the V0.6 work with -DLZ_MESHCORE_ENABLED=1. */
 #ifndef LZ_MESHCORE_ENABLED
 #define LZ_MESHCORE_ENABLED 0
 #endif
