@@ -37,6 +37,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - **Message history** — persists across leaving a chat and across reboots (SD card).
 - **Compose** — long drafts scroll within the input box instead of overflowing.
 - **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget.
+- **User settings** — network toggles, brightness, sleep timeout, keyboard
+  light, TX power, time zone, clock format, GPS toggle, and power saving persist.
 - **Battery & charging** — live percentage + charge state; System page telemetry.
 - **Keyboard backlight** — Auto / On / Off (I²C).
 - **Sleep & power saving** — idle dim/sleep, CPU down-clock.
@@ -59,6 +61,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   silence it** (crescent moon; no notification, no badge).
 - **sym + L = lock** — a keyboard shortcut to drop straight to the lock screen from
   anywhere (still types a `"` inside a message, password, or the terminal).
+- **Developer Mode gate** — Terminal is hidden from Home by default and only
+  appears after enabling Developer Mode in Settings.
 - **Serial console** — USB-CDC command shell for control + diagnostics (`help`, `time`, `tz`, `net`, `rf`, `mc`, `companion`, `touch`, …).
 
 ### 🧪 In testing
@@ -78,10 +82,13 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - ✅ **0.43** — unread **counter badge** on the Messages icon (1–9, then "9+"); muted excluded.
 - 🚀 **0.44 — this release** — **silence** chats (long-press to mute: crescent moon, no
   notification/badge) and the **sym + L** keyboard shortcut to lock the screen from anywhere.
-- **0.45** — responsiveness pass (Settings, chat log, keyboard input latency).
-- **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly), and
-  **Developer mode**: the **Terminal** app is hidden from the home screen by default
-  and only appears once Developer mode is enabled in Settings.
+- ✅ **Phase 0 hardening** — persistent user settings and a **Developer Mode**
+  launcher gate for Terminal.
+- **0.45** — responsiveness pass in progress: conversation typing/backspace now
+  updates the compose pill in place, Contacts uses virtualized rows, and Settings
+  brightness adjusts without a full screen rebuild; chat rebuilds preserve scroll
+  unless pinned to the newest message. Hardware regression is still open.
+- **0.5 (beta)** — **BLE companion** for Meshtastic (connect phones wirelessly).
 
 ### 🔭 Later
 - **MeshCore** — receive + default Public channel, then a MeshCore companion bridge (currently "Coming soon").
@@ -97,6 +104,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-firmware-audit.md`](docs/tdeck-firmware-audit.md) - current firmware audit and risk list.
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
+- [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
 
 ![screens](docs/screens.png)
 
@@ -111,7 +119,7 @@ src/ui/ui.{h,c}        state machine, nav stack, trackball focus engine, shared 
 src/ui/screens/        the 13 screens (read live data from the mesh service)
 src/ui/fonts/          Material Symbols Rounded subsets baked to LVGL C arrays
 src/services/mesh.{h,c}  mesh service: node table, thread index, send/receive API
-src/services/store.c   persistent message store (append-only logs + thread index)
+src/services/store.c   persistent store (messages, threads, nodes, settings)
 src/services/mtproto.* Meshtastic wire codec: header, AES-CTR, channel hash, protobuf
 src/services/aes_min.h portable AES-128/256-CTR for the simulator
 src/services/mesh_seed.c demo mesh (matches the design's sample data)
@@ -183,11 +191,15 @@ typing goes into the conversation composer.
 pio run -e tdeck -t upload                     # flash over USB-C
 ```
 
-Current footprint: ~1.2 MB flash (23% of the 5 MB OTA slot), 195 KB static RAM
-(61%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
-identity, the node database, and saved Wi-Fi credentials all live on the SD
-card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds the demo
-mesh.
+CI runs the native simulator build, native codec selftest, T-Deck firmware build,
+and T-Deck size report in `.github/workflows/firmware.yml`, then uploads the
+firmware artifacts from `.pio/build/tdeck`.
+
+Current footprint: ~1.23 MB flash (24.5% of the 5 MB OTA slot), 265 KB static RAM
+(80.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
+identity, user settings, the node database, and saved Wi-Fi credentials all live
+on the SD card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds
+the demo mesh.
 
 ## What's implemented (UI portion of spec Stage 1/2)
 
@@ -217,7 +229,9 @@ mesh.
   **time zone picker** (named zones — EST, PST… — not raw UTC offsets) and a
   **manual clock editor**, with **NTP auto-sync** over Wi-Fi; **System & battery**
   page with a live arc gauge, stat bars, self-updating uptime, and battery-health
-  readout derived from resting voltage.
+  readout derived from resting voltage. User-facing settings save to
+  `settings.cfg` and are applied again at boot, including the Developer Mode
+  toggle that reveals Terminal on Home.
 - **Wi-Fi** — scan, join (masked password entry), remembers one network's
   credentials on the SD card, an **auto-connect** toggle (rejoin on boot / on
   reappearance / after a drop, or never), and long-press-to-forget so you can
@@ -234,11 +248,12 @@ mesh.
   Ed25519 MeshCore uses). MeshCore US profile: 910.525 MHz / 62.5 kHz / SF7 /
   CR4-5 / sync PRIVATE.
 - **Real status everywhere** — the status bar clock, battery %, and charge
-  state are live; identity, node table, and message history persist across
-  reboots; nothing on screen is hard-coded demo data on hardware.
+  state are live; identity, settings, node table, and message history persist
+  across reboots; nothing on screen is hard-coded demo data on hardware.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
-  `rf`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
-- **Terminal / Files** — mono console with blinking cursor; /sdcard listing.
+  `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
+- **Terminal / Files** — Developer Mode mono console with blinking cursor;
+  read-only Files browser for the mounted SD/local store.
 
 ## Status against the master-spec roadmap
 
@@ -247,7 +262,7 @@ Stage 1 (Meshtastic-only) is the focus, per the spec's hard staging rule
 UI, the messaging data model wired to a real Meshtastic stack, persistent
 history/identity/nodes, the SX1262 radio backend (text + NodeInfo on LongFast,
 dedup, managed flood), live clock (manual + NTP + named time zones), Wi-Fi with
-saved credentials and auto-connect, keyboard backlight, and real
+saved credentials and auto-connect, saved user settings, keyboard backlight, and real
 battery/system telemetry.
 
 **Stage 2 (MeshCore) has landed**: MeshCore runs as a second RF profile,
@@ -256,9 +271,9 @@ listen/retune; both on = 50/50 split, one on = 100%). MeshCore ADVERTs are
 decoded so nodes appear by name + role on the amber side of the UI; the airtime
 split bar reflects the live schedule.
 
-Still ahead: ACK/routing (ROUTING_APP) and retransmit, position/telemetry
-decode, MeshCore encrypted-payload (DM/channel) decode, the Lua app sandbox,
-App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
+Still ahead: ACK/routing interop tests, map/weather consumers for decoded
+position/telemetry, MeshCore encrypted-payload (DM/channel) decode, the Lua app
+sandbox, App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
 
 ## Flashing & first hardware test
 
@@ -314,3 +329,6 @@ input, the backlight goes dark and the OS returns to the lock screen. Waking is
 two-step — the **first** touch/key/click only lights the screen (still locked),
 and a **second** one unlocks — so a bump in your pocket can't open the device.
 The Brightness slider drives the same LEDC backlight live.
+Brightness, sleep timeout, keyboard light mode, clock format, time zone, TX
+power, network toggles, GPS toggle, and power-save mode are restored on boot
+from `settings.cfg` when the SD-backed store is available.

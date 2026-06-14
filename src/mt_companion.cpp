@@ -22,6 +22,7 @@
 #ifdef LZ_TARGET_TDECK
 
 #include <Arduino.h>
+#include <stdlib.h>
 #include "services/mesh.h"
 #include "services/mtproto.h"
 
@@ -56,13 +57,28 @@ static int pb_str(uint8_t *b, int field, const char *s) { return pb_bytes(b, fie
 
 /* ---------- stream framing ---------- */
 /* self-test capture: when capturing, frames go to a buffer instead of the wire */
-static uint8_t *g_cap; static int g_caplen, g_capcap; static bool g_capturing;
+static uint8_t *g_cap; static int g_caplen, g_capcap; static bool g_capturing, g_cap_overflow;
+
+static bool cap_reserve(int need)
+{
+    const int CAP_MAX = 24 * 1024;
+    if(need <= g_capcap) return true;
+    if(need > CAP_MAX) { g_cap_overflow = true; return false; }
+    int next_cap = g_capcap ? g_capcap : 1024;
+    while(next_cap < need) next_cap *= 2;
+    if(next_cap > CAP_MAX) next_cap = CAP_MAX;
+    uint8_t *next = (uint8_t *)realloc(g_cap, next_cap);
+    if(!next) { g_cap_overflow = true; return false; }
+    g_cap = next;
+    g_capcap = next_cap;
+    return true;
+}
 
 static void send_frame(const uint8_t *pb, int len)
 {
     uint8_t hdr[4] = { 0x94, 0xC3, (uint8_t)(len >> 8), (uint8_t)(len & 0xFF) };
     if(g_capturing) {
-        if(g_caplen + 4 + len <= g_capcap) {
+        if(cap_reserve(g_caplen + 4 + len)) {
             memcpy(g_cap + g_caplen, hdr, 4); g_caplen += 4;
             memcpy(g_cap + g_caplen, pb, len); g_caplen += len;
         }
@@ -290,8 +306,7 @@ extern "C" void lz_mtc_set_active(bool on)
 extern "C" int lz_mtc_selftest(char *out, int n)
 {
     /* temporarily capture frames */
-    static uint8_t cap[1024];
-    g_cap = cap; g_caplen = 0; g_capcap = sizeof cap; g_capturing = true;
+    g_cap = NULL; g_caplen = 0; g_capcap = 0; g_cap_overflow = false; g_capturing = true;
     bool was = g_companion; g_companion = true;
     do_want_config(0x1234abcd);
     g_companion = was; g_capturing = false;
@@ -300,10 +315,10 @@ extern "C" int lz_mtc_selftest(char *out, int n)
     int p = 0, frames = 0; uint32_t nonce = 0;
     bool my_info = false, meta = false, cfg = false, chan = false, complete = false;
     while(p + 4 <= g_caplen) {
-        if(cap[p] != 0x94 || cap[p+1] != 0xC3) break;
-        int len = (cap[p+2] << 8) | cap[p+3]; p += 4;
+        if(g_cap[p] != 0x94 || g_cap[p+1] != 0xC3) break;
+        int len = (g_cap[p+2] << 8) | g_cap[p+3]; p += 4;
         if(p + len > g_caplen) break;
-        const uint8_t *f = cap + p;
+        const uint8_t *f = g_cap + p;
         int field = f[0] >> 3;             /* FromRadio payload_variant field */
         if(field == 3)  my_info = true;
         if(field == 13) meta = true;
@@ -316,9 +331,13 @@ extern "C" int lz_mtc_selftest(char *out, int n)
         }
         frames++; p += len;
     }
-    bool ok = my_info && meta && cfg && chan && complete && nonce == 0x1234abcd;
-    return snprintf(out, n, "%d frames | my_info=%d metadata=%d config=%d channel=%d complete=%d nonce=%08x -> %s",
-                    frames, my_info, meta, cfg, chan, complete, (unsigned)nonce, ok ? "PASS" : "FAIL");
+    bool ok = !g_cap_overflow && my_info && meta && cfg && chan && complete && nonce == 0x1234abcd;
+    int written = snprintf(out, n, "%d frames | my_info=%d metadata=%d config=%d channel=%d complete=%d nonce=%08x%s -> %s",
+                           frames, my_info, meta, cfg, chan, complete, (unsigned)nonce,
+                           g_cap_overflow ? " overflow" : "", ok ? "PASS" : "FAIL");
+    free(g_cap);
+    g_cap = NULL; g_caplen = 0; g_capcap = 0;
+    return written;
 }
 
 #endif /* LZ_TARGET_TDECK */

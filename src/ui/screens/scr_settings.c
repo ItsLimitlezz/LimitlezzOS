@@ -7,6 +7,8 @@ static const char *TXPOW[]    = { "Low", "Medium", "High", "Max" };
 static const int   TXPOW_DBM[] = { 2, 8, 17, 22 };
 static const char *TIMEOUTS[] = { "15s", "30s", "1m", "5m", "Never" };
 static const char *KBLIGHT[]  = { "Auto", "On", "Off" };
+static lv_obj_t *g_bright_fill;
+static lv_obj_t *g_bright_knob;
 
 enum { ROW_VALUE, ROW_TOGGLE, ROW_SLIDER, ROW_NAV };
 
@@ -32,8 +34,9 @@ static const srow_t SROWS[] = {   /* unsized: never drops a row when one is adde
     { "Power saving",     LZ_I_BOLT,       ROW_TOGGLE },  /* f=11 */
     { "System & battery", LZ_I_MONITORING, ROW_NAV    },  /* f=12 */
     { "Calibrate touch",  LZ_I_LOCATION,   ROW_NAV    },  /* f=13 */
+    { "Developer Mode",   LZ_I_TERMINAL,   ROW_TOGGLE },  /* f=14 */
 };
-#define SETTINGS_FOCUS_COUNT 14   /* 2 network rows + 12 SROWS */
+#define SETTINGS_FOCUS_COUNT 15   /* 2 network rows + 13 SROWS */
 
 /* Named regions people recognize. Each carries a STANDARD-time offset plus a
  * daylight rule, so the clock follows DST automatically — pick "Eastern" once
@@ -90,6 +93,7 @@ static bool settings_disabled(int idx) { return idx == 1 && !LZ_MESHCORE_ENABLED
 
 static void settings_activate(int f)
 {
+    bool persist = true;
     switch(f) {
         case 0: S.net_mt = !S.net_mt; lz_apply_networks(); break;
         case 1: if(!LZ_MESHCORE_ENABLED) return;   /* MeshCore locked: "Coming soon" */
@@ -106,8 +110,10 @@ static void settings_activate(int f)
         case 11: S.settings.save = !S.settings.save; break;
         case 12: lz_go(LZ_V_SYSTEM); return;
         case 13: S.cal_step = 0; lz_go(LZ_V_TOUCHCAL); return;
-        default: return;
+        case 14: S.settings.developer = !S.settings.developer; break;
+        default: persist = false; break;
     }
+    if(persist) lz_settings_save();
     lz_rebuild();
 }
 
@@ -166,8 +172,19 @@ static void value_chevron(lv_obj_t *row, const char *value)
     lz_icon(row, LZ_I_CHEV_R, &lz_icons_14, LZ_TEXT_3);
 }
 
+bool lz_settings_brightness_refresh(void)
+{
+    if(S.view != LZ_V_SETTINGS || !g_bright_fill || !g_bright_knob) return false;
+    lv_obj_set_width(g_bright_fill, lv_pct(S.settings.bright));
+    lv_obj_align(g_bright_knob, LV_ALIGN_LEFT_MID,
+                 (96 * S.settings.bright) / 100 - 5, 0);
+    return true;
+}
+
 void lz_scr_settings(lv_obj_t *root)
 {
+    g_bright_fill = NULL;
+    g_bright_knob = NULL;
     bool mt = S.net_mt, mc = S.net_mc, both = mt && mc;
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lz_navbar(root, "Settings", NULL);
@@ -279,7 +296,7 @@ void lz_scr_settings(lv_obj_t *root)
     static const struct { const char *title; int first, count; } GROUPS[6] = {
         { "RADIO",        2, 1 }, { "CONNECTIVITY", 3, 2 },
         { "DISPLAY",      5, 3 }, { "TIME",         8, 3 },
-        { "POWER",       11, 1 }, { "DEVICE",      12, 2 },
+        { "POWER",       11, 1 }, { "DEVICE",      12, 3 },
     };
     char bval[8];
     for(int g = 0; g < 6; g++) {
@@ -303,13 +320,13 @@ void lz_scr_settings(lv_obj_t *root)
                     lv_obj_set_style_radius(track, 3, 0);
                     lv_obj_set_style_bg_color(track, lv_color_hex(0x22272F), 0);
                     lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
-                    lv_obj_t *fillb = lz_box(track);
-                    lv_obj_set_size(fillb, lv_pct(S.settings.bright), 5);
-                    lv_obj_set_style_radius(fillb, 3, 0);
-                    lv_obj_set_style_bg_color(fillb, LZ_SLIDER_HI, 0);
-                    lv_obj_set_style_bg_opa(fillb, LV_OPA_COVER, 0);
-                    lv_obj_t *knob = lz_dot(track, 11, LZ_KNOB);
-                    lv_obj_align(knob, LV_ALIGN_LEFT_MID, (96 * S.settings.bright) / 100 - 5, 0);
+                    g_bright_fill = lz_box(track);
+                    lv_obj_set_size(g_bright_fill, lv_pct(S.settings.bright), 5);
+                    lv_obj_set_style_radius(g_bright_fill, 3, 0);
+                    lv_obj_set_style_bg_color(g_bright_fill, LZ_SLIDER_HI, 0);
+                    lv_obj_set_style_bg_opa(g_bright_fill, LV_OPA_COVER, 0);
+                    g_bright_knob = lz_dot(track, 11, LZ_KNOB);
+                    lz_settings_brightness_refresh();
                     break;
                 }
                 case 6: value_chevron(row, KBLIGHT[S.settings.kb_light]); break;
@@ -328,6 +345,7 @@ void lz_scr_settings(lv_obj_t *root)
                     value_chevron(row, sb); break;
                 }
                 case 13: value_chevron(row, ""); break;   /* Calibrate touch (NAV) */
+                case 14: lz_toggle(row, S.settings.developer, LZ_TOGGLE_ON); break;
             }
             lz_nav_track(row, f);
         }
@@ -538,6 +556,7 @@ static void tzpick_activate(int idx)
     if(idx < 0 || idx >= TZ_COUNT) return;
     S.settings.tz_idx = idx;
     lz_tz_apply(idx);
+    lz_settings_save();
     lz_back();
 }
 

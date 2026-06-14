@@ -26,7 +26,7 @@ Status labels:
 
 | Feature | Status | Evidence | Gap / Next Action |
 | --- | --- | --- | --- |
-| T-Deck PlatformIO firmware target | Functional, needs validation | `platformio.ini`, `src/main_tdeck.cpp`; local build emitted `firmware.bin` | Clean up Windows build workflow and verify board profile against actual T-Deck flash/PSRAM. |
+| T-Deck PlatformIO firmware target | Functional, CI-covered, needs hardware validation | `platformio.ini`, `src/main_tdeck.cpp`; `.github/workflows/firmware.yml` builds `pio run -e tdeck`, captures size output, and uploads firmware artifacts | Keep validating board profile against actual T-Deck flash/PSRAM during hardware smoke runs. |
 | OTA-ready partition layout | Partial | `partitions.csv` has `ota_0`, `ota_1`, `otadata`, `config`, `appfs` | OTA service and update UI are not implemented. |
 | Display and LVGL shell | Functional, needs validation | LovyanGFX ST7789 setup, LVGL buffers, UI screens | Hardware flash/smoke checklist needed for every release. |
 | Trackball and keyboard input | Functional, needs validation | GPIO interrupts and I2C keyboard polling in `main_tdeck.cpp` | Add hardware test checklist and input regression tests in simulator. |
@@ -44,13 +44,13 @@ Status labels:
 | Channel send/receive | Functional, needs validation | `lz_svc_channel_thread`, `lz_core_on_text`, `lz_backend_send` | Add delivery/error handling for TX failures. |
 | Node discovery | Functional, needs validation | NodeInfo parse, heard-node table, 250-node cap | Add role/hardware enum coverage beyond current minimal parse. |
 | Node table persistence | Functional | `nodes.db` save/load | Add versioning/migration for future schema changes. |
-| Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Persist delivery state and queued-send state. |
+| Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Add stock-device interop validation. |
 | PKI encrypted DMs | Functional, needs validation | `mtpki.cpp`, NodeInfo public key capture | Add test vectors or a deterministic host test. |
-| Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, bubble status colors | ACK timeout/status is RAM-tail only and not persisted. |
-| Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend` | No persisted retry queue; immediate backend failures not reflected. |
+| Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, persisted sent-DM status metadata, failure reasons, bubble status colors, serial `dm status` | Add ACK/retransmit tests and hardware interop coverage. |
+| Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend`; expired pending sent DMs retry automatically from persisted log metadata up to the retry cap | Needs hardware ACK/retransmit validation. |
 | Managed flood rebroadcast | Functional, needs validation | `rebroadcast` in `backend_sx1262.cpp` | Needs airtime/backoff validation in busy meshes. |
 | USB companion bridge | Functional, needs validation | `mt_companion.cpp`, serial commands, UI toggle | Config coverage is minimal; Meshtastic BLE companion is V0.5. |
-| Position/telemetry decode | Planned | README lists as still ahead | Needed for maps, weather, and richer node detail. |
+| Position/telemetry decode | Partial, needs validation | POSITION and TELEMETRY payloads decode into node detail, node DB, serial `nodes`, and codec selftest fixtures | Add stock-device validation plus app-facing map/weather consumers. |
 | Emergency channel/beacon | Prototype/Planned | Emergency row appears but is disabled; design spec covers SOS | Implement after feedback manager and dual-network send. |
 
 ## MeshCore
@@ -72,18 +72,18 @@ Status labels:
 | --- | --- | --- | --- |
 | First-boot onboarding | Functional | `scr_onboard.c`, identity persistence | MeshCore network row is visible but locked. |
 | Lock screen | Functional | clock, battery, network icons, notification card | Add per-network badges once MeshCore is active. |
-| Home launcher | Partial | 4x2 app grid | V0.95: support added apps and multiple Home screens; Terminal should move behind Developer Mode. |
-| Unified inbox | Functional/Partial | Messages tabs, filters, unread badges, channel tab | MeshCore filter is gated; unread icon badge is roadmap. |
-| Conversation view | Functional/Partial | compose, bubbles, status colors, resend long-press | Long drafts handled, but delivery persistence is incomplete. |
+| Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default, Messages unread counter badge | V0.95: support added apps and multiple Home screens; run hardware visual regression for badge layout. |
+| Unified inbox | Functional/Partial | Messages tabs, filters, unread highlighting, per-thread badges, mute indicator, channel tab | MeshCore filter is gated; finish hardware responsiveness pass. |
+| Conversation view | Functional/Partial | compose, in-place draft text refresh, scroll-preserving chat rebuilds, bubbles, status colors, resend long-press, persisted sent-DM delivery metadata | Stock-device ACK/retry interop and hardware chat-log latency still need validation. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, companion toggle | Emergency channel row is disabled. |
 | MeshCore manager | Prototype/Partial | "Coming soon" unless gate is flipped; deeper screen exists behind gate | Do not enable until MeshCore message path works. |
-| Contacts/detail | Functional/Partial | contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked. |
-| Settings | Functional/Partial | network toggles, Wi-Fi, brightness, time, system, touch calibration | Most settings are not persisted. |
+| Contacts/detail | Functional/Partial | virtualized contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked; hardware long-list scroll needs validation. |
+| Settings | Functional/Partial | network toggles, Wi-Fi, in-place brightness slider updates, time, system, touch calibration, Developer Mode, `settings.cfg` persistence | Add migration/versioning if the settings schema grows; hardware latency pass still needed. |
 | Wi-Fi setup | Functional, needs validation | async scan/connect, saved SSID/password, auto-connect | Credentials are plaintext on SD; only one saved network. |
 | System/battery page | Functional/Partial | live stats and battery arc | Hardware values need calibration/validation. |
 | App Store | Prototype | `LZ_STORE` static catalog and timer-based GET -> OPEN | Disabled from Home; no catalog, download, install, manifest, or launch. |
-| Terminal | Functional/Partial | interactive UI terminal and serial CLI | Should move behind Developer Mode. |
-| Files | Prototype | static `LZ_FILES` rows | Needs real SD/appfs listing and navigation. |
+| Terminal | Functional/Partial | interactive UI terminal behind Developer Mode; serial CLI always available over USB | Expand diagnostics once Developer Mode grows into a full power-user surface. |
+| Files | Functional/Partial | read-only bounded filesystem browser rooted at mounted SD/local store | Add appfs mount support and gated file actions later. |
 
 ## App Platform And Ecosystem
 
@@ -109,7 +109,7 @@ Status labels:
 | Feedback Manager | Planned | Design spec section 8 | Centralize LED, buzzer, keyboard/display feedback and DND. |
 | Emergency beacon | Planned | Design spec section 12, disabled Emergency UI row | Requires Feedback Manager and dual-network messaging. |
 | BLE companion | Planned | Author V0.5 beta milestone | Add Meshtastic BLE companion after USB companion and core Meshtastic messaging are stable. |
-| CI and release checks | Planned | No `.github` workflows | Add tdeck build, simulator/selftest where available, artifact/size reporting. |
+| CI and release checks | Partial | `.github/workflows/firmware.yml` runs native simulator build, native protocol selftest, T-Deck build, size reporting, and artifact upload | Add screenshot generation, protocol vectors beyond the native selftest, size budgets, and hardware evidence gates. |
 
 ## Completion Criteria
 

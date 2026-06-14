@@ -76,6 +76,7 @@ typedef struct {
         int kb_light;                         /* 0 Auto, 1 On, 2 Off */
         int tz_idx;                           /* timezone: offset hours = tz_idx - 12 */
         bool clock24;                         /* 24-hour vs 12-hour (AM/PM) */
+        bool developer;                       /* show power-user tools on Home */
     } settings;
 } lz_state_t;
 
@@ -88,6 +89,7 @@ void lz_go(lz_view_t v);
 void lz_back(void);
 void lz_rebuild(void);
 void lz_apply_networks(void);   /* push net_mt/net_mc to the radio TDM scheduler */
+void lz_settings_save(void);    /* persist user-facing settings after a change */
 
 /* Registered by each screen during build */
 void lz_nav_set(int cols, int count, void (*activate)(int idx));
@@ -116,6 +118,7 @@ void lz_scr_lock(lv_obj_t *root);
 void lz_scr_home(lv_obj_t *root);
 void lz_scr_messages(lv_obj_t *root);
 void lz_scr_convo(lv_obj_t *root);
+bool lz_convo_draft_refresh(void);       /* update compose text without a full rebuild */
 void lz_scr_meshtastic(lv_obj_t *root);
 void lz_scr_meshcore(lv_obj_t *root);
 void lz_scr_appstore(lv_obj_t *root);
@@ -159,6 +162,7 @@ void lz_apply_brightness(void);                  /* push the brightness setting 
 /* settings helpers shared between key handling and the settings screen */
 bool lz_settings_slider_focused(void);
 void lz_settings_bright_adjust(int delta);
+bool lz_settings_brightness_refresh(void);  /* update Settings slider without rebuilding */
 
 #ifdef __cplusplus
 }

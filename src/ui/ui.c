@@ -73,13 +73,47 @@ static void (*g_activate)(int idx);
 static bool (*g_skip)(int idx);  /* indices the focus ring must skip over */
 static lv_obj_t *g_scroll;
 static lv_obj_t *g_focus_obj;   /* object to scroll into view */
+static int  g_convo_scroll_y;
+static bool g_convo_stick_bottom = true;
+static bool g_convo_force_bottom = true;
+static bool g_convo_skip_capture;
+static bool g_bright_dirty;      /* brightness adjusted but not yet written to SD */
 
-/* ================= engine ================= */
-
-void lz_ui_init(lv_obj_t *root)
+static int clamp_i(int v, int lo, int hi)
 {
-    memset(&S, 0, sizeof(S));
-    S.view = lz_svc_needs_onboarding() ? LZ_V_ONBOARD : LZ_V_LOCK;
+    if(v < lo) return lo;
+    if(v > hi) return hi;
+    return v;
+}
+
+static void convo_scroll_capture(void)
+{
+    if(g_convo_skip_capture) {
+        g_convo_skip_capture = false;
+        return;
+    }
+    if(S.view != LZ_V_CONVO || !g_scroll) return;
+    lv_obj_update_layout(g_scroll);
+    g_convo_scroll_y = lv_obj_get_scroll_y(g_scroll);
+    g_convo_stick_bottom = lv_obj_get_scroll_bottom(g_scroll) <= 4;
+}
+
+static void convo_scroll_reset(void)
+{
+    g_convo_scroll_y = 0;
+    g_convo_stick_bottom = true;
+    g_convo_force_bottom = true;
+    g_convo_skip_capture = true;
+}
+
+static int tx_dbm_for_idx(int idx)
+{
+    static const int TX_DBM[4] = { 2, 8, 17, 22 };
+    return TX_DBM[clamp_i(idx, 0, 3)];
+}
+
+static void settings_defaults(void)
+{
     S.net_mt = true;
     S.net_mc = false;         /* MeshCore off by default; enabling it starts TDM */
     S.settings.gps = false;   /* off by default to save battery (GPS unused in Alpha) */
@@ -87,13 +121,78 @@ void lz_ui_init(lv_obj_t *root)
     S.settings.save = false;
     S.settings.bright = 74;
     S.settings.timeout = 1;   /* 30s */
-    S.settings.tx = 3;        /* Max (22 dBm) — matches the radio's init power */
+    S.settings.tx = 3;        /* Max (22 dBm) - matches the radio's init power */
     S.settings.kb_light = 0;  /* Auto */
     S.settings.tz_idx = 0;    /* Eastern (EST/EDT, DST-aware) by default */
-    lz_tz_apply(0);
-    S.settings.clock24 = false;   /* 12-hour (AM/PM) by default */
-    lz_svc_set_clock24(false);
-    lz_apply_networks();      /* push the initial Meshtastic/MeshCore schedule to the radio */
+    S.settings.clock24 = false;
+    S.settings.developer = false;
+}
+
+static void settings_sanitize(void)
+{
+    if(!LZ_MESHCORE_ENABLED) S.net_mc = false;
+    S.settings.tx = clamp_i(S.settings.tx, 0, 3);
+    S.settings.bright = clamp_i(S.settings.bright, 5, 100);
+    S.settings.timeout = clamp_i(S.settings.timeout, 0, 4);
+    S.settings.kb_light = clamp_i(S.settings.kb_light, 0, 2);
+    S.settings.tz_idx = clamp_i(S.settings.tz_idx, 0, lz_tz_count() - 1);
+}
+
+static void settings_load(void)
+{
+    lz_user_settings_t p;
+    if(!lz_store_load_settings(&p)) return;
+    S.net_mt = p.net_mt;
+    S.net_mc = p.net_mc;
+    S.settings.tx = p.tx;
+    S.settings.gps = p.gps;
+    S.settings.bright = p.bright;
+    S.settings.timeout = p.timeout;
+    S.settings.kb_light = p.kb_light;
+    S.settings.tz_idx = p.tz_idx;
+    S.settings.clock24 = p.clock24;
+    S.settings.save = p.save;
+    S.settings.developer = p.developer;
+    settings_sanitize();
+}
+
+void lz_settings_save(void)
+{
+    settings_sanitize();
+    lz_user_settings_t p = {
+        S.net_mt, S.net_mc, S.settings.tx, S.settings.gps,
+        S.settings.bright, S.settings.timeout, S.settings.kb_light,
+        S.settings.tz_idx, S.settings.clock24, S.settings.save,
+        S.settings.developer,
+    };
+    lz_store_save_settings(&p);
+    g_bright_dirty = false;      /* any full save also commits brightness */
+}
+
+/* Commit a pending brightness change (deferred during slider drags so a
+ * key-repeat burst doesn't rewrite settings.cfg on every 6% step). */
+static void lz_settings_flush(void)
+{
+    if(g_bright_dirty) lz_settings_save();
+}
+
+static void settings_apply_runtime(void)
+{
+    lz_tz_apply(S.settings.tz_idx);
+    lz_svc_set_clock24(S.settings.clock24);
+    lz_apply_networks();
+    lz_backend_set_tx_power(tx_dbm_for_idx(S.settings.tx));
+}
+
+/* ================= engine ================= */
+
+void lz_ui_init(lv_obj_t *root)
+{
+    memset(&S, 0, sizeof(S));
+    S.view = lz_svc_needs_onboarding() ? LZ_V_ONBOARD : LZ_V_LOCK;
+    settings_defaults();
+    settings_load();
+    settings_apply_runtime();
     g_root = root;
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, LZ_W, LZ_H);
@@ -156,6 +255,7 @@ void lz_nav_track(lv_obj_t *obj, int idx)
 
 void lz_rebuild(void)
 {
+    convo_scroll_capture();
     g_cols = 1; g_count = 0; g_activate = NULL; g_scroll = NULL; g_focus_obj = NULL; g_skip = NULL;
     lz_vlist_invalidate();   /* body about to be deleted; drop vlist's pointers */
     lv_obj_clean(g_root);
@@ -192,8 +292,15 @@ void lz_rebuild(void)
         /* recursive: settings rows sit inside group cards, so the scrollable
          * body is the grandparent, not the direct parent */
         lv_obj_scroll_to_view_recursive(g_focus_obj, LV_ANIM_OFF);
-    } else if((S.view == LZ_V_CONVO || S.view == LZ_V_TERMINAL) && g_scroll) {
-        /* conversation + console stay pinned to the newest line */
+    } else if(S.view == LZ_V_CONVO && g_scroll) {
+        lv_obj_update_layout(g_scroll);
+        if(g_convo_force_bottom || g_convo_stick_bottom)
+            lv_obj_scroll_to_y(g_scroll, LV_COORD_MAX, LV_ANIM_OFF);
+        else
+            lv_obj_scroll_to_y(g_scroll, g_convo_scroll_y, LV_ANIM_OFF);
+        g_convo_force_bottom = false;
+    } else if(S.view == LZ_V_TERMINAL && g_scroll) {
+        /* console stays pinned to the newest line */
         lv_obj_update_layout(g_scroll);
         lv_obj_scroll_to_y(g_scroll, LV_COORD_MAX, LV_ANIM_OFF);
     }
@@ -201,8 +308,10 @@ void lz_rebuild(void)
 
 void lz_go(lz_view_t v)
 {
+    lz_settings_flush();
     if(S.nav_depth < (int)(sizeof(S.nav_stack)/sizeof(S.nav_stack[0])))
         S.nav_stack[S.nav_depth++] = S.view;
+    if(v == LZ_V_CONVO) convo_scroll_reset();
     S.view = v;
     S.focus = 0;
     lz_vlist_reset_scroll();    /* fresh screen starts at the top */
@@ -211,9 +320,11 @@ void lz_go(lz_view_t v)
 
 void lz_back(void)
 {
+    lz_settings_flush();
     lz_view_t v = LZ_V_HOME;
     if(S.nav_depth > 0) v = S.nav_stack[--S.nav_depth];
     if(v == LZ_V_LOCK) v = LZ_V_HOME;
+    if(v == LZ_V_CONVO) convo_scroll_reset();
     S.view = v;
     S.focus = 0;
     lz_vlist_reset_scroll();
@@ -222,6 +333,7 @@ void lz_back(void)
 
 static void unlock(void)
 {
+    lz_settings_flush();
     S.nav_depth = 0;
     S.view = LZ_V_HOME;
     S.focus = 0;
@@ -232,6 +344,7 @@ static void unlock(void)
 void lz_lock(void)
 {
     if(S.view == LZ_V_ONBOARD || S.view == LZ_V_LOCK) return;
+    lz_settings_flush();
     S.nav_depth = 0;
     S.view = LZ_V_LOCK;
     S.focus = 0;
@@ -246,9 +359,10 @@ static void move(lz_key_t dir)
     if(S.view == LZ_V_SETTINGS && lz_settings_slider_focused() &&
        (dir == LZ_K_LEFT || dir == LZ_K_RIGHT)) {
         lz_settings_bright_adjust(dir == LZ_K_RIGHT ? 6 : -6);
-        lz_rebuild();
+        if(!lz_settings_brightness_refresh()) lz_rebuild();
         return;
     }
+    lz_settings_flush();   /* any other navigation commits a pending brightness change */
     /* tab switching with left/right on single-column tabbed screens; rolling
      * left past the first tab goes back (the T-Deck has no dedicated back key) */
     if(dir == LZ_K_LEFT || dir == LZ_K_RIGHT) {
@@ -326,6 +440,7 @@ static void convo_send(void)
     if(!len || !S.convo) return;
     if(!lz_svc_send_text(S.convo, S.draft)) return;   /* read-only thread: ignore */
     S.draft[0] = 0;
+    g_convo_force_bottom = true;
     lz_rebuild();
     if(g_scroll) {
         lv_obj_update_layout(g_scroll);
@@ -422,7 +537,7 @@ void lz_ui_key(lz_key_t k, char c)
              * acts as back (the T-Deck has no dedicated back key). */
             if(S.view == LZ_V_CONVO && S.draft[0]) {
                 S.draft[strlen(S.draft) - 1] = 0;
-                lz_rebuild();
+                if(!lz_convo_draft_refresh()) lz_rebuild();
                 return;
             }
             if(S.view == LZ_V_LOCK) return;
@@ -444,7 +559,11 @@ void lz_ui_key(lz_key_t k, char c)
             }
             if(S.view == LZ_V_CONVO && c >= 32 && c < 127) {
                 size_t len = strlen(S.draft);
-                if(len < LZ_DRAFT_MAX - 1) { S.draft[len] = c; S.draft[len+1] = 0; lz_rebuild(); }
+                if(len < LZ_DRAFT_MAX - 1) {
+                    S.draft[len] = c;
+                    S.draft[len+1] = 0;
+                    if(!lz_convo_draft_refresh()) lz_rebuild();
+                }
             }
             return;
     }
@@ -723,6 +842,8 @@ void lz_settings_bright_adjust(int delta)
     int b = S.settings.bright + delta;
     if(b < 5) b = 5;
     if(b > 100) b = 100;
+    if(b == S.settings.bright) return;
     S.settings.bright = b;
     lz_apply_brightness();               /* live backlight update on hardware */
+    g_bright_dirty = true;               /* persisted on focus-change / screen-leave */
 }

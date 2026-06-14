@@ -9,7 +9,7 @@ const lz_app_t LZ_APPS[8] = {
     { "contacts",   "Contacts",   LZ_I_GROUP,      "9 nodes",           318 },
     { "appstore",   "App Store",  LZ_I_STOREFRONT, "4 updates",         280 },
     { "terminal",   "Terminal",   LZ_I_TERMINAL,   "115200 baud",       -1  },
-    { "files",      "Files",      LZ_I_FOLDER,     "/sdcard",           242 },
+    { "files",      "Files",      LZ_I_FOLDER,     "/sd",               242 },
     { "settings",   "Settings",   LZ_I_SETTINGS,   "Networks - Radio",  -1  },
 };
 
@@ -64,16 +64,6 @@ lz_store_app_t LZ_STORE[8] = {
     { "scope",   "Signal Scope", "Utilities",    "0.9 MB", "4.7", LZ_I_GRAPHIC_EQ, 330, LZ_ST_GET    },
     { "chess",   "LoRa Chess",   "Games",        "0.5 MB", "4.2", LZ_I_GAMEPAD,    18,  LZ_ST_GET    },
     { "maps",    "Offline Maps", "Navigation",   "1.2 MB", "4.8", LZ_I_MAP,        150, LZ_ST_GET    },
-};
-
-const lz_file_t LZ_FILES[7] = {
-    { "config",       true,  "4 items"  },
-    { "logs",         true,  "12 items" },
-    { "maps",         true,  "2 items"  },
-    { "nodes.db",     false, "48 KB"    },
-    { "channel.url",  false, "212 B"    },
-    { "firmware.bin", false, "3.1 MB"   },
-    { "README.txt",   false, "1.4 KB"   },
 };
 
 const char *LZ_TERM_LINES[12] = {

@@ -6,8 +6,46 @@
 
 static lz_thread_rt *vis_threads[LZ_MAX_THREADS];
 static int vis_thread_count;
+static lv_obj_t *g_draft_label;
+static lz_thread_rt *g_draft_thread;
 
 static bool net_on(lz_net_t n) { return n == LZ_NET_MT ? S.net_mt : S.net_mc; }
+
+static void draft_label_text(const lz_thread_rt *t, char *out, size_t cap, bool *has_draft)
+{
+    bool has = S.draft[0] != 0;
+    if(has_draft) *has_draft = has;
+    if(!has) {
+        snprintf(out, cap, "Message %s...", t ? t->name : "thread");
+        return;
+    }
+
+    snprintf(out, cap, "%s", S.draft);
+    int maxw = LZ_W - 80;                    /* usable px inside the pill */
+    lv_point_t sz;
+    lv_txt_get_size(&sz, S.draft, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
+    if(sz.x <= maxw) return;
+
+    int start = 0;
+    while(S.draft[start]) {
+        lv_txt_get_size(&sz, S.draft + start, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
+        if(sz.x <= maxw - 12) break;          /* leave room for the ellipsis */
+        start++;
+    }
+    snprintf(out, cap, "...%s", S.draft + start);
+}
+
+bool lz_convo_draft_refresh(void)
+{
+    if(S.view != LZ_V_CONVO || !g_draft_label || !g_draft_thread) return false;
+    char shown[LZ_DRAFT_MAX + 16];
+    bool has_draft = false;
+    draft_label_text(g_draft_thread, shown, sizeof shown, &has_draft);
+    lv_label_set_text(g_draft_label, shown);
+    lv_obj_set_style_text_color(g_draft_label,
+                                has_draft ? LZ_TEXT : lv_color_hex(0x6B727B), 0);
+    return true;
+}
 
 static bool filter_match(lz_net_t n)
 {
@@ -335,6 +373,8 @@ void lz_scr_messages(lv_obj_t *root)
 
 void lz_scr_convo(lv_obj_t *root)
 {
+    g_draft_label = NULL;
+    g_draft_thread = NULL;
     lz_thread_rt *t = S.convo;
     if(!t) t = lz_svc_thread_at(0);
     if(!t) return;
@@ -453,18 +493,37 @@ void lz_scr_convo(lv_obj_t *root)
             lv_obj_add_event_cb(bub, channel_longpress_cb, LV_EVENT_LONG_PRESSED, NULL);
         }
         /* long-press a failed (red) sent bubble to resend it */
-        if(self && msgs[i].status == LZ_MSG_FAILED) {
+        if(self && msgs[i].status == LZ_MSG_FAILED &&
+           msgs[i].retries < LZ_MSG_RETRY_MAX) {
             lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(bub, resend_cb, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
         }
 
         /* status line under a sent DM bubble */
         char ts[16]; lz_fmt_hm(msgs[i].ts, ts, sizeof ts);
+        char stbuf[24];
         const char *st = "";
         if(self) switch(msgs[i].status) {
-            case LZ_MSG_SENDING:   st = "  sending"; break;
+            case LZ_MSG_SENDING:
+                if(msgs[i].retries) {
+                    snprintf(stbuf, sizeof stbuf, "  retrying %u/%u",
+                             (unsigned)msgs[i].retries,
+                             (unsigned)LZ_MSG_RETRY_MAX);
+                    st = stbuf;
+                } else {
+                    st = "  sending";
+                }
+                break;
             case LZ_MSG_DELIVERED: st = "  delivered"; break;
-            case LZ_MSG_FAILED:    st = "  failed - hold to resend"; break;
+            case LZ_MSG_FAILED:
+                st = msgs[i].retries >= LZ_MSG_RETRY_MAX
+                   ? "  failed - retry limit"
+                   : msgs[i].fail_reason == LZ_FAIL_RADIO_SEND
+                   ? "  failed - radio send"
+                   : msgs[i].fail_reason == LZ_FAIL_ACK_TIMEOUT
+                   ? "  failed - ack timeout"
+                   : "  failed - hold to resend";
+                break;
             default: break;
         }
         char tl[40]; snprintf(tl, sizeof tl, "%s%s", ts, st);
@@ -510,35 +569,12 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_style_bg_opa(input, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(input, 1, 0);
     lv_obj_set_style_border_color(input, lv_color_hex(0x2A2F37), 0);
-    char ph[48];
-    bool has_draft = S.draft[0] != 0;
-    if(!has_draft) snprintf(ph, sizeof ph, "Message %s...", t->name);
-    /* keep the text you're typing visible: if the draft is wider than the pill,
-     * show its tail (the cursor end) with a leading ellipsis instead of letting
-     * the start clip off the right edge */
-    const char *shown = ph;
-    char tail[LZ_DRAFT_MAX + 4];
-    if(has_draft) {
-        shown = S.draft;
-        int maxw = LZ_W - 80;                    /* usable px inside the pill */
-        lv_point_t sz;
-        lv_txt_get_size(&sz, S.draft, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
-        if(sz.x > maxw) {
-            int start = 0;
-            while(S.draft[start]) {
-                lv_txt_get_size(&sz, S.draft + start, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
-                if(sz.x <= maxw - 12) break;      /* leave room for the ellipsis */
-                start++;
-            }
-            snprintf(tail, sizeof tail, "...%s", S.draft + start);
-            shown = tail;
-        }
-    }
-    lv_obj_t *itxt = lz_text(input, shown, LZ_F_SMALL,
-                             has_draft ? LZ_TEXT : lv_color_hex(0x6B727B));
-    lv_label_set_long_mode(itxt, LV_LABEL_LONG_CLIP);
-    lv_obj_set_width(itxt, lv_pct(100));
-    lv_obj_align(itxt, LV_ALIGN_LEFT_MID, 11, 0);
+    g_draft_thread = t;
+    g_draft_label = lz_text(input, "", LZ_F_SMALL, LZ_TEXT);
+    lv_label_set_long_mode(g_draft_label, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(g_draft_label, lv_pct(100));
+    lv_obj_align(g_draft_label, LV_ALIGN_LEFT_MID, 11, 0);
+    lz_convo_draft_refresh();
 
     /* send: paper plane only — the nav bar already names the network */
     lv_obj_t *send = lz_box(compose);
