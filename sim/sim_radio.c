@@ -6,10 +6,17 @@
 #include "sim_radio.h"
 #include "../src/services/mtproto.h"
 #include "../src/services/mcproto.h"
+#include <dirent.h>
+#include <errno.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 extern uint32_t lz_tick_ms(void);
 
@@ -423,7 +430,7 @@ static bool mc_emit_dm_to_us(sim_peer_t *speaker, const char *text, float snr)
 {
     if(!tuned(LZ_NET_MC)) return false;
     if(speaker) mc_emit_advert(speaker, snr);
-    uint32_t from = speaker ? speaker->num : mc_num((const uint8_t*)"\x9d\x4f\x21\x07");
+    uint32_t from = speaker ? speaker->num : 0x9d4f2107u;  /* fallback MC pubkey leading bytes */
     lz_core_on_text(from, SIM_SELF_NUM, text, 1, snr);      /* directed -> DM thread */
     g_stats.rx_count++;
     return true;
@@ -649,6 +656,28 @@ static int g_fails;
         if(cond) printf("ok  : %s\n", msg); \
         else { printf("FAIL: %s\n", msg); g_fails++; } } while(0)
 
+static void sim_reset_dir(const char *path)
+{
+    DIR *d = opendir(path);
+    if(d) {
+        struct dirent *ent;
+        while((ent = readdir(d)) != NULL) {
+            if(strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                continue;
+            char child[512];
+            snprintf(child, sizeof child, "%s/%s", path, ent->d_name);
+            remove(child);
+        }
+        closedir(d);
+    }
+#ifdef _WIN32
+    if(_mkdir(path) != 0 && errno != EEXIST)
+#else
+    if(mkdir(path, 0777) != 0 && errno != EEXIST)
+#endif
+        fprintf(stderr, "warning: could not create %s\n", path);
+}
+
 /* count messages in a thread's persisted tail */
 static int thread_tail_len(lz_thread_rt *t)
 {
@@ -668,7 +697,7 @@ int sim_scenario_run(void)
 
     /* clean slate: a wiped on-disk store (so tail counts are real and
      * persistence is exercised), no demo seed, both networks tuned in */
-    system("rm -rf lzdata_simtest && mkdir -p lzdata_simtest");
+    sim_reset_dir("lzdata_simtest");
     lz_svc_init("lzdata_simtest", false);
     lz_svc_set_time(1781274180);
     g_net_mt = true; g_net_mc = true;
