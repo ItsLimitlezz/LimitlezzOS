@@ -32,12 +32,12 @@ The firmware is complete when:
 
 These maintainer-provided beta labels are the canonical near-term sequence. The broader phases below preserve that order, then add post-V0.96 completion work for OTA, the full App Store, security, feedback, emergency, and release hardening.
 
-**Current release: Beta 0.6.** V0.6 (MeshCore public chat + split airtime) and V0.7 (MeshCore encrypted DMs) are implemented and hardware-verified against a live mesh; V0.5 (BLE companion) is implemented and advertises/serves GATT but has an open connect-then-disconnect bug with the official app. Also delivered this cycle (outside the milestone list): a desktop SDL2 simulator with a 50+ assertion codec/scenario self-test harness, and Wi-Fi/BLE mutual exclusion (they share scarce internal DMA RAM on the ESP32-S3, so only one is resident at a time).
+**Current release: Beta 0.6.** MeshCore public chat (V0.6) and encrypted DMs (V0.7) are implemented and hardware-verified against a live mesh. **Two open items:** (1) split airtime (the Meshtastic↔MeshCore TDM scheduler) may not be working reliably and needs re-verification; (2) V0.5 BLE companion advertises/serves GATT and the official app connects, but the session drops immediately (connect-then-disconnect). Also delivered this cycle (outside the milestone list): a desktop SDL2 simulator with a 50+ assertion codec/scenario self-test harness, and Wi-Fi/BLE mutual exclusion (they share scarce internal DMA RAM on the ESP32-S3, so only one is resident at a time).
 
 | Version | Milestone | Status |
 | --- | --- | --- |
 | V0.5 | BLE companion for Meshtastic | 🚧 Firmware done — advertises + GATT (ToRadio/FromRadio/FromNum) works on hardware; **connect-then-disconnect** with the official app is open |
-| V0.6 | MeshCore public chat and split airtime config | ✅ Public chat send/receive + split-airtime scheduler hardware-verified (split shipped as a fixed 60/40; a user config UI is still TODO) |
+| V0.6 | MeshCore public chat and split airtime config | 🚧 Public chat send/receive hardware-verified; **split airtime may not be working — needs re-verification**; config UI still TODO |
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
@@ -122,7 +122,7 @@ Exit criteria:
 
 Goal: make MeshCore visible in the real product through public chat first, while giving users a simple way to understand and control split airtime.
 
-**Status (Beta 0.6): done.** TDM validated on hardware (fast slot switching, both networks receiving, never cuts an in-flight RX/TX); MeshCore ADVERT interop, public/default channel receive, group/room text, the send path through `lz_svc_send_text`, unified-inbox wiring, the public-chat network toggle, and dual-network unread badges all work on a live mesh. Remaining polish: a user-facing split-airtime *config UI* (currently a fixed 60/40 split toward Meshtastic).
+**Status (Beta 0.6): mostly done — split airtime suspect.** MeshCore ADVERT interop, public/default channel receive, group/room text, the send path through `lz_svc_send_text`, unified-inbox wiring, the public-chat network toggle, and dual-network unread badges all work on a live mesh. **Open:** the split-airtime TDM scheduler (time-sharing the one SX1262 between Meshtastic and MeshCore) **may not be working reliably and needs re-verification** — earlier hardware checks looked OK but the behavior is now in question. Also remaining: a user-facing split-airtime *config UI* (currently a fixed 60/40 split toward Meshtastic).
 
 Deliverables:
 

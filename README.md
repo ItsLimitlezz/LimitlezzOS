@@ -72,11 +72,12 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   hardware-verified against a live mesh, in the same unified inbox as Meshtastic.
 - **MeshCore encrypted DMs** — per-pair X25519 ECDH + AES, ACK/delivery state,
   hardware-verified against a real MeshCore peer.
-- **Split airtime** — one SX1262 time-shared between Meshtastic and MeshCore by a
-  scheduler that never cuts an in-flight RX/TX (currently a fixed 60/40 split; a
-  user-facing config UI is the remaining V0.6 polish).
 
 ### 🧪 In testing
+- **Split airtime** — one SX1262 is meant to be time-shared between Meshtastic and
+  MeshCore by a scheduler that never cuts an in-flight RX/TX (fixed 60/40 split).
+  **May not be working reliably — under re-verification.** A user-facing config UI
+  is still TODO.
 - **Meshtastic BLE companion** — the firmware exposes the official Meshtastic
   BLE GATT service (`ToRadio`, `FromRadio`, `FromNum`) through NimBLE, advertises,
   and the official app discovers + connects. **Open bug:** the session drops
