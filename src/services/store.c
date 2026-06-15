@@ -305,6 +305,17 @@ static char *field(char **cur)
     return s;
 }
 
+extern bool lz_store_secret_save_wifi(const char *ssid, const char *pass, int autoconnect) __attribute__((weak));
+extern bool lz_store_secret_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect) __attribute__((weak));
+
+static void remove_legacy_wifi_file(void)
+{
+    if(!g_persist) return;
+    char path[128];
+    path_for(path, sizeof path, "wifi.cfg");
+    remove(path);
+}
+
 int lz_store_load_threads(lz_thread_rt *out, int cap)
 {
     if(!g_persist) return 0;
@@ -428,6 +439,11 @@ bool lz_store_load_settings(lz_user_settings_t *s)
 
 void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect)
 {
+    if(lz_store_secret_save_wifi &&
+       lz_store_secret_save_wifi(ssid, pass, autoconnect)) {
+        remove_legacy_wifi_file();
+        return;
+    }
     if(!g_persist) return;
     char path[128];
     path_for(path, sizeof path, "wifi.cfg");
@@ -439,6 +455,9 @@ void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect)
 
 bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect)
 {
+    if(lz_store_secret_load_wifi &&
+       lz_store_secret_load_wifi(ssid, sn, pass, pn, autoconnect))
+        return true;
     if(!g_persist) return false;
     char path[128];
     path_for(path, sizeof path, "wifi.cfg");
@@ -458,6 +477,9 @@ bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect
         }
     }
     fclose(f);
+    if(ok && lz_store_secret_save_wifi &&
+       lz_store_secret_save_wifi(ssid, pass, autoconnect ? *autoconnect : 1))
+        remove_legacy_wifi_file();
     return ok;
 }
 

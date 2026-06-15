@@ -147,6 +147,7 @@ bool lz_wifi_is_saved(const char *ssid)
     return ssid && g_saved_ssid[0] && strcmp(ssid, g_saved_ssid) == 0;
 }
 bool lz_wifi_autoconnect(void) { load_saved(); return g_autoconnect; }
+const char *lz_wifi_credential_store(void) { return "file"; }
 void lz_wifi_set_autoconnect(bool on)
 {
     load_saved();

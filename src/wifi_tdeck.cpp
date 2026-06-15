@@ -163,13 +163,13 @@ extern "C" const char *lz_wifi_connected(void) { return g_connected[0] ? g_conne
 extern "C" int lz_wifi_status(void) { return g_status; }
 extern "C" uint32_t lz_wifi_scan_gen(void) { return g_scan_gen; }
 
-extern "C" const char *lz_wifi_saved_ssid(void) { load_saved(); return g_saved_ssid[0] ? g_saved_ssid : NULL; }
+extern "C" const char *lz_wifi_saved_ssid(void) { return g_saved_ssid[0] ? g_saved_ssid : NULL; }
 extern "C" bool lz_wifi_is_saved(const char *ssid)
 {
-    load_saved();
     return ssid && g_saved_ssid[0] && strcmp(ssid, g_saved_ssid) == 0;
 }
-extern "C" bool lz_wifi_autoconnect(void) { load_saved(); return g_autoconnect; }
+extern "C" bool lz_wifi_autoconnect(void) { return g_autoconnect; }
+extern "C" const char *lz_wifi_credential_store(void) { return "nvs"; }
 extern "C" void lz_wifi_set_autoconnect(bool on)
 {
     load_saved();

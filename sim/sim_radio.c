@@ -10,6 +10,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#define SIM_MKDIR(path) _mkdir(path)
+#else
+#define SIM_MKDIR(path) mkdir(path, 0777)
+#endif
 
 extern uint32_t lz_tick_ms(void);
 
@@ -649,6 +657,22 @@ static int g_fails;
         if(cond) printf("ok  : %s\n", msg); \
         else { printf("FAIL: %s\n", msg); g_fails++; } } while(0)
 
+static void sim_reset_dir(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if(d) {
+        struct dirent *ent;
+        while((ent = readdir(d)) != NULL) {
+            if(strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+            char path[256];
+            snprintf(path, sizeof path, "%s/%s", dir, ent->d_name);
+            remove(path);
+        }
+        closedir(d);
+    }
+    SIM_MKDIR(dir);
+}
+
 /* count messages in a thread's persisted tail */
 static int thread_tail_len(lz_thread_rt *t)
 {
@@ -668,7 +692,7 @@ int sim_scenario_run(void)
 
     /* clean slate: a wiped on-disk store (so tail counts are real and
      * persistence is exercised), no demo seed, both networks tuned in */
-    system("rm -rf lzdata_simtest && mkdir -p lzdata_simtest");
+    sim_reset_dir("lzdata_simtest");
     lz_svc_init("lzdata_simtest", false);
     lz_svc_set_time(1781274180);
     g_net_mt = true; g_net_mc = true;

@@ -247,13 +247,15 @@ Exit criteria:
 
 Goal: replace plaintext Wi-Fi password storage with a safer storage path that still feels invisible to normal users.
 
+**Status:** implemented for T-Deck hardware: saved Wi-Fi credentials now use ESP32 NVS, legacy `wifi.cfg` is migrated and removed after a successful NVS write, and serial `wifi` diagnostics show the credential backend without printing the password. The desktop simulator intentionally keeps file-backed credentials for local repeatability.
+
 Deliverables:
 
-- Move saved Wi-Fi credentials out of plaintext SD files.
-- Prefer NVS or an encrypted storage layer that can survive reboot and common SD-card workflows.
-- Add migration from the existing `wifi.cfg` format.
-- Keep the current "remember one network, auto-connect, forget" UX working.
-- Add diagnostics for stored network state that never print the password.
+- Move saved Wi-Fi credentials out of plaintext SD files. Implemented for T-Deck through NVS.
+- Prefer NVS or an encrypted storage layer that can survive reboot and common SD-card workflows. Implemented with ESP32 NVS.
+- Add migration from the existing `wifi.cfg` format. Implemented: legacy credentials are imported and the plaintext file is removed after NVS accepts the save.
+- Keep the current "remember one network, auto-connect, forget" UX working. Implemented through the existing Wi-Fi service API.
+- Add diagnostics for stored network state that never print the password. Implemented: serial `wifi` reports saved SSID, auto-connect, and credential backend only.
 
 Exit criteria:
 

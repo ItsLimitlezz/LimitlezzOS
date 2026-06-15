@@ -105,7 +105,7 @@ Status labels:
 | --- | --- | --- | --- |
 | Device PIN/password | Planned | README later/security section | Needed before encrypted local data UX. |
 | Encrypted local store | Planned | README hardening section | Encrypt messages, keys, identity, and app data when password is set. |
-| Wi-Fi credential hardening | Planned | `wifi.cfg` plaintext in `store.c` | V0.96: move to NVS or encrypted store with migration. |
+| Wi-Fi credential hardening | Functional for T-Deck, sim file-backed | T-Deck `lz_store_save_wifi/load_wifi` use ESP32 NVS with legacy `wifi.cfg` migration/removal; serial `wifi` reports `cred=nvs` without printing the password | Native simulator intentionally keeps file-backed credentials for repeatable desktop tests; broaden later if encrypted whole-store support lands. |
 | OTA firmware update | Planned | Partition table and design spec | Implement download, hash verify, inactive-slot write, rollback UX. |
 | Feedback Manager | Planned | Design spec section 8 | Centralize LED, buzzer, keyboard/display feedback and DND. |
 | Emergency beacon | Planned | Design spec section 12, disabled Emergency UI row | Requires Feedback Manager and dual-network messaging. |

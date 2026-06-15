@@ -39,6 +39,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#define SIM_MKDIR(path) _mkdir(path)
+#else
+#define SIM_MKDIR(path) mkdir(path, 0777)
+#endif
 
 #define SCALE 2
 
@@ -58,6 +66,22 @@ static void on_dirty(void) { lz_rebuild(); }
 /* mouse = touchscreen */
 static int32_t m_x, m_y;
 static bool m_down;
+
+static void sim_reset_dir(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if(d) {
+        struct dirent *ent;
+        while((ent = readdir(d)) != NULL) {
+            if(strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+            char path[256];
+            snprintf(path, sizeof path, "%s/%s", dir, ent->d_name);
+            remove(path);
+        }
+        closedir(d);
+    }
+    SIM_MKDIR(dir);
+}
 
 static void mouse_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
@@ -499,7 +523,28 @@ static int codec_selftest(void)
         lz_store_init(NULL);              /* back to RAM-only */
     }
 
-    /* 9. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 9. Wi-Fi credential store round-trip. T-Deck uses an NVS backend under the
+     * same API; native keeps the file path for simulator repeatability. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect);
+        extern bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect);
+        remove("./wifi.cfg");
+        lz_store_init(".");
+        lz_store_save_wifi("TrailNet", "ridge-pass", 0);
+        char ssid[33] = {0}, pass[64] = {0}; int ac = 1;
+        CHECK(lz_store_load_wifi(ssid, sizeof ssid, pass, sizeof pass, &ac),
+              "store: Wi-Fi credentials reload");
+        CHECK(strcmp(ssid, "TrailNet") == 0 && strcmp(pass, "ridge-pass") == 0 && ac == 0,
+              "store: Wi-Fi SSID/pass/autoconnect round-trip");
+        lz_store_save_wifi("", "", 1);
+        CHECK(!lz_store_load_wifi(ssid, sizeof ssid, pass, sizeof pass, &ac),
+              "store: Wi-Fi forget clears saved network");
+        remove("./wifi.cfg");
+        lz_store_init(NULL);
+    }
+
+    /* 10. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -613,7 +658,7 @@ int main(int argc, char **argv)
     const char *datadir = "lzdata";
     if(headless) {
         datadir = "lzdata_shots";
-        system("rm -rf lzdata_shots && mkdir -p lzdata_shots");
+        sim_reset_dir(datadir);
     }
     lz_svc_init(datadir, true);
     lz_svc_set_time(1781274180);   /* sim: pretend NTP synced so the clock shows */

@@ -341,6 +341,12 @@ static void cmd_stats(void)
                   (unsigned)st.tx_count, (unsigned)st.rx_count, st.util_pct);
 }
 
+static void print_wifi_text(const char *text)
+{
+    if(!text || !text[0]) { Serial.print("(none)"); return; }
+    for(int i = 0; i < 32 && text[i]; i++) Serial.write((uint8_t)text[i]);
+}
+
 static void cmd_wifi(char *args)
 {
     if(args && strcmp(args, "scan") == 0) { if(!lz_wifi_enabled()) lz_wifi_set_enabled(true); else lz_wifi_scan(); Serial.println("[ok] scanning"); return; }
@@ -351,10 +357,17 @@ static void cmd_wifi(char *args)
     const char *conn = lz_wifi_connected();
     const char *saved = lz_wifi_saved_ssid();
     const lz_wifi_net *nets; int nn = lz_wifi_results(&nets);
-    Serial.printf("wifi: %s%s%s  saved=%s  auto-connect=%s  nets=%d\n",
-                  (s >= 0 && s <= 5) ? S_[s] : "?",
-                  conn ? " -> " : "", conn ? conn : "",
-                  saved ? saved : "(none)", lz_wifi_autoconnect() ? "on" : "off", nn);
+    Serial.print("wifi: ");
+    Serial.print((s >= 0 && s <= 5) ? S_[s] : "?");
+    if(conn) { Serial.print(" -> "); print_wifi_text(conn); }
+    Serial.print("  saved=");
+    print_wifi_text(saved);
+    Serial.print("  auto-connect=");
+    Serial.print(lz_wifi_autoconnect() ? "on" : "off");
+    Serial.print("  cred=");
+    print_wifi_text(lz_wifi_credential_store());
+    Serial.print("  nets=");
+    Serial.println(nn);
 }
 
 static void cmd_sys(void)

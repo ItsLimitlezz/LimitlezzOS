@@ -245,9 +245,11 @@ firmware artifacts from `.pio/build/tdeck`.
 
 Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RAM
 (82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
-identity, user settings, the node database, and saved Wi-Fi credentials all live
-on the SD card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds
-the demo mesh.
+identity, user settings, and the node database live on the SD card
+(`/sd/limitlezz`). On T-Deck hardware, saved Wi-Fi credentials are stored in
+ESP32 NVS instead of plaintext SD files; the desktop simulator keeps its local
+file-backed store for repeatable testing. Without a card the OS runs RAM-only
+and seeds the demo mesh.
 
 ## What's implemented (UI portion of spec Stage 1/2)
 
