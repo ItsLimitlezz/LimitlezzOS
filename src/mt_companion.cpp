@@ -45,12 +45,16 @@ extern "C" bool lz_mtc_active(void) { return g_companion; }
 #define MTC_BLE_FROMNUM_UUID   "ed9da18c-a800-4f66-a670-aa7547e34453"
 
 #define MTC_BLE_MAX_PACKET 512
+#define MTC_BLE_ATT_MTU    517
 /* Deep enough to hold a full want_config burst (my_info + metadata + channel +
- * configs + one NodeInfo per heard node + config_complete) in one shot: the
- * phone can't drain via onRead until handle_toradio() returns, so an overflow
- * would drop the oldest frames (my_info!) and corrupt the app's initial sync.
- * PSRAM-backed, so depth is cheap. Covers ~55 nodes; busier meshes truncate. */
+ * configs + several NodeInfo frames) while the app is reading. The config burst
+ * is paced from the main loop and consumed reads are popped from the FIFO, so
+ * larger meshes no longer require the whole NodeDB to fit in one immediate
+ * queue spike. PSRAM-backed, so depth is cheap. */
 #define MTC_BLE_QUEUE_N    64
+#define MTC_BLE_CFG_PER_POLL 2
+#define MTC_BLE_CFG_GAP_MS 20
+#define MTC_BLE_NOTIFY_DELAY_MS 100
 
 static NimBLEServer *g_ble_server;
 static NimBLECharacteristic *g_ble_fromradio;
@@ -72,6 +76,9 @@ static ble_from_t *g_ble_q;
 static int g_ble_head, g_ble_count;
 static uint32_t g_ble_next_num = 1;
 static uint32_t g_ble_read_num = 1;
+static bool g_ble_notify_pending;
+static uint32_t g_ble_notify_value;
+static uint32_t g_ble_notify_due_ms;
 
 /* The NimBLE host runs in its own FreeRTOS task: GATT onRead/onWrite callbacks
  * fire there, while FromRadio packets are produced — and the SX1262 is driven —
@@ -93,11 +100,41 @@ typedef struct {
 static ble_to_t *g_ble_to_q;          /* phone -> radio, drained on the main loop */
 static int g_ble_to_head, g_ble_to_count;
 
+static uint32_t g_fromradio_id = 1;
+
+enum {
+    BLE_CFG_IDLE = 0,
+    BLE_CFG_MY_INFO,
+    BLE_CFG_METADATA,
+    BLE_CFG_CHANNEL,
+    BLE_CFG_CONFIG_DEVICE,
+    BLE_CFG_CONFIG_LORA,
+    BLE_CFG_NODES,
+    BLE_CFG_COMPLETE,
+};
+static volatile bool g_ble_cfg_active;
+static int g_ble_cfg_phase;
+static int g_ble_cfg_node_index;
+static uint32_t g_ble_cfg_nonce;
+static uint32_t g_ble_cfg_next_ms;
+
 extern "C" bool btStarted(void);   /* Arduino core: true while the BT controller is enabled */
 
 extern "C" bool lz_mtc_ble_enabled(void) { return g_ble_enabled; }
 extern "C" bool lz_mtc_ble_connected(void) { return g_ble_connected; }
 extern "C" bool lz_mtc_any_active(void) { return g_companion || g_ble_connected; }
+
+static void reset_fromradio_ids(void)
+{
+    g_fromradio_id = 1;
+}
+
+static uint32_t next_fromradio_id(void)
+{
+    uint32_t id = g_fromradio_id++;
+    if(!g_fromradio_id) g_fromradio_id = 1;
+    return id;
+}
 
 /* ---------- protobuf encode helpers ---------- */
 static int pb_varint(uint8_t *b, uint64_t v)
@@ -106,23 +143,59 @@ static int pb_varint(uint8_t *b, uint64_t v)
     do { uint8_t x = v & 0x7F; v >>= 7; if(v) x |= 0x80; b[n++] = x; } while(v);
     return n;
 }
-static int pb_key(uint8_t *b, int field, int wire) { return pb_varint(b, ((uint64_t)field << 3) | wire); }
-static int pb_uint(uint8_t *b, int field, uint64_t v) { int n = pb_key(b, field, 0); return n + pb_varint(b + n, v); }
-static int pb_fixed32(uint8_t *b, int field, uint32_t v)
+static bool pb_room(int n, int cap, int add) { return add >= 0 && n >= 0 && cap >= 0 && n <= cap && add <= cap - n; }
+
+static bool pb_put_varint(uint8_t *b, int cap, int *n, uint64_t v)
 {
-    int n = pb_key(b, field, 5);
-    b[n++] = v & 0xFF; b[n++] = (v >> 8) & 0xFF; b[n++] = (v >> 16) & 0xFF; b[n++] = (v >> 24) & 0xFF;
-    return n;
+    uint8_t tmp[10]; int tn = pb_varint(tmp, v);
+    if(!pb_room(*n, cap, tn)) return false;
+    memcpy(b + *n, tmp, tn); *n += tn;
+    return true;
 }
-static int pb_float(uint8_t *b, int field, float f) { uint32_t v; memcpy(&v, &f, 4); return pb_fixed32(b, field, v); }
-static int pb_bytes(uint8_t *b, int field, const uint8_t *data, int len)
+
+static bool pb_put_key(uint8_t *b, int cap, int *n, int field, int wire)
 {
-    int n = pb_key(b, field, 2);
-    n += pb_varint(b + n, len);
-    memcpy(b + n, data, len); n += len;
-    return n;
+    return pb_put_varint(b, cap, n, ((uint64_t)field << 3) | wire);
 }
-static int pb_str(uint8_t *b, int field, const char *s) { return pb_bytes(b, field, (const uint8_t *)s, strlen(s)); }
+
+static bool pb_put_uint(uint8_t *b, int cap, int *n, int field, uint64_t v)
+{
+    return pb_put_key(b, cap, n, field, 0) && pb_put_varint(b, cap, n, v);
+}
+
+static bool pb_put_fixed32(uint8_t *b, int cap, int *n, int field, uint32_t v)
+{
+    if(!pb_put_key(b, cap, n, field, 5) || !pb_room(*n, cap, 4)) return false;
+    b[(*n)++] = v & 0xFF; b[(*n)++] = (v >> 8) & 0xFF;
+    b[(*n)++] = (v >> 16) & 0xFF; b[(*n)++] = (v >> 24) & 0xFF;
+    return true;
+}
+
+static bool pb_put_float(uint8_t *b, int cap, int *n, int field, float f)
+{
+    uint32_t v; memcpy(&v, &f, 4);
+    return pb_put_fixed32(b, cap, n, field, v);
+}
+
+static bool pb_put_bytes(uint8_t *b, int cap, int *n, int field, const uint8_t *data, int len)
+{
+    if(len < 0) return false;
+    int before = *n;
+    if(!pb_put_key(b, cap, n, field, 2) || !pb_put_varint(b, cap, n, (uint64_t)len) ||
+       !pb_room(*n, cap, len)) {
+        *n = before;
+        return false;
+    }
+    if(len > 0) memcpy(b + *n, data, len);
+    *n += len;
+    return true;
+}
+
+static bool pb_put_str(uint8_t *b, int cap, int *n, int field, const char *s)
+{
+    if(!s) s = "";
+    return pb_put_bytes(b, cap, n, field, (const uint8_t *)s, (int)strlen(s));
+}
 
 /* ---------- stream framing ---------- */
 /* self-test capture: when capturing, frames go to a buffer instead of the wire */
@@ -171,6 +244,32 @@ static void ble_set_fromnum(uint32_t v, bool notify)
     if(notify && g_ble_connected) g_ble_fromnum->notify(le, sizeof le);
 }
 
+static void ble_schedule_fromnum(uint32_t v)
+{
+    if(!g_ble_connected) return;
+    uint32_t due = millis() + MTC_BLE_NOTIFY_DELAY_MS;
+    taskENTER_CRITICAL(&g_ble_mux);
+    g_ble_notify_value = v;
+    g_ble_notify_due_ms = due;
+    g_ble_notify_pending = true;
+    taskEXIT_CRITICAL(&g_ble_mux);
+}
+
+static void ble_notify_poll(void)
+{
+    uint32_t value = 0;
+    uint32_t now = millis();
+    bool send = false;
+    taskENTER_CRITICAL(&g_ble_mux);
+    if(g_ble_notify_pending && (int32_t)(now - g_ble_notify_due_ms) >= 0) {
+        value = g_ble_notify_value;
+        g_ble_notify_pending = false;
+        send = true;
+    }
+    taskEXIT_CRITICAL(&g_ble_mux);
+    if(send) ble_set_fromnum(value, true);
+}
+
 /* rings are allocated once in lz_mtc_ble_begin() (single-threaded setup), never
  * lazily — concurrent lazy alloc from two tasks would race on the pointer. */
 static bool ble_queue_ready(void) { return g_ble_q != NULL; }
@@ -193,7 +292,7 @@ static void ble_enqueue_fromradio(const uint8_t *pb, int len)
     if(len) memcpy(g_ble_q[idx].data, pb, len);
     g_ble_count++;
     taskEXIT_CRITICAL(&g_ble_mux);
-    ble_set_fromnum(num, true);          /* NimBLE notify: outside the lock */
+    ble_schedule_fromnum(num);          /* coalesced NimBLE notify: outside the lock */
 }
 
 static void ble_prepare_fromradio_value(void)
@@ -213,6 +312,10 @@ static void ble_prepare_fromradio_value(void)
             if(tlen) memcpy(tmp, g_ble_q[best].data, tlen);
             g_ble_read_num = g_ble_q[best].num + 1;
         }
+        while(g_ble_count > 0 && g_ble_q[g_ble_head].num < g_ble_read_num) {
+            g_ble_head = (g_ble_head + 1) % MTC_BLE_QUEUE_N;
+            g_ble_count--;
+        }
     }
     taskEXIT_CRITICAL(&g_ble_mux);
     if(tlen < 0) g_ble_fromradio->setValue((const uint8_t *)NULL, 0);
@@ -228,8 +331,18 @@ static void send_frame(const uint8_t *pb, int len)
 /* wrap a sub-message as a FromRadio field and send it */
 static void send_fromradio(int field, const uint8_t *sub, int sublen)
 {
-    uint8_t buf[300]; int n = 0;
-    n += pb_bytes(buf + n, field, sub, sublen);
+    if(sublen < 0 || sublen > MTC_BLE_MAX_PACKET - 16) return;
+    uint8_t buf[MTC_BLE_MAX_PACKET]; int n = 0;
+    if(!pb_put_uint(buf, sizeof buf, &n, 1, next_fromradio_id())) return;       /* FromRadio.id */
+    if(!pb_put_bytes(buf, sizeof buf, &n, field, sub, sublen)) return;
+    send_frame(buf, n);
+}
+
+static void send_fromradio_uint(int field, uint32_t v)
+{
+    uint8_t buf[MTC_BLE_MAX_PACKET]; int n = 0;
+    if(!pb_put_uint(buf, sizeof buf, &n, 1, next_fromradio_id())) return;       /* FromRadio.id */
+    if(!pb_put_uint(buf, sizeof buf, &n, field, v)) return;
     send_frame(buf, n);
 }
 
@@ -237,7 +350,7 @@ static void send_fromradio(int field, const uint8_t *sub, int sublen)
 static void send_my_info(void)
 {
     uint8_t m[16]; int n = 0;
-    n += pb_uint(m + n, 1, lz_svc_identity()->num);   /* my_node_num */
+    if(!pb_put_uint(m, sizeof m, &n, 1, lz_svc_identity()->num)) return;   /* my_node_num */
     send_fromradio(3, m, n);
 }
 
@@ -246,15 +359,15 @@ static void send_node_info(const lz_node_rt *nd, uint32_t snr_unused)
     (void)snr_unused;
     /* User sub-message */
     uint8_t user[80]; int un = 0;
-    un += pb_str(user + un, 1, nd->id);
-    un += pb_str(user + un, 2, nd->name);
-    un += pb_str(user + un, 3, nd->shortcode);
+    if(!pb_put_str(user, sizeof user, &un, 1, nd->id)) return;
+    if(!pb_put_str(user, sizeof user, &un, 2, nd->name)) return;
+    if(!pb_put_str(user, sizeof user, &un, 3, nd->shortcode)) return;
     /* NodeInfo */
     uint8_t ni[140]; int n = 0;
-    n += pb_uint(ni + n, 1, nd->num);                 /* num */
-    n += pb_bytes(ni + n, 2, user, un);               /* user */
-    if(nd->snr == nd->snr) n += pb_float(ni + n, 4, nd->snr);   /* snr (skip NaN) */
-    n += pb_fixed32(ni + n, 5, nd->last_heard);       /* last_heard */
+    if(!pb_put_uint(ni, sizeof ni, &n, 1, nd->num)) return;                 /* num */
+    if(!pb_put_bytes(ni, sizeof ni, &n, 2, user, un)) return;               /* user */
+    if(nd->snr == nd->snr && !pb_put_float(ni, sizeof ni, &n, 4, nd->snr)) return;   /* snr (skip NaN) */
+    if(!pb_put_fixed32(ni, sizeof ni, &n, 5, nd->last_heard)) return;       /* last_heard */
     send_fromradio(4, ni, n);
 }
 
@@ -263,12 +376,12 @@ static void send_channel_primary(void)
     /* ChannelSettings: name="" (=> LongFast), psk=0x01 (default key) */
     uint8_t cs[16]; int csn = 0;
     uint8_t psk1 = 0x01;
-    csn += pb_bytes(cs + csn, 2, &psk1, 1);           /* psk */
+    if(!pb_put_bytes(cs, sizeof cs, &csn, 2, &psk1, 1)) return;             /* psk */
     /* Channel: index=1(0), settings=2, role=3(PRIMARY=1) */
     uint8_t ch[40]; int n = 0;
-    n += pb_uint(ch + n, 1, 0);                       /* index 0 */
-    n += pb_bytes(ch + n, 2, cs, csn);                /* settings */
-    n += pb_uint(ch + n, 3, 1);                       /* role PRIMARY */
+    if(!pb_put_uint(ch, sizeof ch, &n, 1, 0)) return;                       /* index 0 */
+    if(!pb_put_bytes(ch, sizeof ch, &n, 2, cs, csn)) return;                /* settings */
+    if(!pb_put_uint(ch, sizeof ch, &n, 3, 1)) return;                       /* role PRIMARY */
     send_fromradio(10, ch, n);
 }
 
@@ -276,30 +389,40 @@ static void send_channel_primary(void)
 static void send_metadata(void)
 {
     uint8_t m[48]; int n = 0;
-    n += pb_str(m + n, 1, "0.6.0-limitlezz");         /* firmware_version */
-    n += pb_uint(m + n, 7, 0);                        /* role = CLIENT */
-    n += pb_uint(m + n, 9, 50);                       /* hw_model = T_DECK */
+    if(!pb_put_str(m, sizeof m, &n, 1, "0.6.0-limitlezz")) return;         /* firmware_version */
+    if(!pb_put_uint(m, sizeof m, &n, 7, 0)) return;                        /* role = CLIENT */
+    if(!pb_put_uint(m, sizeof m, &n, 9, 50)) return;                       /* hw_model = T_DECK */
     send_fromradio(13, m, n);
 }
 
 /* Config (FromRadio.config=5): device (empty = defaults) + lora (US / LongFast) */
+static void send_config_device(void)
+{
+    uint8_t cfg[8]; int n = 0;
+    if(!pb_put_bytes(cfg, sizeof cfg, &n, 1, NULL, 0)) return;   /* Config.device = {} */
+    send_fromradio(5, cfg, n);
+}
+
+static void send_config_lora(void)
+{
+    uint8_t lc[16]; int ln = 0;
+    if(!pb_put_uint(lc, sizeof lc, &ln, 1, 1)) return;                     /* use_preset = true */
+    if(!pb_put_uint(lc, sizeof lc, &ln, 2, 0)) return;                     /* modem_preset = LONG_FAST */
+    if(!pb_put_uint(lc, sizeof lc, &ln, 7, 1)) return;                     /* region = US */
+    uint8_t c2[24]; int cn = 0;
+    if(!pb_put_bytes(c2, sizeof c2, &cn, 6, lc, ln)) return;               /* Config.lora */
+    send_fromradio(5, c2, cn);
+}
+
 static void send_configs(void)
 {
-    uint8_t cfg[8]; int n = pb_bytes(cfg, 1, NULL, 0);   /* Config.device = {} */
-    send_fromradio(5, cfg, n);
-
-    uint8_t lc[16]; int ln = 0;
-    ln += pb_uint(lc + ln, 1, 1);                     /* use_preset = true */
-    ln += pb_uint(lc + ln, 2, 0);                     /* modem_preset = LONG_FAST */
-    ln += pb_uint(lc + ln, 7, 1);                     /* region = US */
-    uint8_t c2[24]; int cn = pb_bytes(c2, 6, lc, ln); /* Config.lora */
-    send_fromradio(5, c2, cn);
+    send_config_device();
+    send_config_lora();
 }
 
 static void send_config_complete(uint32_t nonce)
 {
-    uint8_t m[8]; int n = pb_uint(m, 7, nonce);       /* FromRadio.config_complete_id */
-    send_frame(m, n);
+    send_fromradio_uint(7, nonce);                    /* FromRadio.config_complete_id */
 }
 
 /* push a received mesh packet up to the app */
@@ -310,18 +433,18 @@ extern "C" void lz_mtc_forward(uint32_t from, uint32_t to, uint32_t id, uint32_t
     if(!g_companion && !g_ble_connected) return;   /* forward over USB or BLE */
     /* Data sub-message: portnum=1(varint), payload=2(bytes) */
     uint8_t data[256]; int dn = 0;
-    dn += pb_uint(data + dn, 1, portnum);
-    if(plen > 0) dn += pb_bytes(data + dn, 2, payload, plen);
+    if(!pb_put_uint(data, sizeof data, &dn, 1, portnum)) return;
+    if(plen > 0 && !pb_put_bytes(data, sizeof data, &dn, 2, payload, plen)) return;
     /* MeshPacket */
     uint8_t mp[300]; int n = 0;
-    n += pb_fixed32(mp + n, 1, from);
-    n += pb_fixed32(mp + n, 2, to);
-    n += pb_uint(mp + n, 3, chan);
-    n += pb_bytes(mp + n, 4, data, dn);               /* decoded */
-    n += pb_fixed32(mp + n, 6, id);
-    n += pb_fixed32(mp + n, 7, rxtime);
-    n += pb_float(mp + n, 8, snr);
-    n += pb_uint(mp + n, 9, hop_limit);
+    if(!pb_put_fixed32(mp, sizeof mp, &n, 1, from)) return;
+    if(!pb_put_fixed32(mp, sizeof mp, &n, 2, to)) return;
+    if(!pb_put_uint(mp, sizeof mp, &n, 3, chan)) return;
+    if(!pb_put_bytes(mp, sizeof mp, &n, 4, data, dn)) return;              /* decoded */
+    if(!pb_put_fixed32(mp, sizeof mp, &n, 6, id)) return;
+    if(!pb_put_fixed32(mp, sizeof mp, &n, 7, rxtime)) return;
+    if(!pb_put_float(mp, sizeof mp, &n, 8, snr)) return;
+    if(!pb_put_uint(mp, sizeof mp, &n, 9, hop_limit)) return;
     send_fromradio(2, mp, n);                         /* FromRadio.packet */
 }
 
@@ -341,69 +464,232 @@ static void do_want_config(uint32_t nonce)
     send_config_complete(nonce);
 }
 
-/* decode a ToRadio: extract a varint field, a packet, or want_config */
-static void handle_toradio(const uint8_t *b, int len)
+static void ble_config_start(uint32_t nonce)
 {
-    int pos = 0;
-    while(pos < len) {
-        uint64_t key = 0; int sh = 0;
-        while(pos < len) { uint8_t x = b[pos++]; key |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
-        int field = key >> 3, wire = key & 7;
-        if(wire == 0) {                               /* varint */
-            uint64_t v = 0; sh = 0;
-            while(pos < len) { uint8_t x = b[pos++]; v |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
-            if(field == 3) do_want_config((uint32_t)v);   /* want_config_id */
-        } else if(wire == 2) {                        /* length-delimited */
-            uint64_t l = 0; sh = 0;
-            while(pos < len) { uint8_t x = b[pos++]; l |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
-            if((uint64_t)pos + l > (uint64_t)len) break;
-            if(field == 1) {                          /* ToRadio.packet -> transmit */
-                /* find decoded Data (field 4) + to (field 2) inside the MeshPacket */
-                const uint8_t *mp = b + pos; int mlen = (int)l;
-                uint32_t to = LZ_BROADCAST; const uint8_t *data = NULL; int dlen = 0;
-                int p = 0;
-                while(p < mlen) {
-                    uint64_t k2 = 0; int s2 = 0;
-                    while(p < mlen) { uint8_t x = mp[p++]; k2 |= (uint64_t)(x & 0x7F) << s2; if(!(x & 0x80)) break; s2 += 7; }
-                    int f2 = k2 >> 3, w2 = k2 & 7;
-                    if(w2 == 5) { if(f2 == 2 && p + 4 <= mlen) to = mp[p] | (mp[p+1]<<8) | (mp[p+2]<<16) | ((uint32_t)mp[p+3]<<24); p += 4; }
-                    else if(w2 == 0) { while(p < mlen && (mp[p++] & 0x80)); }
-                    else if(w2 == 2) {
-                        uint64_t l2 = 0; int s3 = 0;
-                        while(p < mlen) { uint8_t x = mp[p++]; l2 |= (uint64_t)(x & 0x7F) << s3; if(!(x & 0x80)) break; s3 += 7; }
-                        if((uint64_t)p + l2 > (uint64_t)mlen) break;   /* untrusted BLE input: don't run past the frame */
-                        if(f2 == 4) { data = mp + p; dlen = (int)l2; }
-                        p += (int)l2;
-                    } else break;
-                }
-                if(data) {
-                    /* pull portnum (1) + payload (2) out of Data, send via radio */
-                    uint8_t portnum = 1; const uint8_t *pl = NULL; int pll = 0;
-                    int q = 0;
-                    while(q < dlen) {
-                        uint64_t k3 = 0; int s4 = 0;
-                        while(q < dlen) { uint8_t x = data[q++]; k3 |= (uint64_t)(x & 0x7F) << s4; if(!(x & 0x80)) break; s4 += 7; }
-                        int f3 = k3 >> 3, w3 = k3 & 7;
-                        if(w3 == 0) { uint64_t v = 0; int s5 = 0; while(q < dlen){uint8_t x=data[q++]; v|=(uint64_t)(x&0x7F)<<s5; if(!(x&0x80))break; s5+=7;} if(f3==1) portnum=(uint8_t)v; }
-                        else if(w3 == 2) { uint64_t l3=0; int s6=0; while(q<dlen){uint8_t x=data[q++]; l3|=(uint64_t)(x&0x7F)<<s6; if(!(x&0x80))break; s6+=7;} if(f3==2){pl=data+q; pll=(int)l3;} q+=(int)l3; }
-                        else break;
-                    }
-                    if(pl && pll > 0) {
-                        lz_mt_packet_t p2; memset(&p2, 0, sizeof p2);
-                        p2.to = to; p2.from = lz_svc_identity()->num;
-                        p2.id = (uint32_t)(esp_random() | 1);
-                        p2.hop_limit = 3; p2.hop_start = 3;
-                        p2.portnum = portnum;
-                        int c = pll < (int)sizeof p2.payload ? pll : (int)sizeof p2.payload;
-                        memcpy(p2.payload, pl, c); p2.plen = (uint8_t)c;
-                        lz_backend_send(&p2);
-                    }
+    if(!g_ble_ready || !g_ble_enabled || !g_ble_connected) return;
+    taskENTER_CRITICAL(&g_ble_mux);
+    g_ble_head = g_ble_count = 0;
+    g_ble_read_num = g_ble_next_num;
+    g_ble_notify_pending = false;
+    g_ble_cfg_active = true;
+    g_ble_cfg_phase = BLE_CFG_MY_INFO;
+    g_ble_cfg_node_index = 0;
+    g_ble_cfg_nonce = nonce;
+    taskEXIT_CRITICAL(&g_ble_mux);
+    g_ble_cfg_next_ms = millis() + MTC_BLE_CFG_GAP_MS;
+}
+
+static bool ble_config_send_one(void)
+{
+    if(!g_ble_cfg_active) return false;
+    if(!g_ble_ready || !g_ble_enabled || !g_ble_connected) {
+        g_ble_cfg_active = false;
+        return false;
+    }
+
+    switch(g_ble_cfg_phase) {
+        case BLE_CFG_MY_INFO:
+            send_my_info();
+            g_ble_cfg_phase = BLE_CFG_METADATA;
+            return true;
+        case BLE_CFG_METADATA:
+            send_metadata();
+            g_ble_cfg_phase = BLE_CFG_CHANNEL;
+            return true;
+        case BLE_CFG_CHANNEL:
+            send_channel_primary();
+            g_ble_cfg_phase = BLE_CFG_CONFIG_DEVICE;
+            return true;
+        case BLE_CFG_CONFIG_DEVICE:
+            send_config_device();
+            g_ble_cfg_phase = BLE_CFG_CONFIG_LORA;
+            return true;
+        case BLE_CFG_CONFIG_LORA:
+            send_config_lora();
+            g_ble_cfg_phase = BLE_CFG_NODES;
+            return true;
+        case BLE_CFG_NODES: {
+            const lz_node_rt *nodes;
+            int nn = lz_svc_nodes(&nodes);
+            while(g_ble_cfg_node_index < nn) {
+                const lz_node_rt *nd = &nodes[g_ble_cfg_node_index++];
+                if(nd->net == LZ_NET_MT) {
+                    send_node_info(nd, 0);
+                    return true;
                 }
             }
-            pos += (int)l;
-        } else if(wire == 5) pos += 4;
-        else if(wire == 1) pos += 8;
-        else break;
+            g_ble_cfg_phase = BLE_CFG_COMPLETE;
+            return true;
+        }
+        case BLE_CFG_COMPLETE:
+            send_config_complete(g_ble_cfg_nonce);
+            g_ble_cfg_active = false;
+            g_ble_cfg_phase = BLE_CFG_IDLE;
+            return true;
+        default:
+            g_ble_cfg_active = false;
+            g_ble_cfg_phase = BLE_CFG_IDLE;
+            return false;
+    }
+}
+
+static void ble_config_poll(void)
+{
+    if(!g_ble_cfg_active) return;
+    uint32_t now = millis();
+    if((int32_t)(now - g_ble_cfg_next_ms) < 0) return;
+    for(int i = 0; i < MTC_BLE_CFG_PER_POLL; i++)
+        if(!ble_config_send_one()) break;
+    g_ble_cfg_next_ms = millis() + MTC_BLE_CFG_GAP_MS;
+}
+
+static bool pb_read_varint(const uint8_t *b, int len, int *pos, uint64_t *out)
+{
+    uint64_t v = 0;
+    int sh = 0;
+    while(*pos < len && sh <= 63) {
+        uint8_t x = b[(*pos)++];
+        v |= (uint64_t)(x & 0x7F) << sh;
+        if(!(x & 0x80)) {
+            *out = v;
+            return true;
+        }
+        sh += 7;
+    }
+    return false;
+}
+
+static bool pb_read_len(const uint8_t *b, int len, int *pos, int *out_len)
+{
+    uint64_t l = 0;
+    if(!pb_read_varint(b, len, pos, &l)) return false;
+    if(l > (uint64_t)(len - *pos)) return false;
+    *out_len = (int)l;
+    return true;
+}
+
+static bool pb_skip_field(const uint8_t *b, int len, int *pos, int wire)
+{
+    uint64_t ignored = 0;
+    int l = 0;
+    switch(wire) {
+        case 0:
+            return pb_read_varint(b, len, pos, &ignored);
+        case 1:
+            if(len - *pos < 8) return false;
+            *pos += 8;
+            return true;
+        case 2:
+            if(!pb_read_len(b, len, pos, &l)) return false;
+            *pos += l;
+            return true;
+        case 5:
+            if(len - *pos < 4) return false;
+            *pos += 4;
+            return true;
+        default:
+            return false;
+    }
+}
+
+static uint32_t read_le32(const uint8_t *b)
+{
+    return (uint32_t)b[0] | ((uint32_t)b[1] << 8) |
+           ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+}
+
+static bool decode_data(const uint8_t *data, int dlen, uint8_t *portnum,
+                        const uint8_t **payload, int *payload_len)
+{
+    int q = 0;
+    while(q < dlen) {
+        uint64_t key = 0;
+        if(!pb_read_varint(data, dlen, &q, &key)) return false;
+        int field = (int)(key >> 3), wire = (int)(key & 7);
+        if(field == 1 && wire == 0) {
+            uint64_t v = 0;
+            if(!pb_read_varint(data, dlen, &q, &v)) return false;
+            *portnum = (uint8_t)v;
+        } else if(field == 2 && wire == 2) {
+            int l = 0;
+            if(!pb_read_len(data, dlen, &q, &l)) return false;
+            *payload = data + q;
+            *payload_len = l;
+            q += l;
+        } else if(!pb_skip_field(data, dlen, &q, wire)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool decode_meshpacket(const uint8_t *mp, int mlen, uint32_t *to,
+                              const uint8_t **data, int *dlen)
+{
+    int p = 0;
+    while(p < mlen) {
+        uint64_t key = 0;
+        if(!pb_read_varint(mp, mlen, &p, &key)) return false;
+        int field = (int)(key >> 3), wire = (int)(key & 7);
+        if(field == 2 && wire == 5) {
+            if(mlen - p < 4) return false;
+            *to = read_le32(mp + p);
+            p += 4;
+        } else if(field == 4 && wire == 2) {
+            int l = 0;
+            if(!pb_read_len(mp, mlen, &p, &l)) return false;
+            *data = mp + p;
+            *dlen = l;
+            p += l;
+        } else if(!pb_skip_field(mp, mlen, &p, wire)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void transmit_toradio_packet(const uint8_t *mp, int mlen)
+{
+    uint32_t to = LZ_BROADCAST;
+    const uint8_t *data = NULL, *pl = NULL;
+    int dlen = 0, pll = 0;
+    uint8_t portnum = 1;
+    if(!decode_meshpacket(mp, mlen, &to, &data, &dlen) || !data) return;
+    if(!decode_data(data, dlen, &portnum, &pl, &pll)) return;
+    if(!pl || pll <= 0) return;
+
+    lz_mt_packet_t p2; memset(&p2, 0, sizeof p2);
+    p2.to = to; p2.from = lz_svc_identity()->num;
+    p2.id = (uint32_t)(esp_random() | 1);
+    p2.hop_limit = 3; p2.hop_start = 3;
+    p2.portnum = portnum;
+    int c = pll < (int)sizeof p2.payload ? pll : (int)sizeof p2.payload;
+    memcpy(p2.payload, pl, c); p2.plen = (uint8_t)c;
+    lz_backend_send(&p2);
+}
+
+/* decode a ToRadio: extract a varint field, a packet, or want_config */
+static void handle_toradio(const uint8_t *b, int len, bool from_ble)
+{
+    if(!b || len <= 0 || len > MTC_BLE_MAX_PACKET) return;
+    int pos = 0;
+    while(pos < len) {
+        uint64_t key = 0;
+        if(!pb_read_varint(b, len, &pos, &key)) break;
+        int field = (int)(key >> 3), wire = (int)(key & 7);
+        if(wire == 0) {                               /* varint */
+            uint64_t v = 0;
+            if(!pb_read_varint(b, len, &pos, &v)) break;
+            if(field == 3) {                              /* want_config_id */
+                if(from_ble) ble_config_start((uint32_t)v);
+                else         do_want_config((uint32_t)v);
+            }
+        } else if(wire == 2) {                        /* length-delimited */
+            int l = 0;
+            if(!pb_read_len(b, len, &pos, &l)) break;
+            if(field == 1) transmit_toradio_packet(b + pos, l);  /* ToRadio.packet -> transmit */
+            pos += l;
+        } else if(!pb_skip_field(b, len, &pos, wire)) break;
     }
 }
 
@@ -412,9 +698,16 @@ class MtcBleServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) override
     {
         taskENTER_CRITICAL(&g_ble_mux);
+        g_ble_head = g_ble_count = 0;
+        g_ble_to_head = g_ble_to_count = 0;
+        g_ble_next_num = 1;
+        g_ble_read_num = 1;
+        g_ble_notify_pending = false;
+        g_ble_cfg_active = false;
+        g_ble_cfg_phase = BLE_CFG_IDLE;
         g_ble_connected = true;
-        g_ble_read_num = g_ble_next_num;     /* only deliver packets queued from now */
         taskEXIT_CRITICAL(&g_ble_mux);
+        reset_fromradio_ids();
         if(server) {
             server->updateConnParams(connInfo.getConnHandle(), 24, 48, 0, 180);
             server->setDataLen(connInfo.getConnHandle(), 251);
@@ -428,6 +721,9 @@ class MtcBleServerCallbacks : public NimBLEServerCallbacks {
         g_ble_connected = false;
         g_ble_head = g_ble_count = 0;
         g_ble_to_head = g_ble_to_count = 0;
+        g_ble_notify_pending = false;
+        g_ble_cfg_active = false;
+        g_ble_cfg_phase = BLE_CFG_IDLE;
         taskEXIT_CRITICAL(&g_ble_mux);
         if(g_ble_enabled) NimBLEDevice::startAdvertising();
     }
@@ -502,7 +798,7 @@ extern "C" void lz_mtc_ble_begin(void)
     snprintf(name, sizeof name, "Limitlezz-%s", id->short_name[0] ? id->short_name : "TDeck");
 
     if(!NimBLEDevice::init(name)) return;   /* controller init failed: leave g_ble_ready false */
-    NimBLEDevice::setMTU(MTC_BLE_MAX_PACKET);
+    NimBLEDevice::setMTU(MTC_BLE_ATT_MTU);
     g_ble_server = NimBLEDevice::createServer();
     g_ble_server->setCallbacks(&g_ble_server_cb, false);
 
@@ -511,7 +807,7 @@ extern "C" void lz_mtc_ble_begin(void)
                                                 NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY,
                                                 MTC_BLE_MAX_PACKET);
     g_ble_toradio = svc->createCharacteristic(MTC_BLE_TO_UUID,
-                                              NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR,
+                                              NIMBLE_PROPERTY::WRITE,
                                               MTC_BLE_MAX_PACKET);
     g_ble_fromnum = svc->createCharacteristic(MTC_BLE_FROMNUM_UUID,
                                               NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::WRITE,
@@ -572,6 +868,9 @@ extern "C" void lz_mtc_ble_set_enabled(bool on)
         g_ble_connected = false;
         g_ble_head = g_ble_count = 0;
         g_ble_to_head = g_ble_to_count = 0;
+        g_ble_notify_pending = false;
+        g_ble_cfg_active = false;
+        g_ble_cfg_phase = BLE_CFG_IDLE;
         taskEXIT_CRITICAL(&g_ble_mux);
         vTaskDelay(pdMS_TO_TICKS(100));        /* ...let disconnect/host events fire */
         /* ...then fully deinit: NimBLEDevice::deinit(true) runs
@@ -608,9 +907,12 @@ extern "C" void lz_mtc_ble_poll(void)
             }
             taskEXIT_CRITICAL(&g_ble_mux);
             if(flen < 0) break;
-            if(flen > 0) handle_toradio(frame, flen);
+            if(flen > 0) handle_toradio(frame, flen, true);
         }
     }
+
+    ble_config_poll();
+    ble_notify_poll();
 
     if(g_ble_enabled && !g_ble_connected && g_ble_ready && !NimBLEDevice::getAdvertising()->isAdvertising())
         NimBLEDevice::startAdvertising();
@@ -621,9 +923,18 @@ extern "C" int lz_mtc_ble_status(char *buf, int n)
     const char *state = !g_ble_enabled ? "off"
                       : g_ble_connected ? "connected"
                       : "advertising";
-    uint32_t latest = g_ble_next_num ? g_ble_next_num - 1 : 0;
-    return snprintf(buf, n, "BLE companion: %s | queued=%d latest_fromnum=%lu service=%s",
-                    state, g_ble_count, (unsigned long)latest, MTC_BLE_SERVICE_UUID);
+    uint32_t latest;
+    int from_q, to_q;
+    bool syncing;
+    taskENTER_CRITICAL(&g_ble_mux);
+    latest = g_ble_next_num ? g_ble_next_num - 1 : 0;
+    from_q = g_ble_count;
+    to_q = g_ble_to_count;
+    syncing = g_ble_cfg_active;
+    taskEXIT_CRITICAL(&g_ble_mux);
+    return snprintf(buf, n, "BLE companion: %s | from_q=%d to_q=%d sync=%s latest=%lu service=%s",
+                    state, from_q, to_q, syncing ? "config" : "idle",
+                    (unsigned long)latest, MTC_BLE_SERVICE_UUID);
 }
 
 extern "C" int lz_mtc_ble_selftest(char *buf, int n)
@@ -639,6 +950,9 @@ extern "C" int lz_mtc_ble_selftest(char *buf, int n)
     int old_head = g_ble_head;
     uint32_t old_next = g_ble_next_num;
     uint32_t old_read = g_ble_read_num;
+    bool old_notify_pending = g_ble_notify_pending;
+    uint32_t old_notify_value = g_ble_notify_value;
+    uint32_t old_notify_due = g_ble_notify_due_ms;
 
     uint8_t sample[2] = { 0x38, 0x2A };   /* FromRadio.config_complete_id = 42 */
     g_ble_enabled = true;
@@ -656,6 +970,9 @@ extern "C" int lz_mtc_ble_selftest(char *buf, int n)
     g_ble_count = 0;
     g_ble_next_num = old_next;
     g_ble_read_num = old_read;
+    g_ble_notify_pending = old_notify_pending;
+    g_ble_notify_value = old_notify_value;
+    g_ble_notify_due_ms = old_notify_due;
     ble_set_fromnum(g_ble_next_num ? g_ble_next_num - 1 : 0, false);
 
     return snprintf(buf, n, "BLE mailbox enqueue/fromnum -> %s", ok ? "PASS" : "FAIL");
@@ -675,7 +992,7 @@ extern "C" void lz_mtc_poll(void)
             case 3: want |= c; idx = 0;
                     state = (want > 0 && want <= (int)sizeof buf) ? 4 : 0; break;
             case 4: buf[idx++] = c;
-                    if(idx >= want) { handle_toradio(buf, want); state = 0; }
+                    if(idx >= want) { handle_toradio(buf, want, false); state = 0; }
                     break;
         }
     }
@@ -687,8 +1004,8 @@ extern "C" void lz_mtc_set_active(bool on)
     if(on && g_ble_enabled) lz_mtc_ble_set_enabled(false);
     g_companion = on;
     if(on) {
-        uint8_t reb[2] = { 0x40, 0x01 };   /* FromRadio{rebooted=true} (field 8 varint) */
-        send_usb_frame(reb, sizeof reb);
+        reset_fromradio_ids();
+        send_fromradio_uint(8, 1);          /* FromRadio{rebooted=true} */
     }
 }
 
@@ -700,6 +1017,7 @@ extern "C" int lz_mtc_selftest(char *out, int n)
     /* temporarily capture frames */
     g_cap = NULL; g_caplen = 0; g_capcap = 0; g_cap_overflow = false; g_capturing = true;
     bool was = g_companion; g_companion = true;
+    reset_fromradio_ids();
     do_want_config(0x1234abcd);
     g_companion = was; g_capturing = false;
 
@@ -711,16 +1029,31 @@ extern "C" int lz_mtc_selftest(char *out, int n)
         int len = (g_cap[p+2] << 8) | g_cap[p+3]; p += 4;
         if(p + len > g_caplen) break;
         const uint8_t *f = g_cap + p;
-        int field = f[0] >> 3;             /* FromRadio payload_variant field */
+        int field = 0;                     /* FromRadio payload_variant field */
+        int q = 0;
+        while(q < len) {
+            uint64_t key = 0; int sh = 0;
+            while(q < len) { uint8_t x = f[q++]; key |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
+            int ff = key >> 3, wire = key & 7;
+            if(wire == 0) {
+                uint64_t v = 0; sh = 0;
+                while(q < len) { uint8_t x = f[q++]; v |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
+                if(ff == 7) { field = ff; nonce = (uint32_t)v; }
+            } else if(wire == 2) {
+                uint64_t l = 0; sh = 0;
+                while(q < len) { uint8_t x = f[q++]; l |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
+                if(ff != 1) field = ff;
+                if((uint64_t)q + l > (uint64_t)len) { q = len; break; }
+                q += (int)l;
+            } else if(wire == 5) q += 4;
+            else if(wire == 1) q += 8;
+            else break;
+        }
         if(field == 3)  my_info = true;
         if(field == 13) meta = true;
         if(field == 5)  cfg = true;
         if(field == 10) chan = true;
-        if(field == 7) { complete = true;
-            uint64_t v = 0; int sh = 0, q = 1;
-            while(q < len) { uint8_t x = f[q++]; v |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
-            nonce = (uint32_t)v;
-        }
+        if(field == 7)  complete = true;
         frames++; p += len;
     }
     bool ok = !g_cap_overflow && my_info && meta && cfg && chan && complete && nonce == 0x1234abcd;

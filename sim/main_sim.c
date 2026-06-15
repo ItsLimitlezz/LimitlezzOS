@@ -34,6 +34,7 @@
 #include "services/mtproto.h"
 #include "services/mcproto.h"
 #include "services/mc_x25519.h"
+#include "sim_fs.h"
 #include "sim_radio.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -613,7 +614,7 @@ int main(int argc, char **argv)
     const char *datadir = "lzdata";
     if(headless) {
         datadir = "lzdata_shots";
-        system("rm -rf lzdata_shots && mkdir -p lzdata_shots");
+        sim_reset_dir("lzdata_shots");
     }
     lz_svc_init(datadir, true);
     lz_svc_set_time(1781274180);   /* sim: pretend NTP synced so the clock shows */
