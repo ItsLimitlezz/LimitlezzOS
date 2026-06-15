@@ -235,6 +235,29 @@ void lz_scr_appstore(lv_obj_t *root)
     lz_nav_set(1, store_local_n + 8, store_activate);
 }
 
+static void app_perm_list(uint16_t perms, char *out, size_t cap)
+{
+    static const struct { uint16_t bit; const char *name; } P[] = {
+        { LZ_APP_PERM_DISPLAY,       "display" },
+        { LZ_APP_PERM_INPUT,         "input" },
+        { LZ_APP_PERM_STORAGE,       "storage" },
+        { LZ_APP_PERM_MESH_READ,     "mesh read" },
+        { LZ_APP_PERM_MESH_SEND,     "mesh send" },
+        { LZ_APP_PERM_SYSTEM_TIME,   "time" },
+        { LZ_APP_PERM_BATTERY,       "battery" },
+        { LZ_APP_PERM_NOTIFICATIONS, "notify" },
+        { LZ_APP_PERM_NETWORK_WIFI,  "wifi" },
+    };
+    if(!out || cap == 0) return;
+    out[0] = 0;
+    for(unsigned i = 0; i < sizeof(P) / sizeof(P[0]); i++) {
+        if((perms & P[i].bit) == 0) continue;
+        if(out[0]) strncat(out, ", ", cap - strlen(out) - 1);
+        strncat(out, P[i].name, cap - strlen(out) - 1);
+    }
+    if(!out[0]) snprintf(out, cap, "none");
+}
+
 void lz_scr_local_app(lv_obj_t *root)
 {
     lz_local_app_t *a = &S.local_app_sel;
@@ -282,16 +305,21 @@ void lz_scr_local_app(lv_obj_t *root)
     lv_obj_set_height(card, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
 
-    const char *ks[4] = { "Status", "App ID", "Entry", "Folder" };
-    const char *vs[4] = { "Manifest ready", a->id, a->entry, a->path };
-    for(int i = 0; i < 4; i++) {
+    char api[28];
+    char perms[104];
+    snprintf(api, sizeof api, "SDK %s", a->api_version);
+    app_perm_list(a->permissions, perms, sizeof perms);
+
+    const char *ks[6] = { "Status", "API", "Permissions", "App ID", "Entry", "Folder" };
+    const char *vs[6] = { "Manifest ready", api, perms, a->id, a->entry, a->path };
+    for(int i = 0; i < 6; i++) {
         lv_obj_t *r = lz_box(card);
         lv_obj_set_width(r, lv_pct(100));
         lv_obj_set_height(r, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_hor(r, 11, 0);
         lv_obj_set_style_pad_ver(r, 7, 0);
-        if(i < 3) {
+        if(i < 5) {
             lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(r, 1, 0);
             lv_obj_set_style_border_color(r, lv_color_hex(0x21262D), 0);

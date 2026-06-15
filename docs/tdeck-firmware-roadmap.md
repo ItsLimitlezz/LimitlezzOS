@@ -231,6 +231,9 @@ Deliverables:
 - Add app launcher integration for installed apps. Partially implemented:
   tapping a scanned local app opens a manifest detail shell; script runtime and
   sandbox execution remain below.
+- Parse app SDK metadata and permission namespaces from manifests. Implemented
+  for SDK `0.1`: unknown permissions and unsupported SDK versions are rejected
+  before reaching the launcher; API injection remains below.
 - Enforce foreground-only app lifecycle.
 - Enforce memory cap through the runtime allocator or equivalent guard.
 - Implement a small initial SDK:

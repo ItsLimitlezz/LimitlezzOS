@@ -84,8 +84,8 @@ static bool path_is_file(const char *path)
  *   apps/<id>/<entry>
  *
  * The manifest parser intentionally accepts a tiny top-level JSON subset so it
- * stays deterministic on ESP32: string fields plus integer hue, no allocation,
- * no recursion, and bounded file size.
+ * stays deterministic on ESP32: string fields, integer hue, and a bounded
+ * permissions string array; no allocation, no recursion, and bounded file size.
  */
 
 static const char *skip_ws(const char *p)
@@ -142,6 +142,55 @@ static bool json_get_int(const char *json, const char *key, int *out)
     return true;
 }
 
+static uint16_t app_permission_bit(const char *name)
+{
+    if(strcmp(name, "display") == 0) return LZ_APP_PERM_DISPLAY;
+    if(strcmp(name, "input") == 0) return LZ_APP_PERM_INPUT;
+    if(strcmp(name, "storage") == 0) return LZ_APP_PERM_STORAGE;
+    if(strcmp(name, "mesh_read") == 0) return LZ_APP_PERM_MESH_READ;
+    if(strcmp(name, "mesh_send") == 0) return LZ_APP_PERM_MESH_SEND;
+    if(strcmp(name, "system_time") == 0) return LZ_APP_PERM_SYSTEM_TIME;
+    if(strcmp(name, "battery") == 0) return LZ_APP_PERM_BATTERY;
+    if(strcmp(name, "notifications") == 0) return LZ_APP_PERM_NOTIFICATIONS;
+    if(strcmp(name, "network_wifi") == 0) return LZ_APP_PERM_NETWORK_WIFI;
+    return 0;
+}
+
+static bool json_parse_permissions_value(const char *p, uint16_t *out)
+{
+    if(!p || !out) return false;
+    p = skip_ws(p);
+    if(*p != '[') return false;
+    p = skip_ws(p + 1);
+    uint16_t bits = 0;
+    if(*p == ']') { *out = 0; return true; }
+    for(;;) {
+        if(*p != '"') return false;
+        p++;
+        char name[24];
+        size_t j = 0;
+        while(*p && *p != '"') {
+            char c = *p++;
+            if(c == '\\' && *p) c = *p++;
+            if(j + 1 < sizeof name && c >= 32) name[j++] = c;
+        }
+        if(*p != '"' || j == 0) return false;
+        name[j] = 0;
+        uint16_t bit = app_permission_bit(name);
+        if(!bit) return false;
+        bits |= bit;
+        p = skip_ws(p + 1);
+        if(*p == ',') { p = skip_ws(p + 1); continue; }
+        if(*p == ']') { *out = bits; return true; }
+        return false;
+    }
+}
+
+static bool api_version_supported(const char *v)
+{
+    return strcmp(v, "0.1") == 0 || strcmp(v, "0.1.0") == 0;
+}
+
 static bool safe_id(const char *s)
 {
     if(!s || !s[0]) return false;
@@ -189,19 +238,26 @@ static bool load_app_manifest(const char *pkg_dir, lz_local_app_t *app)
     app->hue = -1;
     snprintf(app->version, sizeof app->version, "0.0.0");
     snprintf(app->author, sizeof app->author, "local");
+    snprintf(app->api_version, sizeof app->api_version, "0.1");
     snprintf(app->icon, sizeof app->icon, "description");
+    app->permissions = LZ_APP_PERM_DISPLAY | LZ_APP_PERM_INPUT;
 
     if(!json_get_string(json, "id", app->id, sizeof app->id)) return false;
     if(!json_get_string(json, "name", app->name, sizeof app->name)) return false;
     if(!json_get_string(json, "entry", app->entry, sizeof app->entry)) return false;
     json_get_string(json, "version", app->version, sizeof app->version);
     json_get_string(json, "author", app->author, sizeof app->author);
+    json_get_string(json, "api_version", app->api_version, sizeof app->api_version);
     if(!json_get_string(json, "summary", app->summary, sizeof app->summary))
         json_get_string(json, "description", app->summary, sizeof app->summary);
     json_get_string(json, "icon", app->icon, sizeof app->icon);
     json_get_int(json, "hue", &app->hue);
 
+    const char *perms = json_value_for(json, "permissions");
+    if(perms && !json_parse_permissions_value(perms, &app->permissions)) return false;
+
     if(!safe_id(app->id) || !safe_entry(app->entry)) return false;
+    if(!api_version_supported(app->api_version)) return false;
     if(app->hue < -1 || app->hue > 359) app->hue = -1;
 
     char entry_path[160];

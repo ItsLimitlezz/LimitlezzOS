@@ -77,7 +77,8 @@ static void sim_mkdirs(const char *path)
 static void sim_write_local_app(const char *datadir, const char *slug,
                                 const char *id, const char *name,
                                 const char *entry_name, const char *icon,
-                                int hue, const char *summary)
+                                int hue, const char *summary,
+                                const char *permissions_json)
 {
     char dir[160], path[192];
     snprintf(dir, sizeof dir, "%s/apps/%s", datadir, slug);
@@ -88,8 +89,9 @@ static void sim_write_local_app(const char *datadir, const char *slug,
     if(mf) {
         fprintf(mf, "{\"id\":\"%s\",\"name\":\"%s\",\"version\":\"0.1.0\","
                     "\"author\":\"Limitless\",\"entry\":\"%s\",\"icon\":\"%s\","
-                    "\"hue\":%d,\"summary\":\"%s\"}",
-                id, name, entry_name, icon, hue, summary);
+                    "\"hue\":%d,\"api_version\":\"0.1\",\"permissions\":%s,"
+                    "\"summary\":\"%s\"}",
+                id, name, entry_name, icon, hue, permissions_json, summary);
         fclose(mf);
     }
 
@@ -101,13 +103,17 @@ static void sim_write_local_app(const char *datadir, const char *slug,
 static void sim_seed_local_app(const char *datadir)
 {
     sim_write_local_app(datadir, "weather", "weather.mesh", "Weather Mesh",
-                        "main.lua", "weather", 48, "Local weather dashboard");
+                        "main.lua", "weather", 48, "Local weather dashboard",
+                        "[\"display\",\"input\",\"storage\",\"mesh_read\",\"system_time\",\"battery\"]");
     sim_write_local_app(datadir, "notes", "notes.local", "Field Notes",
-                        "main.lua", "note", 175, "Scratchpad for field work");
+                        "main.lua", "note", 175, "Scratchpad for field work",
+                        "[\"display\",\"input\",\"storage\"]");
     sim_write_local_app(datadir, "scope", "scope.local", "Signal Scope",
-                        "main.lua", "terminal", 210, "Packet and RSSI viewer");
+                        "main.lua", "terminal", 210, "Packet and RSSI viewer",
+                        "[\"display\",\"input\",\"mesh_read\",\"system_time\",\"battery\"]");
     sim_write_local_app(datadir, "maps", "maps.local", "Offline Maps",
-                        "main.lua", "map", 110, "Local map shell");
+                        "main.lua", "map", 110, "Local map shell",
+                        "[\"display\",\"input\",\"storage\"]");
 }
 
 static bool g_headless;
@@ -284,6 +290,12 @@ static void shots(const char *dir)
             lz_rebuild();
             pump(60);
             snprintf(path, sizeof path, "%s/07b-local-app.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_DOWN, 0);
+            lz_ui_key(LZ_K_DOWN, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07c-local-app-permissions.bmp", dir);
             write_bmp(path);
             printf("wrote %s\n", path);
         }
@@ -597,17 +609,28 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appscan");
         sim_mkdirs("lzdata_appscan/apps/weather");
         sim_mkdirs("lzdata_appscan/apps/bad");
+        sim_mkdirs("lzdata_appscan/apps/badperm");
         FILE *mf = fopen("lzdata_appscan/apps/weather/manifest.json", "wb");
         if(mf) {
             fputs("{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
                   "\"author\":\"Limitless\",\"entry\":\"main.lua\",\"icon\":\"weather\","
-                  "\"hue\":48,\"summary\":\"Local weather dashboard\"}", mf);
+                  "\"hue\":48,\"api_version\":\"0.1\","
+                  "\"permissions\":[\"display\",\"input\",\"storage\"],"
+                  "\"summary\":\"Local weather dashboard\"}", mf);
             fclose(mf);
         }
         FILE *entry = fopen("lzdata_appscan/apps/weather/main.lua", "wb");
         if(entry) { fputs("return true\n", entry); fclose(entry); }
         FILE *bad = fopen("lzdata_appscan/apps/bad/manifest.json", "wb");
         if(bad) { fputs("{\"id\":\"../bad\",\"name\":\"Bad\",\"entry\":\"missing.lua\"}", bad); fclose(bad); }
+        FILE *bpm = fopen("lzdata_appscan/apps/badperm/manifest.json", "wb");
+        if(bpm) {
+            fputs("{\"id\":\"badperm.local\",\"name\":\"Bad Perm\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"raw_radio\"]}", bpm);
+            fclose(bpm);
+        }
+        FILE *bpe = fopen("lzdata_appscan/apps/badperm/main.lua", "wb");
+        if(bpe) { fputs("return true\n", bpe); fclose(bpe); }
 
         lz_store_init("lzdata_appscan");
         lz_local_app_t apps[4];
@@ -616,6 +639,12 @@ static int codec_selftest(void)
         CHECK(an == 1 && strcmp(apps[0].id, "weather.mesh") == 0, "local app scanner keeps manifest id");
         CHECK(an == 1 && strcmp(apps[0].entry, "main.lua") == 0, "local app scanner keeps safe entry");
         CHECK(an == 1 && apps[0].hue == 48, "local app scanner keeps tile hue");
+        CHECK(an == 1 && strcmp(apps[0].api_version, "0.1") == 0, "local app scanner keeps API version");
+        CHECK(an == 1 && (apps[0].permissions & LZ_APP_PERM_DISPLAY) &&
+              (apps[0].permissions & LZ_APP_PERM_INPUT) &&
+              (apps[0].permissions & LZ_APP_PERM_STORAGE) &&
+              !(apps[0].permissions & LZ_APP_PERM_MESH_SEND),
+              "local app scanner keeps allowlisted permissions");
         lz_store_init(NULL);
         sim_reset_dir("lzdata_appscan");
     }

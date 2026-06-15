@@ -41,6 +41,8 @@ Example:
   "author": "Limitless",
   "summary": "Local weather dashboard",
   "entry": "main.lua",
+  "api_version": "0.1",
+  "permissions": ["display", "input", "storage", "mesh_read", "system_time"],
   "icon": "weather",
   "hue": 48
 }
@@ -58,10 +60,26 @@ Optional:
 
 - `version`: shown in App Store and app detail, defaults to `0.0.0`
 - `author`: shown in App Store and app detail, defaults to `local`
+- `api_version`: SDK compatibility gate, defaults to `0.1`; unsupported values
+  are rejected
+- `permissions`: array of API namespace names, defaults to `["display",
+  "input"]` for simple legacy manifests
 - `summary` or `description`: short display text
 - `icon`: token such as `calculate`, `note`, `weather`, `map`, `game`,
   `terminal`, `folder`, or `description`
 - `hue`: tile hue hint; unsupported values fall back to the neutral tile color
+
+Supported permission names:
+
+- `display`
+- `input`
+- `storage`
+- `mesh_read`
+- `mesh_send`
+- `system_time`
+- `battery`
+- `notifications`
+- `network_wifi`
 
 ## Safety Rules
 
@@ -72,7 +90,10 @@ The scanner rejects packages when:
 - `id` contains path separators or unsafe characters
 - `entry` is absolute, contains `..`, contains a Windows drive separator, or is
   missing on disk
+- `api_version` names an unsupported SDK version
+- `permissions` is not an array of supported namespace strings
 
 The current firmware only scans and displays local app manifests. Script
-execution, sandbox APIs, permissions, app data quotas, and network catalog
-installs remain later app-platform work.
+execution, sandbox API injection, app data quotas, and network catalog installs
+remain later app-platform work. Permission metadata is parsed and displayed now
+so packages can fail closed before the runtime is added.

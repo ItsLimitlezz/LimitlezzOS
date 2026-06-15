@@ -28,6 +28,16 @@ extern "C" {
 #define LZ_TEXT_MAX     200
 #define LZ_MAX_LOCAL_APPS 12
 
+#define LZ_APP_PERM_DISPLAY       0x0001u
+#define LZ_APP_PERM_INPUT         0x0002u
+#define LZ_APP_PERM_STORAGE       0x0004u
+#define LZ_APP_PERM_MESH_READ     0x0008u
+#define LZ_APP_PERM_MESH_SEND     0x0010u
+#define LZ_APP_PERM_SYSTEM_TIME   0x0020u
+#define LZ_APP_PERM_BATTERY       0x0040u
+#define LZ_APP_PERM_NOTIFICATIONS 0x0080u
+#define LZ_APP_PERM_NETWORK_WIFI  0x0100u
+
 /* MeshCore (2nd RF profile, TDM with Meshtastic) is built but not receive-ready,
  * so it's shown as "Coming soon" / grayed for the Alpha. Default off; a dev/sim
  * build can enable the V0.6 work with -DLZ_MESHCORE_ENABLED=1. */
@@ -131,8 +141,10 @@ typedef struct {
     char author[28];
     char summary[72];
     char entry[48];              /* relative script entrypoint */
+    char api_version[12];        /* SDK compatibility gate */
     char icon[20];               /* symbolic icon token, mapped by UI */
     char path[112];              /* package directory */
+    uint16_t permissions;         /* LZ_APP_PERM_* declared by manifest */
     int  hue;                    /* tile hue, -1 = neutral */
 } lz_local_app_t;
 

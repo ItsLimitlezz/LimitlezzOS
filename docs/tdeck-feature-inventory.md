@@ -91,9 +91,9 @@ Status labels:
 | Feature | Status | Evidence | Gap / Next Action |
 | --- | --- | --- | --- |
 | Lua sandbox | Planned | Design spec section 9 | Choose Lua/eLua/minimal interpreter after memory profiling. |
-| App manifest | Partial | `docs/tdeck-local-app-manifest.md`; bounded manifest parser requires `id`, `name`, and relative `entry`, with optional version/author/summary/icon/hue | Extend once the runtime and permission model are chosen. |
-| App permissions | Planned | Design spec API namespaces | Implement least-privilege API injection. |
-| Local app scanner | Partial | `lz_store_scan_apps` scans `/sd/limitlezz/apps`, `/sd/apps`, `/appfs/apps`, and simulator `<datadir>/apps`; accepted apps appear in the paged Home launcher and App Store; simulator selftest covers a valid app and a rejected unsafe package | Add runtime execution, app lifecycle, data quotas, and appfs mount validation once memory profiling picks a runtime. |
+| App manifest | Partial | `docs/tdeck-local-app-manifest.md`; bounded manifest parser requires `id`, `name`, and relative `entry`, with optional version/author/summary/icon/hue plus SDK `api_version` and permission metadata | Extend once the runtime lifecycle and package actions are chosen. |
+| App permissions | Partial | Local manifests can declare allowlisted SDK namespaces (`display`, `input`, `storage`, mesh, time, battery, notifications, Wi-Fi); unknown permission names reject the package before Home/App Store | Implement least-privilege API injection when the runtime is selected. |
+| Local app scanner | Partial | `lz_store_scan_apps` scans `/sd/limitlezz/apps`, `/sd/apps`, `/appfs/apps`, and simulator `<datadir>/apps`; accepted apps appear in the paged Home launcher and App Store; simulator selftest covers valid metadata plus rejected unsafe packages | Add runtime execution, app lifecycle, data quotas, and appfs mount validation once memory profiling picks a runtime. |
 | Network app catalog | Planned | Wi-Fi service notes; design spec | Fetch `index.json`, verify TLS/metadata, cache results. |
 | App download/install/update | Planned | App Store prototype only | SHA256 verify, extract, version updates, rollback failed installs. |
 | Optional map app | Planned | Store data includes maps; maintainer notes prefer maps as optional | Keep maps out of the base firmware. |
