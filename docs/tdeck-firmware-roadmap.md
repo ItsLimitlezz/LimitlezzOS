@@ -41,7 +41,7 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
-| V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | ⬜ Not started |
+| V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner, Home paging, and detail shell started; runtime/catalog still TODO |
 | V0.96 | Upgraded Wi-Fi password storage | ⬜ Not started |
 
 ## Phase 0 - Stabilize The Baseline
@@ -90,7 +90,10 @@ Deliverables:
   Implemented for basic GPS position, altitude, precision, device battery/voltage/uptime,
   and environment temperature/humidity/pressure metrics.
 - Keep radio settings simple in the primary UI; advanced region/preset/channel controls, if added, belong in Developer Mode.
-- Replace static Files screen with a read-only SD/appfs browser. Implemented for mounted SD/local store; appfs mount support remains V0.95 app-platform work.
+- Replace static Files screen with a read-only SD/appfs browser. Implemented:
+  Files exposes mounted SD/local storage and the mounted FAT `appfs` partition
+  through a storage-root picker, with browsing constrained under the selected
+  root.
 - Add hardware dogfood checklist against stock Meshtastic devices. Created as `docs/tdeck-hardware-dogfood-checklist.md`; 2026-06-14 COM8 flash and USB CLI smoke evidence is logged there, and `scripts/tdeck_smoke.py` now gives both Windows and Linux developers a repeatable serial-smoke path. Stock Meshtastic peer dogfood still needs a passing run before calling Phase 1 shippable.
 
 Exit criteria:
@@ -221,19 +224,64 @@ Deliverables:
   - app script entrypoint
   - optional assets
   - per-app data directory
-- Implement local app scanner for `/apps`.
-- Fix the Home UI so installed apps can be added as launcher icons.
-- Add multiple Home screens/pages so the built-in app grid can grow without cluttering the first screen.
-- Add app launcher integration for installed apps.
+  Implemented for the first local scanner step in
+  `docs/tdeck-local-app-manifest.md`: each package has a bounded manifest, a
+  relative entry file, optional assets, a local package directory, and scoped
+  `data/` preparation for apps that declare the `storage` permission.
+- Implement local app scanner for `/apps`. Implemented for local storage:
+  firmware scans `/sd/limitlezz/apps`, `/sd/apps`, and `/appfs/apps`; the
+  simulator scans `<datadir>/apps` and optional `<datadir>/appfs/apps`. Unsafe
+  IDs/entry paths and packages without an entry file are rejected before
+  reaching the UI. Appfs-only discovery is supported when SD persistence is
+  absent.
+- Fix the Home UI so installed apps can be added as launcher icons. Partially
+  implemented: scanned local apps fill the Home launcher after built-ins and
+  continue across 4x2 pages with page dots when needed.
+- Add multiple Home screens/pages so the built-in app grid can grow without
+  cluttering the first screen. Implemented for local manifest apps; full app
+  lifecycle and sandbox execution remain below.
+- Add app launcher integration for installed apps. Partially implemented:
+  Home opens scanned local apps in an SDK 0.1 foreground shell that reads
+  bounded display metadata and up to two bounded foreground actions from the
+  entry file, including a storage-scoped counter effect for apps that request
+  `storage`; unknown action effects and malformed counter effects are
+  launch-blocked instead of ignored. App sessions terminate on exit; App Store
+  opens the manifest detail shell with a trackball-accessible `OPEN` action.
+  Script execution and richer injected runtime APIs remain below, with initial
+  read-only `{time}` and `{battery}` token injection now routed through
+  declared `system_time` and `battery` permissions.
+- Parse app SDK metadata and permission namespaces from manifests. Implemented
+  for SDK `0.1`: unknown permissions and unsupported SDK versions are rejected
+  before reaching the launcher; API injection remains below.
 - Enforce foreground-only app lifecycle.
+  Initial implementation: local apps open in a single foreground session and
+  exit back to the launcher/detail path; foreground actions can update only the
+  current session body/status plus scoped counter state, and background
+  execution is not exposed.
 - Enforce memory cap through the runtime allocator or equivalent guard.
 - Implement a small initial SDK:
   - UI primitives compatible with the T-Deck screen
   - mesh send/receive API through the service, not radio hardware
-  - storage API scoped to app directory
+  - storage API scoped to app directory. Groundwork implemented: accepted local
+    apps that declare `storage` get `<package>/data` prepared and surfaced in
+    the detail shell, and launch is blocked when the current `data/` tree
+    exceeds the early 64 KB quota. SDK 0.1 foreground actions can increment a
+    safe counter file inside that scoped data directory, and App Store detail
+    can clear only that scoped data directory; richer runtime API calls and
+    richer quota controls remain below. Unsupported action effects and malformed
+    counter keys are rejected before the foreground shell opens.
+  - read-only system values. Groundwork implemented: SDK 0.1 entry and action
+    text can use `{time}` and `{battery}` only when the manifest declares the
+    matching `system_time` or `battery` permission; missing permissions block
+    launch before the app shell opens.
   - notification request API routed through Feedback Manager
   - no direct hardware access
-- Add Developer Mode app diagnostics and crash/error display.
+- Add Developer Mode app diagnostics and crash/error display. Partially
+  implemented: rejected local package folders appear in App Store under
+  Developer Mode with bounded rejection reasons; launch-blocked errors render in
+  the local app foreground shell for oversized entry files and over-quota app
+  data, and display-only apps that declare actions are blocked for missing input
+  permission, while runtime crash capture remains below.
 - Convert prototype catalog examples into installable sample apps where practical:
   - Calculator
   - Notes

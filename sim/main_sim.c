@@ -58,39 +58,127 @@ static SDL_Texture *tex;
 
 uint32_t lz_tick_ms(void) { return SDL_GetTicks(); }
 
+/* sim_reset_dir() lives in sim_fs.c (recursive, Windows-safe) — included via sim_fs.h */
+
+static void sim_mkdirs(const char *path)
+{
+    char cmd[256];
+#ifdef _WIN32
+    snprintf(cmd, sizeof cmd, "if not exist \"%s\" mkdir \"%s\"", path, path);
+#else
+    snprintf(cmd, sizeof cmd, "mkdir -p '%s'", path);
+#endif
+    system(cmd);
+}
+
+static void sim_write_bytes(const char *path, int bytes)
+{
+    FILE *f = fopen(path, "wb");
+    if(!f) return;
+    for(int i = 0; i < bytes; i++) fputc('x', f);
+    fclose(f);
+}
+
+static void sim_write_local_app(const char *datadir, const char *slug,
+                                const char *id, const char *name,
+                                const char *entry_name, const char *icon,
+                                int hue, const char *summary,
+                                const char *permissions_json)
+{
+    char dir[160], path[192];
+    snprintf(dir, sizeof dir, "%s/apps/%s", datadir, slug);
+    sim_mkdirs(dir);
+
+    snprintf(path, sizeof path, "%s/manifest.json", dir);
+    FILE *mf = fopen(path, "wb");
+    if(mf) {
+        fprintf(mf, "{\"id\":\"%s\",\"name\":\"%s\",\"version\":\"0.1.0\","
+                    "\"author\":\"Limitless\",\"entry\":\"%s\",\"icon\":\"%s\","
+                    "\"hue\":%d,\"api_version\":\"0.1\",\"permissions\":%s,"
+                    "\"summary\":\"%s\"}",
+                id, name, entry_name, icon, hue, permissions_json, summary);
+        fclose(mf);
+    }
+
+    snprintf(path, sizeof path, "%s/%s", dir, entry_name);
+    FILE *entry = fopen(path, "wb");
+    if(entry) {
+        bool has_storage = strstr(permissions_json, "\"storage\"") != NULL;
+        bool has_time = strstr(permissions_json, "\"system_time\"") != NULL;
+        bool has_battery = strstr(permissions_json, "\"battery\"") != NULL;
+        fprintf(entry, "-- title: %s\n"
+                       "-- status: %s\n"
+                       "-- body: %s\n",
+                name,
+                has_time ? "SDK 0.1 foreground sandbox at {time}"
+                         : "SDK 0.1 foreground sandbox",
+                summary);
+        if(has_time) fprintf(entry, "-- body: Local time {time}\n");
+        if(has_battery) fprintf(entry, "-- body: Device battery {battery}\n");
+        fprintf(entry, "-- action: Refresh | %s | %s%s\n"
+                       "return true\n",
+                has_storage ? (has_time ? "SDK action {time} #{count}" : "SDK action #{count}")
+                            : (has_time ? "SDK action {time}" : "SDK action handled"),
+                name,
+                has_storage ? " refresh count: {count} stored in scoped app data. | counter:refreshes"
+                            : " refreshed from a bounded foreground action.");
+        fclose(entry);
+    }
+}
+
+static void sim_seed_local_app(const char *datadir)
+{
+    char dir[160], path[192];
+    sim_write_local_app(datadir, "weather", "weather.mesh", "Weather Mesh",
+                        "main.lua", "weather", 48, "Local weather dashboard",
+                        "[\"display\",\"input\",\"storage\",\"mesh_read\",\"system_time\",\"battery\"]");
+    sim_write_local_app(datadir, "notes", "notes.local", "Field Notes",
+                        "main.lua", "note", 175, "Scratchpad for field work",
+                        "[\"display\",\"input\",\"storage\"]");
+    sim_write_local_app(datadir, "scope", "scope.local", "Signal Scope",
+                        "main.lua", "terminal", 210, "Packet and RSSI viewer",
+                        "[\"display\",\"input\",\"mesh_read\",\"system_time\",\"battery\"]");
+    sim_write_local_app(datadir, "maps", "maps.local", "Offline Maps",
+                        "main.lua", "map", 110, "Local map shell",
+                        "[\"display\",\"input\",\"storage\"]");
+
+    snprintf(dir, sizeof dir, "%s/apps/badperm", datadir);
+    sim_mkdirs(dir);
+    snprintf(path, sizeof path, "%s/manifest.json", dir);
+    FILE *badperm = fopen(path, "wb");
+    if(badperm) {
+        fputs("{\"id\":\"badperm.local\",\"name\":\"Bad Perm\",\"entry\":\"main.lua\","
+              "\"permissions\":[\"display\",\"raw_radio\"]}", badperm);
+        fclose(badperm);
+    }
+    snprintf(path, sizeof path, "%s/main.lua", dir);
+    FILE *bpe = fopen(path, "wb");
+    if(bpe) { fputs("return true\n", bpe); fclose(bpe); }
+
+    snprintf(dir, sizeof dir, "%s/apps/missing-entry", datadir);
+    sim_mkdirs(dir);
+    snprintf(path, sizeof path, "%s/manifest.json", dir);
+    FILE *missing = fopen(path, "wb");
+    if(missing) {
+        fputs("{\"id\":\"missing.entry\",\"name\":\"Missing Entry\",\"entry\":\"missing.lua\"}", missing);
+        fclose(missing);
+    }
+}
+
+static void sim_seed_appfs(const char *datadir)
+{
+    char appfs[160];
+    snprintf(appfs, sizeof appfs, "%s/appfs", datadir);
+    sim_mkdirs(appfs);
+    sim_write_local_app(appfs, "calculator", "calc.local", "Calculator",
+                        "main.lua", "calculate", 18, "Field calculator",
+                        "[\"display\",\"input\"]");
+}
+
 static bool g_headless;
 /* incoming radio data → rebuild the current screen (live and headless alike);
  * lz_rebuild pins an open conversation to the newest message */
 static void on_dirty(void) { lz_rebuild(); }
-
-/* sim_reset_dir() lives in sim_fs.c (recursive, Windows-safe) — included via sim_fs.h */
-
-static int sim_mkdir_one(const char *path)
-{
-#ifdef _WIN32
-    return (_mkdir(path) == 0 || errno == EEXIST) ? 0 : -1;
-#else
-    return (mkdir(path, 0777) == 0 || errno == EEXIST) ? 0 : -1;
-#endif
-}
-
-static void sim_mkdirs(const char *path)
-{
-    char tmp[512];
-    snprintf(tmp, sizeof tmp, "%s", path);
-    for(char *p = tmp; *p; p++) {
-        if(*p != '/' && *p != '\\') continue;
-        char sep = *p;
-        *p = 0;
-        if(tmp[0] && !(strlen(tmp) == 2 && tmp[1] == ':'))
-            sim_mkdir_one(tmp);
-        *p = sep;
-    }
-    if(tmp[0] && sim_mkdir_one(tmp) != 0) {
-        fprintf(stderr, "error: could not create %s\n", path);
-        exit(2);
-    }
-}
 
 /* mouse = touchscreen */
 static int32_t m_x, m_y;
@@ -185,6 +273,8 @@ static void tap_at(int x, int y)
 
 static void shots(const char *dir)
 {
+    sim_mkdirs(dir);
+
     static const struct { lz_view_t v; const char *name; } SHOTS[] = {
         { LZ_V_LOCK, "01-lock" },           { LZ_V_HOME, "02-home" },
         { LZ_V_MESSAGES, "03-messages" },   { LZ_V_CONVO, "04-conversation" },
@@ -232,6 +322,7 @@ static void shots(const char *dir)
     for(unsigned i = 0; i < sizeof(SHOTS) / sizeof(SHOTS[0]); i++) {
         S.view = SHOTS[i].v;
         S.focus = 0;
+        if(SHOTS[i].v == LZ_V_HOME) S.home_page = 0;
         if(SHOTS[i].v == LZ_V_CONVO) { S.convo = lz_svc_thread_at(0);   /* newest = Ava */
                                        lz_svc_open_thread(S.convo); S.draft[0] = 0; }
         if(SHOTS[i].v == LZ_V_CONTACT) S.contact_sel = ava;
@@ -240,6 +331,70 @@ static void shots(const char *dir)
         snprintf(path, sizeof path, "%s/%s.bmp", dir, SHOTS[i].name);
         write_bmp(path);
         printf("wrote %s\n", path);
+    }
+
+    S.view = LZ_V_HOME;
+    S.home_page = 0;
+    S.focus = 3;
+    lz_rebuild();
+    pump(60);
+    lz_ui_key(LZ_K_RIGHT, 0);
+    pump(60);
+    snprintf(path, sizeof path, "%s/02b-home-page2.bmp", dir);
+    write_bmp(path);
+    printf("wrote %s\n", path);
+
+    {
+        lz_local_app_t local[LZ_MAX_LOCAL_APPS];
+        int local_n = lz_svc_scan_apps(local, LZ_MAX_LOCAL_APPS);
+        if(local_n > 0) {
+            lz_local_app_t *shot_app = &local[0];
+            for(int i = 0; i < local_n; i++)
+                if(strcmp(local[i].id, "weather.mesh") == 0) shot_app = &local[i];
+            S.local_app_sel = *shot_app;
+            S.view = LZ_V_LOCALAPP;
+            S.focus = 0;
+            lz_rebuild();
+            pump(60);
+            snprintf(path, sizeof path, "%s/07b-local-app.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_DOWN, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07c-local-app-data-actions.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_ENTER, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07c2-local-app-data-cleared.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_UP, 0);
+            pump(30);
+            lz_ui_key(LZ_K_ENTER, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07e-local-app-run.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_ENTER, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07f-local-app-action.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+        }
+    }
+
+    {
+        bool old_dev = S.settings.developer;
+        S.settings.developer = true;
+        S.view = LZ_V_APPSTORE;
+        S.focus = 4;        /* first catalog row; keeps rejected-app diagnostics in view */
+        lz_rebuild();
+        pump(60);
+        snprintf(path, sizeof path, "%s/07d-appstore-diagnostics.bmp", dir);
+        write_bmp(path);
+        printf("wrote %s\n", path);
+        S.settings.developer = old_dev;
     }
 
     /* behavior scenarios, driven through the real key path */
@@ -284,7 +439,9 @@ static void shots(const char *dir)
     write_bmp(path); printf("wrote %s\n", path);
 
     /* App Store install: GET -> "..." -> OPEN */
-    S.view = LZ_V_APPSTORE; S.focus = 0; lz_rebuild();
+    { lz_local_app_t local[LZ_MAX_LOCAL_APPS];
+      S.focus = lz_svc_scan_apps(local, LZ_MAX_LOCAL_APPS); }
+    S.view = LZ_V_APPSTORE; lz_rebuild();
     lz_ui_key(LZ_K_ENTER, 0);
     pump(60);
     snprintf(path, sizeof path, "%s/19-store-installing.bmp", dir);
@@ -561,7 +718,337 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
-    /* 10. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 10. local app scanner: valid manifests become local apps; broken packages
+     *    are ignored before they can reach Home/App Store. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_set_appfs_root(const char *root);
+        extern int  lz_store_file_roots(const char **out, int cap);
+        extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+        extern int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
+        extern bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                                              char *err, int err_cap);
+        extern bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
+                                            char *err, int err_cap);
+        extern bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
+        extern bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
+        extern bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
+        sim_reset_dir("lzdata_appscan");
+        sim_mkdirs("lzdata_appscan/apps/weather");
+        sim_mkdirs("lzdata_appscan/apps/bad");
+        sim_mkdirs("lzdata_appscan/apps/badperm");
+        FILE *mf = fopen("lzdata_appscan/apps/weather/manifest.json", "wb");
+        if(mf) {
+            fputs("{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
+                  "\"author\":\"Limitless\",\"entry\":\"main.lua\",\"icon\":\"weather\","
+                  "\"hue\":48,\"api_version\":\"0.1\","
+                  "\"permissions\":[\"display\",\"input\",\"storage\"],"
+                  "\"summary\":\"Local weather dashboard\"}", mf);
+            fclose(mf);
+        }
+        FILE *entry = fopen("lzdata_appscan/apps/weather/main.lua", "wb");
+        if(entry) {
+            fputs("-- title: Weather Mesh\n"
+                  "-- status: SDK 0.1 foreground sandbox\n"
+                  "-- body: Local weather dashboard\n"
+                  "-- action: Refresh | Forecast refreshed #{count} | Fresh local forecast count {count} | counter:refreshes\n"
+                  "return true\n", entry);
+            fclose(entry);
+        }
+        FILE *bad = fopen("lzdata_appscan/apps/bad/manifest.json", "wb");
+        if(bad) { fputs("{\"id\":\"../bad\",\"name\":\"Bad\",\"entry\":\"missing.lua\"}", bad); fclose(bad); }
+        FILE *bpm = fopen("lzdata_appscan/apps/badperm/manifest.json", "wb");
+        if(bpm) {
+            fputs("{\"id\":\"badperm.local\",\"name\":\"Bad Perm\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"raw_radio\"]}", bpm);
+            fclose(bpm);
+        }
+        FILE *bpe = fopen("lzdata_appscan/apps/badperm/main.lua", "wb");
+        if(bpe) { fputs("return true\n", bpe); fclose(bpe); }
+
+        lz_store_init("lzdata_appscan");
+        lz_local_app_t apps[4];
+        int an = lz_store_scan_apps(apps, 4);
+        CHECK(an == 1, "local app scanner loads one valid manifest");
+        CHECK(an == 1 && strcmp(apps[0].id, "weather.mesh") == 0, "local app scanner keeps manifest id");
+        CHECK(an == 1 && strcmp(apps[0].entry, "main.lua") == 0, "local app scanner keeps safe entry");
+        CHECK(an == 1 && apps[0].hue == 48, "local app scanner keeps tile hue");
+        CHECK(an == 1 && strcmp(apps[0].api_version, "0.1") == 0, "local app scanner keeps API version");
+        CHECK(an == 1 && (apps[0].permissions & LZ_APP_PERM_DISPLAY) &&
+              (apps[0].permissions & LZ_APP_PERM_INPUT) &&
+              (apps[0].permissions & LZ_APP_PERM_STORAGE) &&
+              !(apps[0].permissions & LZ_APP_PERM_MESH_SEND),
+              "local app scanner keeps allowlisted permissions");
+        char data_path[128], data_err[48];
+        bool data_ok = an == 1 && lz_store_prepare_app_data(&apps[0], data_path, sizeof data_path,
+                                                            data_err, sizeof data_err);
+        CHECK(data_ok, "local app storage sandbox prepares");
+        CHECK(data_ok && strstr(data_path, "weather/data") != NULL,
+              "local app storage sandbox stays inside package");
+        sim_write_bytes("lzdata_appscan/apps/weather/data/cache.bin", 1536);
+        uint32_t used = 0, quota = 0;
+        bool usage_ok = an == 1 && lz_store_app_data_usage(&apps[0], &used, &quota,
+                                                           data_err, sizeof data_err);
+        CHECK(usage_ok && used == 1536, "local app data quota counts bytes");
+        CHECK(usage_ok && quota == LZ_LOCAL_APP_DATA_QUOTA_BYTES, "local app data quota is reported");
+        lz_local_app_session_t run;
+        bool run_ok = an == 1 && lz_store_start_local_app(&apps[0], &run);
+        CHECK(run_ok, "local app foreground session starts");
+        CHECK(run_ok && run.entry_loaded && strcmp(run.title, "Weather Mesh") == 0,
+              "local app foreground session reads entry metadata");
+        CHECK(run_ok && strstr(run.body, "Local weather dashboard") != NULL,
+              "local app foreground session renders bounded body text");
+        CHECK(run_ok && run.storage_ready && strstr(run.data_path, "weather/data") != NULL &&
+              run.data_used_bytes == 1536,
+              "local app foreground session keeps scoped storage");
+        CHECK(run_ok && run.action_count == 1 && strcmp(run.actions[0].label, "Refresh") == 0,
+              "local app foreground session exposes bounded action");
+        bool action_ok = run_ok && lz_store_local_app_action(&run, 0);
+        CHECK(action_ok && run.action_last == 1 &&
+              strcmp(run.status, "Forecast refreshed #1") == 0 &&
+              strstr(run.body, "count 1") != NULL,
+              "local app foreground action updates sandbox session");
+        bool action2_ok = run_ok && lz_store_local_app_action(&run, 0);
+        CHECK(action2_ok && strcmp(run.status, "Forecast refreshed #2") == 0 &&
+              strstr(run.body, "count 2") != NULL,
+              "local app foreground storage counter persists");
+        CHECK(action2_ok && run.data_used_bytes > 1536,
+              "local app foreground storage counter stays in app data quota");
+        bool clear_ok = an == 1 && lz_store_clear_app_data(&apps[0], data_err, sizeof data_err);
+        CHECK(clear_ok, "local app clear data succeeds inside scoped storage");
+        used = 123;
+        usage_ok = an == 1 && lz_store_app_data_usage(&apps[0], &used, &quota,
+                                                      data_err, sizeof data_err);
+        CHECK(usage_ok && used == 0, "local app clear data resets quota usage");
+        sim_write_bytes("lzdata_appscan/apps/weather/data/too-big.bin",
+                        (int)LZ_LOCAL_APP_DATA_QUOTA_BYTES + 1);
+        lz_local_app_session_t over;
+        bool over_ok = an == 1 && lz_store_start_local_app(&apps[0], &over);
+        CHECK(!over_ok && strcmp(over.error, "data quota exceeded") == 0,
+              "local app foreground session blocks over-quota data");
+        sim_mkdirs("lzdata_appscan/apps/noinput");
+        FILE *nim = fopen("lzdata_appscan/apps/noinput/manifest.json", "wb");
+        if(nim) {
+            fputs("{\"id\":\"noinput.local\",\"name\":\"No Input\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\"]}", nim);
+            fclose(nim);
+        }
+        FILE *nie = fopen("lzdata_appscan/apps/noinput/main.lua", "wb");
+        if(nie) {
+            fputs("-- body: Display-only app\n"
+                  "-- action: Press me | Should not run | Missing input permission\n", nie);
+            fclose(nie);
+        }
+        lz_local_app_t action_apps[4];
+        int actn = lz_store_scan_apps(action_apps, 4);
+        lz_local_app_t *noinput = NULL;
+        for(int i = 0; i < actn; i++)
+            if(strcmp(action_apps[i].id, "noinput.local") == 0) noinput = &action_apps[i];
+        lz_local_app_session_t noinput_run;
+        bool noinput_ok = noinput && lz_store_start_local_app(noinput, &noinput_run);
+        CHECK(!noinput_ok && noinput && strcmp(noinput_run.error, "input permission missing") == 0,
+              "local app foreground action requires input permission");
+        sim_mkdirs("lzdata_appscan/apps/nostore");
+        FILE *nsm = fopen("lzdata_appscan/apps/nostore/manifest.json", "wb");
+        if(nsm) {
+            fputs("{\"id\":\"nostore.local\",\"name\":\"No Store\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\"]}", nsm);
+            fclose(nsm);
+        }
+        FILE *nse = fopen("lzdata_appscan/apps/nostore/main.lua", "wb");
+        if(nse) {
+            fputs("-- body: Input app without storage\n"
+                  "-- action: Count | Count #{count} | Missing storage permission | counter:presses\n", nse);
+            fclose(nse);
+        }
+        lz_local_app_t perm_apps[LZ_MAX_LOCAL_APPS];
+        int permn = lz_store_scan_apps(perm_apps, LZ_MAX_LOCAL_APPS);
+        lz_local_app_t *nostore = NULL;
+        for(int i = 0; i < permn; i++)
+            if(strcmp(perm_apps[i].id, "nostore.local") == 0) nostore = &perm_apps[i];
+        lz_local_app_session_t nostore_run;
+        bool nostore_ok = nostore && lz_store_start_local_app(nostore, &nostore_run);
+        CHECK(!nostore_ok && nostore && strcmp(nostore_run.error, "storage permission missing") == 0,
+              "local app foreground storage action requires storage permission");
+        sim_mkdirs("lzdata_appscan/apps/badcounter");
+        FILE *bcm = fopen("lzdata_appscan/apps/badcounter/manifest.json", "wb");
+        if(bcm) {
+            fputs("{\"id\":\"badcounter.local\",\"name\":\"Bad Counter\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\",\"storage\"]}", bcm);
+            fclose(bcm);
+        }
+        FILE *bce = fopen("lzdata_appscan/apps/badcounter/main.lua", "wb");
+        if(bce) {
+            fputs("-- body: Counter effect with unsafe key\n"
+                  "-- action: Count | Counted | Should not run | counter:../shared\n", bce);
+            fclose(bce);
+        }
+        sim_mkdirs("lzdata_appscan/apps/badeffect");
+        FILE *bem = fopen("lzdata_appscan/apps/badeffect/manifest.json", "wb");
+        if(bem) {
+            fputs("{\"id\":\"badeffect.local\",\"name\":\"Bad Effect\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\"]}", bem);
+            fclose(bem);
+        }
+        FILE *bee = fopen("lzdata_appscan/apps/badeffect/main.lua", "wb");
+        if(bee) {
+            fputs("-- body: Unsupported action effect\n"
+                  "-- action: Raw TX | Should not run | Raw radio must fail closed | radio:raw\n", bee);
+            fclose(bee);
+        }
+        lz_local_app_t effect_apps[LZ_MAX_LOCAL_APPS];
+        int effectn = lz_store_scan_apps(effect_apps, LZ_MAX_LOCAL_APPS);
+        lz_local_app_t *badcounter = NULL, *badeffect = NULL;
+        for(int i = 0; i < effectn; i++) {
+            if(strcmp(effect_apps[i].id, "badcounter.local") == 0) badcounter = &effect_apps[i];
+            if(strcmp(effect_apps[i].id, "badeffect.local") == 0) badeffect = &effect_apps[i];
+        }
+        lz_local_app_session_t badcounter_run;
+        bool badcounter_ok = badcounter && lz_store_start_local_app(badcounter, &badcounter_run);
+        CHECK(!badcounter_ok && badcounter &&
+              strcmp(badcounter_run.error, "bad action effect") == 0,
+              "local app foreground rejects malformed action effects");
+        lz_local_app_session_t badeffect_run;
+        bool badeffect_ok = badeffect && lz_store_start_local_app(badeffect, &badeffect_run);
+        CHECK(!badeffect_ok && badeffect &&
+              strcmp(badeffect_run.error, "unsupported action effect") == 0,
+              "local app foreground rejects unsupported action effects");
+        sim_mkdirs("lzdata_appscan/apps/huge");
+        FILE *hm = fopen("lzdata_appscan/apps/huge/manifest.json", "wb");
+        if(hm) {
+            fputs("{\"id\":\"huge.local\",\"name\":\"Huge Entry\",\"entry\":\"main.lua\"}", hm);
+            fclose(hm);
+        }
+        sim_write_bytes("lzdata_appscan/apps/huge/main.lua", (int)LZ_LOCAL_APP_ENTRY_MAX + 1);
+        lz_local_app_issue_t issues[4];
+        int in = lz_store_scan_app_issues(issues, 4);
+        bool bad_id = false, bad_perm = false;
+        lz_local_app_t huge_apps[LZ_MAX_LOCAL_APPS];
+        int hn = lz_store_scan_apps(huge_apps, LZ_MAX_LOCAL_APPS);
+        lz_local_app_t *huge = NULL;
+        for(int i = 0; i < hn; i++)
+            if(strcmp(huge_apps[i].id, "huge.local") == 0) huge = &huge_apps[i];
+        lz_local_app_session_t huge_run;
+        bool huge_ok = huge && lz_store_start_local_app(huge, &huge_run);
+        CHECK(!huge_ok && huge && strcmp(huge_run.error, "entry too large") == 0,
+              "local app foreground session blocks oversized entry");
+        for(int i = 0; i < in; i++) {
+            if(strcmp(issues[i].package, "bad") == 0 &&
+               strcmp(issues[i].reason, "unsafe id") == 0) bad_id = true;
+            if(strcmp(issues[i].package, "badperm") == 0 &&
+               strcmp(issues[i].reason, "bad permissions") == 0) bad_perm = true;
+        }
+        CHECK(in == 2, "local app diagnostics report rejected packages");
+        CHECK(bad_id, "local app diagnostics explain unsafe id");
+        CHECK(bad_perm, "local app diagnostics explain bad permissions");
+        lz_store_init(NULL);
+        lz_store_set_appfs_root(NULL);
+        sim_reset_dir("lzdata_appscan");
+    }
+
+    /* 10. service-level SDK token injection: dynamic read-only values are
+     *     expanded only when the matching permissions are declared. */
+    {
+        extern void lz_store_init(const char *datadir);
+        sim_reset_dir("lzdata_apptokens");
+        sim_mkdirs("lzdata_apptokens/apps/status");
+        FILE *mf = fopen("lzdata_apptokens/apps/status/manifest.json", "wb");
+        if(mf) {
+            fputs("{\"id\":\"status.local\",\"name\":\"Status Card\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\",\"storage\",\"system_time\",\"battery\"]}",
+                  mf);
+            fclose(mf);
+        }
+        FILE *entry = fopen("lzdata_apptokens/apps/status/main.lua", "wb");
+        if(entry) {
+            fputs("-- status: Opened at {time}\n"
+                  "-- body: Battery {battery} at {time}\n"
+                  "-- action: Refresh | Refreshed {time} | Battery {battery} count {count} | counter:refreshes\n",
+                  entry);
+            fclose(entry);
+        }
+        sim_mkdirs("lzdata_apptokens/apps/notime");
+        FILE *ntm = fopen("lzdata_apptokens/apps/notime/manifest.json", "wb");
+        if(ntm) {
+            fputs("{\"id\":\"notime.local\",\"name\":\"No Time\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\"]}", ntm);
+            fclose(ntm);
+        }
+        FILE *nte = fopen("lzdata_apptokens/apps/notime/main.lua", "wb");
+        if(nte) { fputs("-- body: Needs {time}\n", nte); fclose(nte); }
+        sim_mkdirs("lzdata_apptokens/apps/nobattery");
+        FILE *nbm = fopen("lzdata_apptokens/apps/nobattery/manifest.json", "wb");
+        if(nbm) {
+            fputs("{\"id\":\"nobattery.local\",\"name\":\"No Battery\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\",\"system_time\"]}", nbm);
+            fclose(nbm);
+        }
+        FILE *nbe = fopen("lzdata_apptokens/apps/nobattery/main.lua", "wb");
+        if(nbe) { fputs("-- body: Needs {battery}\n", nbe); fclose(nbe); }
+
+        lz_svc_init("lzdata_apptokens", false);
+        lz_svc_set_time(1781274180);
+        lz_local_app_t apps[LZ_MAX_LOCAL_APPS];
+        int an = lz_svc_scan_apps(apps, LZ_MAX_LOCAL_APPS);
+        lz_local_app_t *status = NULL, *notime = NULL, *nobattery = NULL;
+        for(int i = 0; i < an; i++) {
+            if(strcmp(apps[i].id, "status.local") == 0) status = &apps[i];
+            if(strcmp(apps[i].id, "notime.local") == 0) notime = &apps[i];
+            if(strcmp(apps[i].id, "nobattery.local") == 0) nobattery = &apps[i];
+        }
+        lz_local_app_session_t run;
+        bool run_ok = status && lz_svc_start_local_app(status, &run);
+        CHECK(run_ok && strstr(run.status, "{time}") == NULL &&
+              strstr(run.body, "{battery}") == NULL && strstr(run.body, "87%") != NULL,
+              "local app SDK tokens expand with declared permissions");
+        bool action_ok = run_ok && lz_svc_local_app_action(&run, 0);
+        CHECK(action_ok && strstr(run.status, "{time}") == NULL &&
+              strstr(run.body, "87%") != NULL && strstr(run.body, "count 1") != NULL,
+              "local app SDK tokens expand after foreground action");
+        lz_local_app_session_t denied_time;
+        bool denied_time_ok = notime && lz_svc_start_local_app(notime, &denied_time);
+        CHECK(!denied_time_ok && notime && strcmp(denied_time.error, "time permission missing") == 0,
+              "local app SDK time token requires system_time permission");
+        lz_local_app_session_t denied_battery;
+        bool denied_battery_ok = nobattery && lz_svc_start_local_app(nobattery, &denied_battery);
+        CHECK(!denied_battery_ok && nobattery &&
+              strcmp(denied_battery.error, "battery permission missing") == 0,
+              "local app SDK battery token requires battery permission");
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_apptokens");
+    }
+
+    /* 11. appfs root support: apps can be discovered from appfs even when
+     *     SD-backed persistence is absent, and Files can expose both roots. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_set_appfs_root(const char *root);
+        extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+        extern int  lz_store_file_roots(const char **out, int cap);
+        sim_reset_dir("lzdata_appfsroot");
+        sim_mkdirs("lzdata_appfsroot/local");
+        sim_seed_appfs("lzdata_appfsroot");
+
+        lz_store_init(NULL);
+        lz_store_set_appfs_root("lzdata_appfsroot/appfs");
+        lz_local_app_t apps[4];
+        int an = lz_store_scan_apps(apps, 4);
+        CHECK(an == 1 && strcmp(apps[0].id, "calc.local") == 0,
+              "appfs-only scanner loads local app");
+        const char *roots[3];
+        int rn = lz_store_file_roots(roots, 3);
+        CHECK(rn == 1 && strcmp(roots[0], "lzdata_appfsroot/appfs") == 0,
+              "appfs-only Files root is exposed");
+
+        lz_store_init("lzdata_appfsroot/local");
+        rn = lz_store_file_roots(roots, 3);
+        CHECK(rn == 2, "Files exposes SD/local and appfs roots");
+        lz_store_set_appfs_root(NULL);
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_appfsroot");
+    }
+
+    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -595,7 +1082,7 @@ static int codec_selftest(void)
               strcmp(rm.text, "hi there") == 0, "MeshCore GRP_TXT round-trip fields");
     }
 
-    /* 10. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
+    /* 13. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
      *     full encode->parse->decode round-trip + ACK match + MAC tamper check. */
     {
         uint8_t seedA[32], pubA[32], pubB[32], ref[32];
@@ -676,6 +1163,13 @@ int main(int argc, char **argv)
     if(headless) {
         datadir = "lzdata_shots";
         sim_reset_dir(datadir);
+        sim_seed_local_app(datadir);
+        sim_seed_appfs(datadir);
+    }
+    {
+        char appfs[160];
+        snprintf(appfs, sizeof appfs, "%s/appfs", datadir);
+        lz_svc_set_appfs_root(appfs);
     }
     lz_svc_init(datadir, true);
     lz_svc_set_time(1781274180);   /* sim: pretend NTP synced so the clock shows */

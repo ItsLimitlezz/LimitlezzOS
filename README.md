@@ -115,6 +115,23 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 ### 🔭 Later
 - **MeshCore companion bridge** — let the companion app speak MeshCore too (Public + DMs are already on-device).
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
+- **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
+  `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
+  across paged Home launcher screens and App Store detail shells. Home can open
+  accepted apps in a safe SDK 0.1 foreground shell that reads bounded display
+  metadata plus up to two bounded foreground actions from the entry file and
+  terminates on exit. Storage-enabled actions can increment a safe counter in
+  the app's scoped `data/` directory, unsupported action effects fail closed,
+  and apps with matching permissions can use read-only `{time}` / `{battery}`
+  tokens in foreground text. SDK `api_version` and permission metadata are
+  parsed fail-closed, with rejected package diagnostics visible in Developer
+  Mode. Apps that request `storage` get a scoped package `data/` directory
+  prepared with a 64 KB launch-time quota guard, and the App Store detail screen
+  can clear only that app's scoped data. Script execution, richer API injection,
+  downloads, and updates are still TODO.
+- **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
+  `/appfs` without formatting, expose it beside SD/local storage in Files, and
+  scan `/appfs/apps` even when the SD card is absent.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
 - **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
@@ -252,7 +269,8 @@ identity, user settings, and the node database live on the SD card
 (`/sd/limitlezz`). On T-Deck hardware, saved Wi-Fi credentials are stored in
 ESP32 NVS instead of plaintext SD files; the desktop simulator keeps its local
 file-backed store for repeatable testing. Without a card the OS runs RAM-only
-and seeds the demo mesh.
+and seeds the demo mesh. The app flash partition mounts separately at `/appfs`
+for local apps and read-only inspection when present.
 
 ## What's implemented (UI portion of spec Stage 1/2)
 
@@ -261,7 +279,8 @@ and seeds the demo mesh.
   screens scroll; focused row auto-scrolls into view. Left/right also
   switches tabs on tabbed screens so everything is reachable by trackball.
 - **Lock** — clock, network presence, unlock via ball click.
-- **Home** — single iOS-style 4×2 grid, solid color tiles, near-white ring.
+- **Home** — paged iOS-style 4×2 grid, solid color tiles, near-white ring,
+  unread badge, Developer Mode app gating, and local app manifest tiles.
 - **Messages** — unified inbox; Direct/Channels tabs; All/Meshtastic/MeshCore
   filter chips (keys 1/2/3); per-thread network dot + unread badge; threads
   of a disabled network are dimmed, not removed, with a "history kept" note.
@@ -272,7 +291,17 @@ and seeds the demo mesh.
 - **Meshtastic / MeshCore managers** — per-network identity cards,
   Nodes/Channels and Contacts/Rooms tabs, SNR color coding, role badges,
   online dots.
-- **App Store** — featured card + install flow (GET → "…" → OPEN).
+- **Files** - read-only browser for mounted storage roots. When SD/local store
+  and appfs are both available, it opens on a Storage root picker before
+  browsing inside the selected root.
+- **App Store** - scans local app manifests, validates SDK/permission metadata,
+  shows rejected-package diagnostics in Developer Mode, prepares scoped app
+  `data/` directories for storage-enabled local apps, reports quota usage,
+  clears scoped app data on request, opens a manifest detail shell, and launches
+  local apps into the SDK 0.1 foreground shell with bounded app-provided actions
+  and scoped storage counters plus read-only `{time}` / `{battery}` tokens;
+  unsupported action effects launch-block instead of being ignored; the static
+  catalog remains a prototype (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

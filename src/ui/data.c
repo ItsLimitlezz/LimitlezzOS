@@ -1,6 +1,7 @@
 #include "data.h"
 #include "theme.h"
 #include <math.h>
+#include <string.h>
 
 const lz_app_t LZ_APPS[8] = {
     { "messages",   "Messages",   LZ_I_FORUM,      "5 chats - 2 nets",  165 },
@@ -108,6 +109,23 @@ lv_color_t lz_tile_color(int hue)
         case 150: return LZ_TILE_165;
         default:  return LZ_GRAPHITE;
     }
+}
+
+const char *lz_app_icon_glyph(const char *token)
+{
+    if(!token) return LZ_I_DESCRIPTION;
+    if(strcmp(token, "calculate") == 0 || strcmp(token, "calculator") == 0) return LZ_I_CALCULATE;
+    if(strcmp(token, "note") == 0 || strcmp(token, "notes") == 0) return LZ_I_NOTE;
+    if(strcmp(token, "satellite") == 0 || strcmp(token, "aprs") == 0) return LZ_I_SATELLITE;
+    if(strcmp(token, "thermostat") == 0 || strcmp(token, "weather") == 0) return LZ_I_THERMOSTAT;
+    if(strcmp(token, "dns") == 0 || strcmp(token, "bbs") == 0) return LZ_I_DNS;
+    if(strcmp(token, "graphic_eq") == 0 || strcmp(token, "scope") == 0) return LZ_I_GRAPHIC_EQ;
+    if(strcmp(token, "gamepad") == 0 || strcmp(token, "game") == 0) return LZ_I_GAMEPAD;
+    if(strcmp(token, "map") == 0 || strcmp(token, "maps") == 0) return LZ_I_MAP;
+    if(strcmp(token, "terminal") == 0) return LZ_I_TERMINAL;
+    if(strcmp(token, "folder") == 0) return LZ_I_FOLDER;
+    if(strcmp(token, "store") == 0 || strcmp(token, "storefront") == 0) return LZ_I_STOREFRONT;
+    return LZ_I_DESCRIPTION;
 }
 
 lv_color_t lz_net_color(lz_net_t n) { return n == LZ_NET_MT ? LZ_CYAN : LZ_AMBER; }

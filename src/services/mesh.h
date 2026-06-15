@@ -26,6 +26,24 @@ extern "C" {
 #define LZ_MAX_THREADS  48
 #define LZ_TAIL_MAX     32
 #define LZ_TEXT_MAX     200
+#define LZ_MAX_LOCAL_APPS 12
+#define LZ_MAX_LOCAL_APP_ISSUES 8
+#define LZ_LOCAL_APP_BODY_MAX 360
+#define LZ_LOCAL_APP_ENTRY_MAX 1024u
+#define LZ_LOCAL_APP_DATA_QUOTA_BYTES (64u * 1024u)
+#define LZ_LOCAL_APP_ACTION_MAX 2
+#define LZ_LOCAL_APP_ACTION_EFFECT_MAX 32
+#define LZ_LOCAL_APP_ACTION_BODY_MAX 192
+
+#define LZ_APP_PERM_DISPLAY       0x0001u
+#define LZ_APP_PERM_INPUT         0x0002u
+#define LZ_APP_PERM_STORAGE       0x0004u
+#define LZ_APP_PERM_MESH_READ     0x0008u
+#define LZ_APP_PERM_MESH_SEND     0x0010u
+#define LZ_APP_PERM_SYSTEM_TIME   0x0020u
+#define LZ_APP_PERM_BATTERY       0x0040u
+#define LZ_APP_PERM_NOTIFICATIONS 0x0080u
+#define LZ_APP_PERM_NETWORK_WIFI  0x0100u
 
 /* MeshCore (2nd RF profile, TDM with Meshtastic) is built but not receive-ready,
  * so it's shown as "Coming soon" / grayed for the Alpha. Default off; a dev/sim
@@ -157,11 +175,65 @@ typedef struct {
     uint32_t sent_ms;            /* lz_tick_ms() at send, for ack timeout */
 } lz_msg_rt;
 
+typedef struct {
+    char id[24];                 /* manifest id, safe filename token */
+    char name[32];
+    char version[16];
+    char author[28];
+    char summary[72];
+    char entry[48];              /* relative script entrypoint */
+    char api_version[12];        /* SDK compatibility gate */
+    char icon[20];               /* symbolic icon token, mapped by UI */
+    char path[112];              /* package directory */
+    uint16_t permissions;         /* LZ_APP_PERM_* declared by manifest */
+    int  hue;                    /* tile hue, -1 = neutral */
+} lz_local_app_t;
+
+typedef struct {
+    char package[32];            /* folder name, safe for diagnostics only */
+    char reason[48];             /* short plain-language rejection reason */
+    char path[112];              /* package directory */
+} lz_local_app_issue_t;
+
+typedef struct {
+    char label[24];              /* app-provided foreground control label */
+    char status[48];             /* bounded status shown after activation */
+    char effect[LZ_LOCAL_APP_ACTION_EFFECT_MAX]; /* optional safe SDK effect */
+    char body[LZ_LOCAL_APP_ACTION_BODY_MAX];
+} lz_local_app_action_t;
+
+typedef struct {
+    char title[32];              /* app-provided display title */
+    char body[LZ_LOCAL_APP_BODY_MAX];
+    char status[64];             /* short runtime/sandbox state */
+    char data_path[112];         /* prepared only when storage is declared */
+    char error[48];              /* launch blocked reason, if any */
+    uint32_t data_used_bytes;
+    uint32_t data_quota_bytes;
+    uint16_t permissions;         /* manifest permissions captured at launch */
+    bool entry_loaded;
+    bool storage_ready;
+    uint8_t action_count;
+    uint8_t action_last;         /* 1-based selected action, 0 = none */
+    lz_local_app_action_t actions[LZ_LOCAL_APP_ACTION_MAX];
+} lz_local_app_session_t;
+
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
 void lz_svc_set_dirty_cb(void (*cb)(void));             /* UI refresh request      */
+void lz_svc_set_appfs_root(const char *root);           /* optional FAT appfs mount */
 const char *lz_svc_file_root(void);                     /* read-only Files browser root */
+int  lz_svc_file_roots(const char **out, int cap);      /* SD/local + appfs roots */
+int  lz_svc_scan_apps(lz_local_app_t *out, int cap);    /* SD/appfs local manifests */
+int  lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap); /* rejected manifests */
+bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                             char *err, int err_cap);   /* scoped app data dir */
+bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
+                           char *err, int err_cap);
+bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
+bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
+bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

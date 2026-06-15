@@ -13,6 +13,18 @@
 /* store.c */
 void lz_store_init(const char *datadir);
 const char *lz_store_file_root(void);
+void lz_store_set_appfs_root(const char *root);
+const char *lz_store_appfs_root(void);
+int  lz_store_file_roots(const char **out, int cap);
+int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
+bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                               char *err, int err_cap);
+bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
+                             char *err, int err_cap);
+bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
+bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
+bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
 bool lz_store_find_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out);
@@ -69,6 +81,95 @@ static struct {
 static uint32_t now_epoch(void)                  /* UTC */
 {
     return g_epoch_base + lz_tick_ms() / 1000;
+}
+
+static bool local_app_has_token(const char *text, const char *token)
+{
+    return text && token && strstr(text, token) != NULL;
+}
+
+static bool local_app_session_has_token(const lz_local_app_session_t *s, const char *token)
+{
+    if(!s) return false;
+    if(local_app_has_token(s->status, token) || local_app_has_token(s->body, token))
+        return true;
+    for(int i = 0; i < s->action_count; i++) {
+        if(local_app_has_token(s->actions[i].status, token) ||
+           local_app_has_token(s->actions[i].body, token))
+            return true;
+    }
+    return false;
+}
+
+static bool local_app_token_fail(lz_local_app_session_t *s, const char *msg)
+{
+    if(s) {
+        snprintf(s->status, sizeof s->status, "Launch blocked");
+        snprintf(s->body, sizeof s->body, "%s", msg);
+        snprintf(s->error, sizeof s->error, "%s", msg);
+    }
+    return false;
+}
+
+static void local_app_append_text(char *out, size_t cap, size_t *len, const char *text)
+{
+    if(!out || !len || !text || cap == 0) return;
+    while(*text && *len + 1 < cap) out[(*len)++] = *text++;
+}
+
+static void local_app_expand_text(char *text, size_t cap,
+                                  const char *time_s, const char *battery_s)
+{
+    if(!text || cap == 0 ||
+       (!local_app_has_token(text, "{time}") && !local_app_has_token(text, "{battery}")))
+        return;
+
+    char src[LZ_LOCAL_APP_BODY_MAX];
+    snprintf(src, sizeof src, "%s", text);
+    char expanded[LZ_LOCAL_APP_BODY_MAX];
+    size_t out = 0;
+    const char *p = src;
+    while(*p && out + 1 < cap) {
+        if(strncmp(p, "{time}", 6) == 0) {
+            local_app_append_text(expanded, cap, &out, time_s);
+            p += 6;
+        } else if(strncmp(p, "{battery}", 9) == 0) {
+            local_app_append_text(expanded, cap, &out, battery_s);
+            p += 9;
+        } else {
+            expanded[out++] = *p++;
+        }
+    }
+    expanded[out] = 0;
+    snprintf(text, cap, "%s", expanded);
+}
+
+static void local_app_battery_token(char *out, size_t cap)
+{
+    lz_sysinfo_t si;
+    lz_svc_sysinfo(&si);
+    if(si.battery_pct >= 0) snprintf(out, cap, "%d%%", si.battery_pct);
+    else if(si.battery_v > 0.0f) snprintf(out, cap, "%.2fV", (double)si.battery_v);
+    else if(si.usb) snprintf(out, cap, "USB");
+    else snprintf(out, cap, "unknown");
+}
+
+static bool local_app_expand_session(lz_local_app_session_t *s)
+{
+    if(!s || s->error[0]) return false;
+    bool need_time = local_app_session_has_token(s, "{time}");
+    bool need_battery = local_app_session_has_token(s, "{battery}");
+    if(need_time && (s->permissions & LZ_APP_PERM_SYSTEM_TIME) == 0)
+        return local_app_token_fail(s, "time permission missing");
+    if(need_battery && (s->permissions & LZ_APP_PERM_BATTERY) == 0)
+        return local_app_token_fail(s, "battery permission missing");
+
+    char time_s[16], battery_s[16];
+    lz_fmt_now(time_s, sizeof time_s);
+    local_app_battery_token(battery_s, sizeof battery_s);
+    local_app_expand_text(s->status, sizeof s->status, time_s, battery_s);
+    local_app_expand_text(s->body, sizeof s->body, time_s, battery_s);
+    return true;
 }
 
 static uint32_t next_packet_id(void)
@@ -250,6 +351,55 @@ static void nodes_flush(void)
 const char *lz_svc_file_root(void)
 {
     return lz_store_file_root();
+}
+
+void lz_svc_set_appfs_root(const char *root)
+{
+    lz_store_set_appfs_root(root);
+}
+
+int lz_svc_file_roots(const char **out, int cap)
+{
+    return lz_store_file_roots(out, cap);
+}
+
+int lz_svc_scan_apps(lz_local_app_t *out, int cap)
+{
+    return lz_store_scan_apps(out, cap);
+}
+
+int lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap)
+{
+    return lz_store_scan_app_issues(out, cap);
+}
+
+bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                             char *err, int err_cap)
+{
+    return lz_store_prepare_app_data(app, path_out, path_cap, err, err_cap);
+}
+
+bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
+                           char *err, int err_cap)
+{
+    return lz_store_app_data_usage(app, used, quota, err, err_cap);
+}
+
+bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap)
+{
+    return lz_store_clear_app_data(app, err, err_cap);
+}
+
+bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out)
+{
+    if(!lz_store_start_local_app(app, out)) return false;
+    return local_app_expand_session(out);
+}
+
+bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx)
+{
+    if(!lz_store_local_app_action(session, idx)) return false;
+    return local_app_expand_session(session);
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

@@ -279,6 +279,8 @@ void lz_rebuild(void)
         case LZ_V_MESHTASTIC: lz_scr_meshtastic(g_root); break;
         case LZ_V_MESHCORE:   lz_scr_meshcore(g_root); break;
         case LZ_V_APPSTORE:   lz_scr_appstore(g_root); break;
+        case LZ_V_LOCALAPP:   lz_scr_local_app(g_root); break;
+        case LZ_V_LOCALAPP_RUN: lz_scr_local_app_run(g_root); break;
         case LZ_V_CONTACTS:   lz_scr_contacts(g_root); break;
         case LZ_V_CONTACT:    lz_scr_contact(g_root); break;
         case LZ_V_SETTINGS:   lz_scr_settings(g_root); break;
@@ -341,6 +343,7 @@ static void unlock(void)
     S.nav_depth = 0;
     S.view = LZ_V_HOME;
     S.focus = 0;
+    S.home_page = 0;
     lz_rebuild();
 }
 
@@ -367,6 +370,9 @@ static void move(lz_key_t dir)
         return;
     }
     lz_settings_flush();   /* any other navigation commits a pending brightness change */
+    if(S.view == LZ_V_HOME && (dir == LZ_K_LEFT || dir == LZ_K_RIGHT)) {
+        if(lz_home_page_key(dir)) return;
+    }
     /* tab switching with left/right on single-column tabbed screens; rolling
      * left past the first tab goes back (the T-Deck has no dedicated back key) */
     if(dir == LZ_K_LEFT || dir == LZ_K_RIGHT) {

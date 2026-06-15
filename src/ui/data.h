@@ -73,6 +73,7 @@ extern const int            LZ_TERM_KIND[12]; /* 0 dim, 1 cmd, 2 out */
 extern const lz_sys_stat_t  LZ_SYS_STATS[5];
 
 lv_color_t lz_tile_color(int hue);
+const char *lz_app_icon_glyph(const char *token);
 lv_color_t lz_net_color(lz_net_t n);
 lv_color_t lz_av_color(lz_net_t n);
 const char *lz_net_name(lz_net_t n);
