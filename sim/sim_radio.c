@@ -4,6 +4,7 @@
  * path" rationale.
  */
 #include "sim_radio.h"
+#include "sim_fs.h"
 #include "../src/services/mtproto.h"
 #include "../src/services/mcproto.h"
 #include <string.h>
@@ -423,7 +424,9 @@ static bool mc_emit_dm_to_us(sim_peer_t *speaker, const char *text, float snr)
 {
     if(!tuned(LZ_NET_MC)) return false;
     if(speaker) mc_emit_advert(speaker, snr);
-    uint32_t from = speaker ? speaker->num : mc_num((const uint8_t*)"\x9d\x4f\x21\x07");
+    uint8_t fallback_pub[32];
+    mc_fill_pub(fallback_pub, 0x9d, 0x4f, 0x21, 0x07);
+    uint32_t from = speaker ? speaker->num : mc_num(fallback_pub);
     lz_core_on_text(from, SIM_SELF_NUM, text, 1, snr);      /* directed -> DM thread */
     g_stats.rx_count++;
     return true;
@@ -668,7 +671,7 @@ int sim_scenario_run(void)
 
     /* clean slate: a wiped on-disk store (so tail counts are real and
      * persistence is exercised), no demo seed, both networks tuned in */
-    system("rm -rf lzdata_simtest && mkdir -p lzdata_simtest");
+    sim_reset_dir("lzdata_simtest");
     lz_svc_init("lzdata_simtest", false);
     lz_svc_set_time(1781274180);
     g_net_mt = true; g_net_mc = true;

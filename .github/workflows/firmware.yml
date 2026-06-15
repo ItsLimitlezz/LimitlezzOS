@@ -49,6 +49,9 @@ jobs:
       - name: Run native protocol selftest
         run: .pio/build/native/program --selftest
 
+      - name: Run native scenario simtest
+        run: .pio/build/native/program --simtest
+
       - name: Build T-Deck firmware
         run: pio run -e tdeck
 
