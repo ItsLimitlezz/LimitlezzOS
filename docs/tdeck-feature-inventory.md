@@ -73,7 +73,7 @@ Status labels:
 | --- | --- | --- | --- |
 | First-boot onboarding | Functional | `scr_onboard.c`, identity persistence | MeshCore network row is visible but locked. |
 | Lock screen | Functional | clock, battery, network icons, notification card | Add per-network badges once MeshCore is active. |
-| Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default, Messages unread counter badge, scanned local apps fill spare Home slots | V0.95: add multiple Home screens and full app launch/runtime integration; run hardware visual regression for badge layout. |
+| Home launcher | Partial | filtered app grid, Developer Mode hides Terminal by default, Messages unread counter badge, scanned local apps flow across paged 4x2 Home screens | V0.95: add full app launch/runtime integration; run hardware visual regression for badge layout. |
 | Unified inbox | Functional/Partial | Messages tabs, filters, unread highlighting, per-thread badges, mute indicator, channel tab | MeshCore filter is gated; finish hardware responsiveness pass. |
 | Conversation view | Functional/Partial | compose, in-place draft text refresh, scroll-preserving chat rebuilds, bubbles, status colors, resend long-press, persisted sent-DM delivery metadata | Stock-device ACK/retry interop and hardware chat-log latency still need validation. |
 | Meshtastic manager | Functional/Partial | identity card, virtualized node list, channels tab, separate USB and BLE companion toggles | Emergency channel row is disabled; BLE companion needs phone hardware validation. |
@@ -93,7 +93,7 @@ Status labels:
 | Lua sandbox | Planned | Design spec section 9 | Choose Lua/eLua/minimal interpreter after memory profiling. |
 | App manifest | Partial | `docs/tdeck-local-app-manifest.md`; bounded manifest parser requires `id`, `name`, and relative `entry`, with optional version/author/summary/icon/hue | Extend once the runtime and permission model are chosen. |
 | App permissions | Planned | Design spec API namespaces | Implement least-privilege API injection. |
-| Local app scanner | Partial | `lz_store_scan_apps` scans `/sd/limitlezz/apps`, `/sd/apps`, `/appfs/apps`, and simulator `<datadir>/apps`; simulator selftest covers a valid app and a rejected unsafe package | Add runtime execution, app lifecycle, data quotas, appfs mount validation, and multi-page Home once memory profiling picks a runtime. |
+| Local app scanner | Partial | `lz_store_scan_apps` scans `/sd/limitlezz/apps`, `/sd/apps`, `/appfs/apps`, and simulator `<datadir>/apps`; accepted apps appear in the paged Home launcher and App Store; simulator selftest covers a valid app and a rejected unsafe package | Add runtime execution, app lifecycle, data quotas, and appfs mount validation once memory profiling picks a runtime. |
 | Network app catalog | Planned | Wi-Fi service notes; design spec | Fetch `index.json`, verify TLS/metadata, cache results. |
 | App download/install/update | Planned | App Store prototype only | SHA256 verify, extract, version updates, rollback failed installs. |
 | Optional map app | Planned | Store data includes maps; maintainer notes prefer maps as optional | Keep maps out of the base firmware. |

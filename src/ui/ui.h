@@ -67,6 +67,7 @@ typedef struct {
     int mc_tab;            /* 0 contacts, 1 rooms  */
     lz_node_rt *contact_sel;
     lz_local_app_t local_app_sel;
+    int home_page;         /* launcher page, 8 cells per page */
     int cal_step;          /* touch calibration: which target (0..2) */
 
     struct {
@@ -117,6 +118,7 @@ void lz_scr_onboard(lv_obj_t *root);
 void lz_onboard_advance(void);              /* commit current step (Enter / Continue) */
 void lz_scr_lock(lv_obj_t *root);
 void lz_scr_home(lv_obj_t *root);
+bool lz_home_page_key(lz_key_t dir);
 void lz_scr_messages(lv_obj_t *root);
 void lz_scr_convo(lv_obj_t *root);
 bool lz_convo_draft_refresh(void);       /* update compose text without a full rebuild */

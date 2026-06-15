@@ -41,7 +41,7 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
-| V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner and detail shell started; runtime/pages/catalog still TODO |
+| V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner, Home paging, and detail shell started; runtime/catalog still TODO |
 | V0.96 | Upgraded Wi-Fi password storage | ⬜ Not started |
 
 ## Phase 0 - Stabilize The Baseline
@@ -223,9 +223,11 @@ Deliverables:
   simulator scans `<datadir>/apps`. Unsafe IDs/entry paths and packages without
   an entry file are rejected before reaching the UI.
 - Fix the Home UI so installed apps can be added as launcher icons. Partially
-  implemented: scanned local apps fill spare Home grid slots, while multiple
-  Home pages remain below.
-- Add multiple Home screens/pages so the built-in app grid can grow without cluttering the first screen.
+  implemented: scanned local apps fill the Home launcher after built-ins and
+  continue across 4x2 pages with page dots when needed.
+- Add multiple Home screens/pages so the built-in app grid can grow without
+  cluttering the first screen. Implemented for local manifest apps; full app
+  lifecycle and sandbox execution remain below.
 - Add app launcher integration for installed apps. Partially implemented:
   tapping a scanned local app opens a manifest detail shell; script runtime and
   sandbox execution remain below.

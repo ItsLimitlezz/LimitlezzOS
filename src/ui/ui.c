@@ -338,6 +338,7 @@ static void unlock(void)
     S.nav_depth = 0;
     S.view = LZ_V_HOME;
     S.focus = 0;
+    S.home_page = 0;
     lz_rebuild();
 }
 
@@ -364,6 +365,9 @@ static void move(lz_key_t dir)
         return;
     }
     lz_settings_flush();   /* any other navigation commits a pending brightness change */
+    if(S.view == LZ_V_HOME && (dir == LZ_K_LEFT || dir == LZ_K_RIGHT)) {
+        if(lz_home_page_key(dir)) return;
+    }
     /* tab switching with left/right on single-column tabbed screens; rolling
      * left past the first tab goes back (the T-Deck has no dedicated back key) */
     if(dir == LZ_K_LEFT || dir == LZ_K_RIGHT) {

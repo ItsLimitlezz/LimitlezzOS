@@ -74,24 +74,40 @@ static void sim_mkdirs(const char *path)
     system(cmd);
 }
 
-static void sim_seed_local_app(const char *datadir)
+static void sim_write_local_app(const char *datadir, const char *slug,
+                                const char *id, const char *name,
+                                const char *entry_name, const char *icon,
+                                int hue, const char *summary)
 {
     char dir[160], path[192];
-    snprintf(dir, sizeof dir, "%s/apps/weather", datadir);
+    snprintf(dir, sizeof dir, "%s/apps/%s", datadir, slug);
     sim_mkdirs(dir);
 
     snprintf(path, sizeof path, "%s/manifest.json", dir);
     FILE *mf = fopen(path, "wb");
     if(mf) {
-        fputs("{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
-              "\"author\":\"Limitless\",\"entry\":\"main.lua\",\"icon\":\"weather\","
-              "\"hue\":48,\"summary\":\"Local weather dashboard\"}", mf);
+        fprintf(mf, "{\"id\":\"%s\",\"name\":\"%s\",\"version\":\"0.1.0\","
+                    "\"author\":\"Limitless\",\"entry\":\"%s\",\"icon\":\"%s\","
+                    "\"hue\":%d,\"summary\":\"%s\"}",
+                id, name, entry_name, icon, hue, summary);
         fclose(mf);
     }
 
-    snprintf(path, sizeof path, "%s/main.lua", dir);
+    snprintf(path, sizeof path, "%s/%s", dir, entry_name);
     FILE *entry = fopen(path, "wb");
     if(entry) { fputs("return true\n", entry); fclose(entry); }
+}
+
+static void sim_seed_local_app(const char *datadir)
+{
+    sim_write_local_app(datadir, "weather", "weather.mesh", "Weather Mesh",
+                        "main.lua", "weather", 48, "Local weather dashboard");
+    sim_write_local_app(datadir, "notes", "notes.local", "Field Notes",
+                        "main.lua", "note", 175, "Scratchpad for field work");
+    sim_write_local_app(datadir, "scope", "scope.local", "Signal Scope",
+                        "main.lua", "terminal", 210, "Packet and RSSI viewer");
+    sim_write_local_app(datadir, "maps", "maps.local", "Offline Maps",
+                        "main.lua", "map", 110, "Local map shell");
 }
 
 static bool g_headless;
@@ -237,6 +253,7 @@ static void shots(const char *dir)
     for(unsigned i = 0; i < sizeof(SHOTS) / sizeof(SHOTS[0]); i++) {
         S.view = SHOTS[i].v;
         S.focus = 0;
+        if(SHOTS[i].v == LZ_V_HOME) S.home_page = 0;
         if(SHOTS[i].v == LZ_V_CONVO) { S.convo = lz_svc_thread_at(0);   /* newest = Ava */
                                        lz_svc_open_thread(S.convo); S.draft[0] = 0; }
         if(SHOTS[i].v == LZ_V_CONTACT) S.contact_sel = ava;
@@ -247,9 +264,20 @@ static void shots(const char *dir)
         printf("wrote %s\n", path);
     }
 
+    S.view = LZ_V_HOME;
+    S.home_page = 0;
+    S.focus = 3;
+    lz_rebuild();
+    pump(60);
+    lz_ui_key(LZ_K_RIGHT, 0);
+    pump(60);
+    snprintf(path, sizeof path, "%s/02b-home-page2.bmp", dir);
+    write_bmp(path);
+    printf("wrote %s\n", path);
+
     {
-        lz_local_app_t local[1];
-        if(lz_svc_scan_apps(local, 1) > 0) {
+        lz_local_app_t local[LZ_MAX_LOCAL_APPS];
+        if(lz_svc_scan_apps(local, LZ_MAX_LOCAL_APPS) > 0) {
             S.local_app_sel = local[0];
             S.view = LZ_V_LOCALAPP;
             S.focus = 0;

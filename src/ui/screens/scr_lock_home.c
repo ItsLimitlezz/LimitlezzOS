@@ -1,4 +1,4 @@
-/* Lock screen + Home launcher (single iOS-style 4x2 grid per design) */
+/* Lock screen + Home launcher (paged iOS-style 4x2 grid per design) */
 #include "../ui.h"
 #include <stdio.h>
 #include <string.h>
@@ -135,11 +135,13 @@ void lz_scr_lock(lv_obj_t *root)
 /* ===== Home ===== */
 
 #define HOME_MAX_CELLS 8
-#define HOME_LOCAL_MAX 1
+#define HOME_COLS 4
+#define HOME_LOCAL_MAX LZ_MAX_LOCAL_APPS
 
 static int home_builtin_n;
 static int home_local_n;
 static int home_total_n;
+static int home_page_count;
 
 static bool app_visible(const char *id)
 {
@@ -159,11 +161,12 @@ static void home_prepare(lz_local_app_t *local, int local_cap)
     for(int i = 0; i < 8; i++)
         if(app_visible(LZ_APPS[i].id)) home_builtin_n++;
 
-    int slots = HOME_MAX_CELLS - home_builtin_n;
-    if(slots < 0) slots = 0;
-    if(slots > local_cap) slots = local_cap;
-    home_local_n = slots > 0 ? lz_svc_scan_apps(local, slots) : 0;
+    home_local_n = local_cap > 0 ? lz_svc_scan_apps(local, local_cap) : 0;
     home_total_n = home_builtin_n + home_local_n;
+    home_page_count = (home_total_n + HOME_MAX_CELLS - 1) / HOME_MAX_CELLS;
+    if(home_page_count < 1) home_page_count = 1;
+    if(S.home_page < 0) S.home_page = 0;
+    if(S.home_page >= home_page_count) S.home_page = home_page_count - 1;
 }
 
 static int home_app_index(int visible_idx)
@@ -183,6 +186,20 @@ static int home_local_index(int visible_idx)
     return (idx >= 0 && idx < home_local_n) ? idx : -1;
 }
 
+static int home_page_item_count(int page)
+{
+    int start = page * HOME_MAX_CELLS;
+    int n = home_total_n - start;
+    if(n < 0) n = 0;
+    if(n > HOME_MAX_CELLS) n = HOME_MAX_CELLS;
+    return n;
+}
+
+static int home_abs_index(int page_idx)
+{
+    return S.home_page * HOME_MAX_CELLS + page_idx;
+}
+
 static lz_view_t app_view(const char *id)
 {
     if(strcmp(id, "messages") == 0) return LZ_V_MESSAGES;
@@ -197,7 +214,8 @@ static lz_view_t app_view(const char *id)
 
 static void home_activate(int idx)
 {
-    int local_idx = home_local_index(idx);
+    int abs_idx = home_abs_index(idx);
+    int local_idx = home_local_index(abs_idx);
     if(local_idx >= 0) {
         lz_local_app_t local[HOME_LOCAL_MAX];
         int n = lz_svc_scan_apps(local, HOME_LOCAL_MAX);
@@ -208,16 +226,46 @@ static void home_activate(int idx)
         return;
     }
 
-    int app_idx = home_app_index(idx);
+    int app_idx = home_app_index(abs_idx);
     if(app_idx >= 0 && app_enabled(LZ_APPS[app_idx].id))
         lz_go(app_view(LZ_APPS[app_idx].id));
 }
 
 static bool home_disabled(int idx)
 {
-    if(home_local_index(idx) >= 0) return false;
-    int app_idx = home_app_index(idx);
+    int abs_idx = home_abs_index(idx);
+    if(home_local_index(abs_idx) >= 0) return false;
+    int app_idx = home_app_index(abs_idx);
     return app_idx >= 0 && !app_enabled(LZ_APPS[app_idx].id);
+}
+
+bool lz_home_page_key(lz_key_t dir)
+{
+    int count = home_page_item_count(S.home_page);
+    if(count <= 0 || home_page_count <= 1) return false;
+
+    int row = S.focus / HOME_COLS;
+    int col = S.focus % HOME_COLS;
+    if(dir == LZ_K_RIGHT && S.home_page + 1 < home_page_count &&
+       (col == HOME_COLS - 1 || S.focus == count - 1)) {
+        S.home_page++;
+        int next_count = home_page_item_count(S.home_page);
+        int nf = row * HOME_COLS;
+        if(nf >= next_count) nf = next_count > 0 ? next_count - 1 : 0;
+        S.focus = nf;
+        lz_rebuild();
+        return true;
+    }
+    if(dir == LZ_K_LEFT && S.home_page > 0 && col == 0) {
+        S.home_page--;
+        int prev_count = home_page_item_count(S.home_page);
+        int nf = row * HOME_COLS + (HOME_COLS - 1);
+        if(nf >= prev_count) nf = prev_count > 0 ? prev_count - 1 : 0;
+        S.focus = nf;
+        lz_rebuild();
+        return true;
+    }
+    return false;
 }
 
 void lz_scr_home(lv_obj_t *root)
@@ -226,13 +274,15 @@ void lz_scr_home(lv_obj_t *root)
     lz_local_app_t local[HOME_LOCAL_MAX];
     home_prepare(local, HOME_LOCAL_MAX);
 
-    int count = home_total_n;
+    int page_start = S.home_page * HOME_MAX_CELLS;
+    int count = home_page_item_count(S.home_page);
     if(S.focus >= count) S.focus = count > 0 ? count - 1 : 0;
 
     /* 4-column grid: padding 11px 12px, cell 71px + 4px gap, row gap 9 */
     for(int i = 0; i < count; i++) {
-        int app_idx = home_app_index(i);
-        int local_idx = home_local_index(i);
+        int abs_idx = page_start + i;
+        int app_idx = home_app_index(abs_idx);
+        int local_idx = home_local_index(abs_idx);
         const lz_app_t *a = app_idx >= 0 ? &LZ_APPS[app_idx] : NULL;
         const lz_local_app_t *la = local_idx >= 0 ? &local[local_idx] : NULL;
         const char *id = a ? a->id : la->id;
@@ -312,6 +362,16 @@ void lz_scr_home(lv_obj_t *root)
         lz_nav_track(tile, i);
     }
 
-    lz_nav_set(4, count, home_activate);
+    if(home_page_count > 1) {
+        const int dot = 5, gap = 5;
+        int total_w = home_page_count * dot + (home_page_count - 1) * gap;
+        int x = (LZ_W - total_w) / 2;
+        for(int p = 0; p < home_page_count; p++) {
+            lv_obj_t *d = lz_dot(root, dot, p == S.home_page ? LZ_TEXT_BRIGHT : lv_color_hex(0x4B535C));
+            lv_obj_set_pos(d, x + p * (dot + gap), LZ_H - 15);
+        }
+    }
+
+    lz_nav_set(HOME_COLS, count, home_activate);
     lz_nav_set_skip(home_disabled);
 }

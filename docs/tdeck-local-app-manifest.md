@@ -16,6 +16,13 @@ In the native simulator, packages are discovered from:
 
 - `<sim-data-dir>/apps/<app-id>/`
 
+## Launcher Behavior
+
+Accepted local apps appear after the built-in Home apps. The Home launcher keeps
+the 4x2 tile grid and adds pages with page dots when more apps are available
+than fit on the first screen. The App Store also lists accepted local apps as
+installed local packages and opens the same manifest detail shell.
+
 ## Package Layout
 
 Each package directory must contain:
