@@ -48,6 +48,7 @@ const char *lz_wifi_saved_ssid(void);           /* remembered SSID, or NULL */
 bool        lz_wifi_is_saved(const char *ssid);
 bool        lz_wifi_autoconnect(void);
 void        lz_wifi_set_autoconnect(bool on);
+const char *lz_wifi_credential_store(void);       /* "nvs" on T-Deck, "file" in sim */
 
 #ifdef __cplusplus
 }

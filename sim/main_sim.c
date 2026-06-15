@@ -510,7 +510,28 @@ static int codec_selftest(void)
         lz_store_init(NULL);              /* back to RAM-only */
     }
 
-    /* 9. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 9. Wi-Fi credential store round-trip. T-Deck uses an NVS backend under the
+     * same API; native keeps the file path for simulator repeatability. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect);
+        extern bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect);
+        remove("./wifi.cfg");
+        lz_store_init(".");
+        lz_store_save_wifi("TrailNet", "ridge-pass", 0);
+        char ssid[33] = {0}, pass[64] = {0}; int ac = 1;
+        CHECK(lz_store_load_wifi(ssid, sizeof ssid, pass, sizeof pass, &ac),
+              "store: Wi-Fi credentials reload");
+        CHECK(strcmp(ssid, "TrailNet") == 0 && strcmp(pass, "ridge-pass") == 0 && ac == 0,
+              "store: Wi-Fi SSID/pass/autoconnect round-trip");
+        lz_store_save_wifi("", "", 1);
+        CHECK(!lz_store_load_wifi(ssid, sizeof ssid, pass, sizeof pass, &ac),
+              "store: Wi-Fi forget clears saved network");
+        remove("./wifi.cfg");
+        lz_store_init(NULL);
+    }
+
+    /* 10. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {

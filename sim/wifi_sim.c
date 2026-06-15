@@ -147,6 +147,7 @@ bool lz_wifi_is_saved(const char *ssid)
     return ssid && g_saved_ssid[0] && strcmp(ssid, g_saved_ssid) == 0;
 }
 bool lz_wifi_autoconnect(void) { load_saved(); return g_autoconnect; }
+const char *lz_wifi_credential_store(void) { return "file"; }
 void lz_wifi_set_autoconnect(bool on)
 {
     load_saved();
@@ -167,3 +168,13 @@ void lz_wifi_loop(void)
         }
     }
 }
+
+/* Secret-store stubs for the desktop simulator. On the T-Deck these live in
+ * store_secret_tdeck.cpp (ESP32 NVS); store.c declares them __attribute__((weak))
+ * and falls back to the file-backed wifi.cfg when they return false / are absent.
+ * Linux resolves an undefined weak symbol to NULL, but macOS does not — it fails
+ * to link — so define real no-op stubs here to keep the native build file-backed. */
+bool lz_store_secret_save_wifi(const char *ssid, const char *pass, int autoconnect)
+{ (void)ssid; (void)pass; (void)autoconnect; return false; }
+bool lz_store_secret_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect)
+{ (void)ssid; (void)sn; (void)pass; (void)pn; (void)autoconnect; return false; }
