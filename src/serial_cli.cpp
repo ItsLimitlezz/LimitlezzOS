@@ -343,17 +343,18 @@ static void cmd_stats(void)
 
 static void cmd_wifi(char *args)
 {
-    if(args && strcmp(args, "scan") == 0) { lz_wifi_set_enabled(true); lz_wifi_scan(); Serial.println("[ok] scanning"); return; }
+    if(args && strcmp(args, "scan") == 0) { if(!lz_wifi_enabled()) lz_wifi_set_enabled(true); else lz_wifi_scan(); Serial.println("[ok] scanning"); return; }
     if(args && strcmp(args, "on") == 0)   { lz_wifi_set_enabled(true);  Serial.println("[ok] wifi on");  return; }
     if(args && strcmp(args, "off") == 0)  { lz_wifi_set_enabled(false); Serial.println("[ok] wifi off"); return; }
     static const char *S_[] = { "off", "idle", "scanning", "connecting", "connected", "failed" };
     int s = lz_wifi_status();
     const char *conn = lz_wifi_connected();
     const char *saved = lz_wifi_saved_ssid();
-    Serial.printf("wifi: %s%s%s  saved=%s  auto-connect=%s\n",
+    const lz_wifi_net *nets; int nn = lz_wifi_results(&nets);
+    Serial.printf("wifi: %s%s%s  saved=%s  auto-connect=%s  nets=%d\n",
                   (s >= 0 && s <= 5) ? S_[s] : "?",
                   conn ? " -> " : "", conn ? conn : "",
-                  saved ? saved : "(none)", lz_wifi_autoconnect() ? "on" : "off");
+                  saved ? saved : "(none)", lz_wifi_autoconnect() ? "on" : "off", nn);
 }
 
 static void cmd_sys(void)

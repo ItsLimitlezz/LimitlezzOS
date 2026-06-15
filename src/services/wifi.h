@@ -9,6 +9,7 @@
 #define LZ_WIFI_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,7 @@ void        lz_wifi_loop(void);                 /* pump the state machine */
 bool        lz_wifi_enabled(void);
 void        lz_wifi_set_enabled(bool on);       /* also kicks a scan when turning on */
 void        lz_wifi_scan(void);
+uint32_t    lz_wifi_scan_gen(void);             /* bumps when a scan completes (UI refresh) */
 int         lz_wifi_results(const lz_wifi_net **out);
 bool        lz_wifi_is_secure(const char *ssid);
 void        lz_wifi_connect(const char *ssid, const char *pass);

@@ -34,6 +34,9 @@ static char        g_pending_ssid[33];
 static char        g_pending_pass[64];
 static uint32_t    g_connect_deadline;
 static bool        g_scan_running;
+static uint32_t    g_scan_gen;       /* bumps when a scan completes — UI refresh trigger */
+static uint32_t    g_scan_due;       /* millis() to kick a deferred scan (0 = none) */
+static int         g_scan_retries;   /* bounded retries when a scan errors (-2) */
 
 static char        g_saved_ssid[33];
 static char        g_saved_pass[64];
@@ -71,13 +74,12 @@ extern "C" void lz_wifi_init(void)
     load_saved();
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(true);
-    /* auto-connect on boot: come up, join the saved network, and scan so the
-     * list is ready by the time the user opens Wi-Fi settings */
+    /* auto-connect on boot: come up and join the saved network. The scan is
+     * kicked from lz_wifi_loop() once we're CONNECTED (scanning mid-association
+     * returns 0), so the list is ready by the time Wi-Fi settings is opened. */
     if(g_autoconnect && g_saved_ssid[0]) {
         g_on = true;
         begin_connect(g_saved_ssid, g_saved_pass);
-        WiFi.scanNetworks(true);
-        g_scan_running = true;
     }
 }
 
@@ -86,10 +88,15 @@ extern "C" bool lz_wifi_enabled(void) { return g_on; }
 extern "C" void lz_wifi_scan(void)
 {
     if(!g_on) return;
+    /* A scan started during association returns 0 results (the radio is busy
+     * joining). Skip it — lz_wifi_loop() kicks a fresh scan the moment we reach
+     * CONNECTED, so the list still fills in. */
+    if(g_status == LZ_WIFI_CONNECTING) return;
     WiFi.scanDelete();
     WiFi.scanNetworks(true /* async */);
     g_scan_running = true;
-    if(g_status != LZ_WIFI_CONNECTING && g_status != LZ_WIFI_CONNECTED)
+    /* keep CONNECTED / FAILED visible while a background scan runs */
+    if(g_status != LZ_WIFI_CONNECTED && g_status != LZ_WIFI_FAILED)
         g_status = LZ_WIFI_SCANNING;
 }
 
@@ -108,6 +115,7 @@ extern "C" void lz_wifi_set_enabled(bool on)
     } else {
         WiFi.disconnect(true); WiFi.mode(WIFI_OFF);
         g_status = LZ_WIFI_OFF; g_connected[0] = 0; g_net_count = 0;
+        g_scan_running = false; g_scan_due = 0; g_scan_retries = 0;   /* cancel pending scans */
     }
 }
 
@@ -153,6 +161,7 @@ extern "C" void lz_wifi_forget(void)
 
 extern "C" const char *lz_wifi_connected(void) { return g_connected[0] ? g_connected : NULL; }
 extern "C" int lz_wifi_status(void) { return g_status; }
+extern "C" uint32_t lz_wifi_scan_gen(void) { return g_scan_gen; }
 
 extern "C" const char *lz_wifi_saved_ssid(void) { load_saved(); return g_saved_ssid[0] ? g_saved_ssid : NULL; }
 extern "C" bool lz_wifi_is_saved(const char *ssid)
@@ -168,14 +177,28 @@ extern "C" void lz_wifi_set_autoconnect(bool on)
     lz_store_save_wifi(g_saved_ssid, g_saved_pass, on ? 1 : 0);
 }
 
+/* Scanning right at WL_CONNECTED returns WIFI_SCAN_FAILED — the radio needs a
+ * moment after association. Defer the post-connect scan a couple seconds. */
+static void scan_soon(void) { g_scan_due = millis() + 2000; if(!g_scan_due) g_scan_due = 1; }
+
 extern "C" void lz_wifi_loop(void)
 {
     if(!g_on) return;
 
+    if(g_scan_due && (int32_t)(millis() - g_scan_due) >= 0) {
+        g_scan_due = 0;
+        lz_wifi_scan();
+    }
+
     if(g_scan_running) {
         int n = WiFi.scanComplete();
-        if(n >= 0) {
+        if(n == WIFI_SCAN_FAILED) {          /* -2: scan errored (often too soon after join) */
             g_scan_running = false;
+            if(g_scan_retries < 4) { g_scan_retries++; scan_soon(); }   /* retry shortly */
+        } else if(n >= 0) {
+            g_scan_running = false;
+            g_scan_retries = 0;
+            g_scan_gen++;        /* results are ready — let the WiFi screen refresh */
             g_net_count = n > LZ_WIFI_MAX ? LZ_WIFI_MAX : n;
             bool saw_saved = false;
             for(int i = 0; i < g_net_count; i++) {
@@ -199,9 +222,13 @@ extern "C" void lz_wifi_loop(void)
             snprintf(g_connected, sizeof g_connected, "%s", g_pending_ssid);
             remember(g_pending_ssid, g_pending_pass);   /* confirm saved creds */
             g_status = LZ_WIFI_CONNECTED;
+            g_scan_retries = 0;
+            scan_soon();       /* settle, then scan for the network list (mid-join fails) */
         } else if(millis() > g_connect_deadline) {
             WiFi.disconnect(true);
             g_status = LZ_WIFI_FAILED;
+            g_scan_retries = 0;
+            scan_soon();       /* connect failed — still show nearby networks to pick from */
         }
     } else if(g_status == LZ_WIFI_CONNECTED && WiFi.status() != WL_CONNECTED) {
         g_connected[0] = 0;

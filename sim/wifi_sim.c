@@ -138,6 +138,7 @@ void lz_wifi_forget(void)
 
 const char *lz_wifi_connected(void) { return g_connected[0] ? g_connected : NULL; }
 int lz_wifi_status(void) { return g_status; }
+uint32_t lz_wifi_scan_gen(void) { return 0; }   /* sim networks are static; no async refresh */
 
 const char *lz_wifi_saved_ssid(void) { load_saved(); return g_saved_ssid[0] ? g_saved_ssid : NULL; }
 bool lz_wifi_is_saved(const char *ssid)

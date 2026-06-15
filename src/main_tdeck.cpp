@@ -562,6 +562,21 @@ void loop()
         last_wifi = now;
         if(S.view == LZ_V_WIFI && !S.wifi_pw_mode) lz_rebuild();
     }
+    /* the scan completes asynchronously; refresh the open WiFi screen when fresh
+     * results land — status alone may not change (e.g. a re-scan while connected),
+     * so a status-only trigger would leave the list empty. */
+    static uint32_t last_scan_gen;
+    uint32_t scan_gen = lz_wifi_scan_gen();
+    if(scan_gen != last_scan_gen) {
+        last_scan_gen = scan_gen;
+        if(S.view == LZ_V_WIFI && !S.wifi_pw_mode) lz_rebuild();
+    }
+    /* opening the WiFi screen kicks a fresh scan so the list is current */
+    static int last_view = -1;
+    if(S.view != last_view) {
+        if(S.view == LZ_V_WIFI && lz_wifi_enabled()) lz_wifi_scan();
+        last_view = S.view;
+    }
 
     /* Power saving: drop the CPU to 80 MHz (min for WiFi) when enabled */
     static int last_save = -1;
