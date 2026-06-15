@@ -785,6 +785,7 @@ bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t 
     if(!out) return false;
     memset(out, 0, sizeof *out);
     if(!app || !app->id[0]) return app_session_fail(out, app, "missing app");
+    out->permissions = app->permissions;
     snprintf(out->title, sizeof out->title, "%s", app->name[0] ? app->name : app->id);
     snprintf(out->status, sizeof out->status, "SDK %s foreground sandbox",
              app->api_version[0] ? app->api_version : "0.1");

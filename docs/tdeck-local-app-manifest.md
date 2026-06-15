@@ -74,6 +74,17 @@ inside the scoped app `data/` directory and the 64 KB quota. Actions do not
 execute arbitrary script and do not grant raw filesystem, radio, or hardware
 access.
 
+The SDK 0.1 foreground shell also supports tiny read-only value tokens in
+`status:`, `body:`, `text:`, and action status/body fields:
+
+- `{time}` expands to the current local clock string and requires
+  `system_time`
+- `{battery}` expands to the current device battery value and requires
+  `battery`
+
+Packages that use one of these tokens without the matching permission are
+launch-blocked before the app shell opens.
+
 Example:
 
 ```json
@@ -138,11 +149,12 @@ The scanner rejects packages when:
 
 The current firmware scans local app manifests and can open them in a safe
 foreground shell with bounded foreground actions, including a storage-scoped
-counter effect. Script execution, richer sandbox API injection, richer data
-APIs, and network catalog installs remain later app-platform work. Permission
-metadata is parsed and displayed now so packages can fail closed before richer
-runtime APIs are added, and apps that declare `storage` get a scoped `data/`
-directory prepared under their own package.
+counter effect and read-only `{time}` / `{battery}` value injection. Script
+execution, richer sandbox API injection, richer data APIs, and network catalog
+installs remain later app-platform work. Permission metadata is parsed and
+displayed now so packages can fail closed before richer runtime APIs are added,
+and apps that declare `storage` get a scoped `data/` directory prepared under
+their own package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps

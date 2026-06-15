@@ -107,13 +107,21 @@ static void sim_write_local_app(const char *datadir, const char *slug,
     FILE *entry = fopen(path, "wb");
     if(entry) {
         bool has_storage = strstr(permissions_json, "\"storage\"") != NULL;
+        bool has_time = strstr(permissions_json, "\"system_time\"") != NULL;
+        bool has_battery = strstr(permissions_json, "\"battery\"") != NULL;
         fprintf(entry, "-- title: %s\n"
-                       "-- status: SDK 0.1 foreground sandbox\n"
-                       "-- body: %s\n"
-                       "-- action: Refresh | %s | %s%s\n"
+                       "-- status: %s\n"
+                       "-- body: %s\n",
+                name,
+                has_time ? "SDK 0.1 foreground sandbox at {time}"
+                         : "SDK 0.1 foreground sandbox",
+                summary);
+        if(has_time) fprintf(entry, "-- body: Local time {time}\n");
+        if(has_battery) fprintf(entry, "-- body: Device battery {battery}\n");
+        fprintf(entry, "-- action: Refresh | %s | %s%s\n"
                        "return true\n",
-                name, summary,
-                has_storage ? "SDK action #{count}" : "SDK action handled",
+                has_storage ? (has_time ? "SDK action {time} #{count}" : "SDK action #{count}")
+                            : (has_time ? "SDK action {time}" : "SDK action handled"),
                 name,
                 has_storage ? " refresh count: {count} stored in scoped app data. | counter:refreshes"
                             : " refreshed from a bounded foreground action.");
@@ -337,8 +345,12 @@ static void shots(const char *dir)
 
     {
         lz_local_app_t local[LZ_MAX_LOCAL_APPS];
-        if(lz_svc_scan_apps(local, LZ_MAX_LOCAL_APPS) > 0) {
-            S.local_app_sel = local[0];
+        int local_n = lz_svc_scan_apps(local, LZ_MAX_LOCAL_APPS);
+        if(local_n > 0) {
+            lz_local_app_t *shot_app = &local[0];
+            for(int i = 0; i < local_n; i++)
+                if(strcmp(local[i].id, "weather.mesh") == 0) shot_app = &local[i];
+            S.local_app_sel = *shot_app;
             S.view = LZ_V_LOCALAPP;
             S.focus = 0;
             lz_rebuild();
@@ -869,7 +881,79 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appscan");
     }
 
-    /* 10. appfs root support: apps can be discovered from appfs even when
+    /* 10. service-level SDK token injection: dynamic read-only values are
+     *     expanded only when the matching permissions are declared. */
+    {
+        extern void lz_store_init(const char *datadir);
+        sim_reset_dir("lzdata_apptokens");
+        sim_mkdirs("lzdata_apptokens/apps/status");
+        FILE *mf = fopen("lzdata_apptokens/apps/status/manifest.json", "wb");
+        if(mf) {
+            fputs("{\"id\":\"status.local\",\"name\":\"Status Card\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\",\"storage\",\"system_time\",\"battery\"]}",
+                  mf);
+            fclose(mf);
+        }
+        FILE *entry = fopen("lzdata_apptokens/apps/status/main.lua", "wb");
+        if(entry) {
+            fputs("-- status: Opened at {time}\n"
+                  "-- body: Battery {battery} at {time}\n"
+                  "-- action: Refresh | Refreshed {time} | Battery {battery} count {count} | counter:refreshes\n",
+                  entry);
+            fclose(entry);
+        }
+        sim_mkdirs("lzdata_apptokens/apps/notime");
+        FILE *ntm = fopen("lzdata_apptokens/apps/notime/manifest.json", "wb");
+        if(ntm) {
+            fputs("{\"id\":\"notime.local\",\"name\":\"No Time\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\"]}", ntm);
+            fclose(ntm);
+        }
+        FILE *nte = fopen("lzdata_apptokens/apps/notime/main.lua", "wb");
+        if(nte) { fputs("-- body: Needs {time}\n", nte); fclose(nte); }
+        sim_mkdirs("lzdata_apptokens/apps/nobattery");
+        FILE *nbm = fopen("lzdata_apptokens/apps/nobattery/manifest.json", "wb");
+        if(nbm) {
+            fputs("{\"id\":\"nobattery.local\",\"name\":\"No Battery\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\",\"system_time\"]}", nbm);
+            fclose(nbm);
+        }
+        FILE *nbe = fopen("lzdata_apptokens/apps/nobattery/main.lua", "wb");
+        if(nbe) { fputs("-- body: Needs {battery}\n", nbe); fclose(nbe); }
+
+        lz_svc_init("lzdata_apptokens", false);
+        lz_svc_set_time(1781274180);
+        lz_local_app_t apps[LZ_MAX_LOCAL_APPS];
+        int an = lz_svc_scan_apps(apps, LZ_MAX_LOCAL_APPS);
+        lz_local_app_t *status = NULL, *notime = NULL, *nobattery = NULL;
+        for(int i = 0; i < an; i++) {
+            if(strcmp(apps[i].id, "status.local") == 0) status = &apps[i];
+            if(strcmp(apps[i].id, "notime.local") == 0) notime = &apps[i];
+            if(strcmp(apps[i].id, "nobattery.local") == 0) nobattery = &apps[i];
+        }
+        lz_local_app_session_t run;
+        bool run_ok = status && lz_svc_start_local_app(status, &run);
+        CHECK(run_ok && strstr(run.status, "{time}") == NULL &&
+              strstr(run.body, "{battery}") == NULL && strstr(run.body, "87%") != NULL,
+              "local app SDK tokens expand with declared permissions");
+        bool action_ok = run_ok && lz_svc_local_app_action(&run, 0);
+        CHECK(action_ok && strstr(run.status, "{time}") == NULL &&
+              strstr(run.body, "87%") != NULL && strstr(run.body, "count 1") != NULL,
+              "local app SDK tokens expand after foreground action");
+        lz_local_app_session_t denied_time;
+        bool denied_time_ok = notime && lz_svc_start_local_app(notime, &denied_time);
+        CHECK(!denied_time_ok && notime && strcmp(denied_time.error, "time permission missing") == 0,
+              "local app SDK time token requires system_time permission");
+        lz_local_app_session_t denied_battery;
+        bool denied_battery_ok = nobattery && lz_svc_start_local_app(nobattery, &denied_battery);
+        CHECK(!denied_battery_ok && nobattery &&
+              strcmp(denied_battery.error, "battery permission missing") == 0,
+              "local app SDK battery token requires battery permission");
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_apptokens");
+    }
+
+    /* 11. appfs root support: apps can be discovered from appfs even when
      *     SD-backed persistence is absent, and Files can expose both roots. */
     {
         extern void lz_store_init(const char *datadir);
@@ -899,7 +983,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appfsroot");
     }
 
-    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 12. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -933,7 +1017,7 @@ static int codec_selftest(void)
               strcmp(rm.text, "hi there") == 0, "MeshCore GRP_TXT round-trip fields");
     }
 
-    /* 11. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
+    /* 13. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
      *     full encode->parse->decode round-trip + ACK match + MAC tamper check. */
     {
         uint8_t seedA[32], pubA[32], pubB[32], ref[32];

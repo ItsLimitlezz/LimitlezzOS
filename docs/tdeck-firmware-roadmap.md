@@ -240,7 +240,9 @@ Deliverables:
   entry file, including a storage-scoped counter effect for apps that request
   `storage`, then terminates on exit; App Store opens the manifest detail shell
   with a trackball-accessible `OPEN` action. Script execution and richer
-  injected runtime APIs remain below.
+  injected runtime APIs remain below, with initial read-only `{time}` and
+  `{battery}` token injection now routed through declared `system_time` and
+  `battery` permissions.
 - Parse app SDK metadata and permission namespaces from manifests. Implemented
   for SDK `0.1`: unknown permissions and unsupported SDK versions are rejected
   before reaching the launcher; API injection remains below.
@@ -260,6 +262,10 @@ Deliverables:
     safe counter file inside that scoped data directory, and App Store detail
     can clear only that scoped data directory; richer runtime API calls and
     richer quota controls remain below.
+  - read-only system values. Groundwork implemented: SDK 0.1 entry and action
+    text can use `{time}` and `{battery}` only when the manifest declares the
+    matching `system_time` or `battery` permission; missing permissions block
+    launch before the app shell opens.
   - notification request API routed through Feedback Manager
   - no direct hardware access
 - Add Developer Mode app diagnostics and crash/error display. Partially

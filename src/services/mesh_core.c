@@ -83,6 +83,95 @@ static uint32_t now_epoch(void)                  /* UTC */
     return g_epoch_base + lz_tick_ms() / 1000;
 }
 
+static bool local_app_has_token(const char *text, const char *token)
+{
+    return text && token && strstr(text, token) != NULL;
+}
+
+static bool local_app_session_has_token(const lz_local_app_session_t *s, const char *token)
+{
+    if(!s) return false;
+    if(local_app_has_token(s->status, token) || local_app_has_token(s->body, token))
+        return true;
+    for(int i = 0; i < s->action_count; i++) {
+        if(local_app_has_token(s->actions[i].status, token) ||
+           local_app_has_token(s->actions[i].body, token))
+            return true;
+    }
+    return false;
+}
+
+static bool local_app_token_fail(lz_local_app_session_t *s, const char *msg)
+{
+    if(s) {
+        snprintf(s->status, sizeof s->status, "Launch blocked");
+        snprintf(s->body, sizeof s->body, "%s", msg);
+        snprintf(s->error, sizeof s->error, "%s", msg);
+    }
+    return false;
+}
+
+static void local_app_append_text(char *out, size_t cap, size_t *len, const char *text)
+{
+    if(!out || !len || !text || cap == 0) return;
+    while(*text && *len + 1 < cap) out[(*len)++] = *text++;
+}
+
+static void local_app_expand_text(char *text, size_t cap,
+                                  const char *time_s, const char *battery_s)
+{
+    if(!text || cap == 0 ||
+       (!local_app_has_token(text, "{time}") && !local_app_has_token(text, "{battery}")))
+        return;
+
+    char src[LZ_LOCAL_APP_BODY_MAX];
+    snprintf(src, sizeof src, "%s", text);
+    char expanded[LZ_LOCAL_APP_BODY_MAX];
+    size_t out = 0;
+    const char *p = src;
+    while(*p && out + 1 < cap) {
+        if(strncmp(p, "{time}", 6) == 0) {
+            local_app_append_text(expanded, cap, &out, time_s);
+            p += 6;
+        } else if(strncmp(p, "{battery}", 9) == 0) {
+            local_app_append_text(expanded, cap, &out, battery_s);
+            p += 9;
+        } else {
+            expanded[out++] = *p++;
+        }
+    }
+    expanded[out] = 0;
+    snprintf(text, cap, "%s", expanded);
+}
+
+static void local_app_battery_token(char *out, size_t cap)
+{
+    lz_sysinfo_t si;
+    lz_svc_sysinfo(&si);
+    if(si.battery_pct >= 0) snprintf(out, cap, "%d%%", si.battery_pct);
+    else if(si.battery_v > 0.0f) snprintf(out, cap, "%.2fV", (double)si.battery_v);
+    else if(si.usb) snprintf(out, cap, "USB");
+    else snprintf(out, cap, "unknown");
+}
+
+static bool local_app_expand_session(lz_local_app_session_t *s)
+{
+    if(!s || s->error[0]) return false;
+    bool need_time = local_app_session_has_token(s, "{time}");
+    bool need_battery = local_app_session_has_token(s, "{battery}");
+    if(need_time && (s->permissions & LZ_APP_PERM_SYSTEM_TIME) == 0)
+        return local_app_token_fail(s, "time permission missing");
+    if(need_battery && (s->permissions & LZ_APP_PERM_BATTERY) == 0)
+        return local_app_token_fail(s, "battery permission missing");
+
+    char time_s[16], battery_s[16];
+    lz_fmt_now(time_s, sizeof time_s);
+    local_app_battery_token(battery_s, sizeof battery_s);
+    local_app_expand_text(s->status, sizeof s->status, time_s, battery_s);
+    local_app_expand_text(s->body, sizeof s->body, time_s, battery_s);
+    return true;
+}
+
 static uint32_t next_packet_id(void)
 {
     uint32_t pid = lz_tick_ms();
@@ -303,12 +392,14 @@ bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap)
 
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out)
 {
-    return lz_store_start_local_app(app, out);
+    if(!lz_store_start_local_app(app, out)) return false;
+    return local_app_expand_session(out);
 }
 
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx)
 {
-    return lz_store_local_app_action(session, idx);
+    if(!lz_store_local_app_action(session, idx)) return false;
+    return local_app_expand_session(session);
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

@@ -176,6 +176,7 @@ typedef struct {
     char error[48];              /* launch blocked reason, if any */
     uint32_t data_used_bytes;
     uint32_t data_quota_bytes;
+    uint16_t permissions;         /* manifest permissions captured at launch */
     bool entry_loaded;
     bool storage_ready;
     uint8_t action_count;
