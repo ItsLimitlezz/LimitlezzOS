@@ -26,6 +26,7 @@
 #include <direct.h>
 #else
 #include <errno.h>
+#include <unistd.h>
 #endif
 
 #if !defined(S_IFMT) && defined(_S_IFMT)
@@ -119,6 +120,15 @@ static bool path_mkdir(const char *path)
 #endif
 }
 
+static bool path_rmdir(const char *path)
+{
+#ifdef _WIN32
+    return _rmdir(path) == 0 || !path_is_dir(path);
+#else
+    return rmdir(path) == 0 || !path_is_dir(path);
+#endif
+}
+
 #define LZ_APP_DATA_MAX_ENTRIES 96
 #define LZ_APP_DATA_MAX_DEPTH 3
 
@@ -170,6 +180,56 @@ static bool app_data_usage_walk(const char *dir, int depth, int *entries,
             }
             if(UINT32_MAX - *used < sz) *used = UINT32_MAX;
             else *used += sz;
+        }
+    }
+    closedir(d);
+    return true;
+}
+
+static bool app_data_clear_walk(const char *dir, int depth, int *entries,
+                                char *err, int err_cap)
+{
+    if(depth > LZ_APP_DATA_MAX_DEPTH) {
+        set_err(err, err_cap, "data too deep");
+        return false;
+    }
+    DIR *d = opendir(dir);
+    if(!d) {
+        set_err(err, err_cap, "data scan failed");
+        return false;
+    }
+
+    struct dirent *e;
+    while((e = readdir(d)) != NULL) {
+        if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if(++(*entries) > LZ_APP_DATA_MAX_ENTRIES) {
+            closedir(d);
+            set_err(err, err_cap, "data too many files");
+            return false;
+        }
+
+        char path[160];
+        path_join(path, sizeof path, dir, e->d_name);
+        struct stat st;
+        if(stat(path, &st) != 0) {
+            closedir(d);
+            set_err(err, err_cap, "data scan failed");
+            return false;
+        }
+        if(S_ISDIR(st.st_mode)) {
+            if(!app_data_clear_walk(path, depth + 1, entries, err, err_cap)) {
+                closedir(d);
+                return false;
+            }
+            if(!path_rmdir(path)) {
+                closedir(d);
+                set_err(err, err_cap, "data clear failed");
+                return false;
+            }
+        } else if(remove(path) != 0) {
+            closedir(d);
+            set_err(err, err_cap, "data clear failed");
+            return false;
         }
     }
     closedir(d);
@@ -690,6 +750,31 @@ bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t
     uint32_t total = 0;
     if(!app_data_usage_walk(data, 0, &entries, &total, err, err_cap)) return false;
     if(used) *used = total;
+    return true;
+}
+
+bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap)
+{
+    if(err && err_cap > 0) err[0] = 0;
+    if(!app || !app->path[0] || !path_is_dir(app->path)) {
+        set_err(err, err_cap, "package missing");
+        return false;
+    }
+    if((app->permissions & LZ_APP_PERM_STORAGE) == 0) {
+        set_err(err, err_cap, "storage not requested");
+        return false;
+    }
+
+    char data[128];
+    if(!lz_store_prepare_app_data(app, data, sizeof data, err, err_cap))
+        return false;
+    int entries = 0;
+    if(!app_data_clear_walk(data, 0, &entries, err, err_cap))
+        return false;
+    if(!path_mkdir(data) || !path_is_dir(data)) {
+        set_err(err, err_cap, "data mkdir failed");
+        return false;
+    }
     return true;
 }
 

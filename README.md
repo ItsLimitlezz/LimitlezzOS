@@ -124,8 +124,9 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   the app's scoped `data/` directory. SDK `api_version` and permission metadata
   are parsed fail-closed, with rejected package diagnostics visible in
   Developer Mode. Apps that request `storage` get a scoped package `data/`
-  directory prepared with a 64 KB launch-time quota guard. Script execution,
-  richer API injection, downloads, and updates are still TODO.
+  directory prepared with a 64 KB launch-time quota guard, and the App Store
+  detail screen can clear only that app's scoped data. Script execution, richer
+  API injection, downloads, and updates are still TODO.
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
@@ -289,9 +290,10 @@ apps and read-only inspection when present.
 - **App Store** - scans local app manifests, validates SDK/permission metadata,
   shows rejected-package diagnostics in Developer Mode, prepares scoped app
   `data/` directories for storage-enabled local apps, reports quota usage,
-  opens a manifest detail shell, and launches local apps into the SDK 0.1
-  foreground shell with bounded app-provided actions and scoped storage
-  counters; the static catalog remains a prototype (GET -> "..." -> OPEN).
+  clears scoped app data on request, opens a manifest detail shell, and launches
+  local apps into the SDK 0.1 foreground shell with bounded app-provided actions
+  and scoped storage counters; the static catalog remains a prototype (GET ->
+  "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

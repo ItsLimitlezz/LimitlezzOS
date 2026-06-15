@@ -257,8 +257,9 @@ Deliverables:
     apps that declare `storage` get `<package>/data` prepared and surfaced in
     the detail shell, and launch is blocked when the current `data/` tree
     exceeds the early 64 KB quota. SDK 0.1 foreground actions can increment a
-    safe counter file inside that scoped data directory; richer runtime API
-    calls and richer quota controls remain below.
+    safe counter file inside that scoped data directory, and App Store detail
+    can clear only that scoped data directory; richer runtime API calls and
+    richer quota controls remain below.
   - notification request API routed through Feedback Manager
   - no direct hardware access
 - Add Developer Mode app diagnostics and crash/error display. Partially

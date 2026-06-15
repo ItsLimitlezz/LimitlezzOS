@@ -49,6 +49,27 @@ static void fmt_telemetry(const lz_node_rt *n, char *out, size_t cap)
 
 static int store_local_n;
 static int store_issue_n;
+static char local_app_note_id[24];
+static char local_app_note[64];
+
+static void local_app_note_clear(void)
+{
+    local_app_note_id[0] = 0;
+    local_app_note[0] = 0;
+}
+
+static void local_app_note_set(const lz_local_app_t *app, const char *note)
+{
+    if(!app || !app->id[0] || !note || !note[0]) { local_app_note_clear(); return; }
+    snprintf(local_app_note_id, sizeof local_app_note_id, "%s", app->id);
+    snprintf(local_app_note, sizeof local_app_note, "%s", note);
+}
+
+static const char *local_app_note_for(const lz_local_app_t *app)
+{
+    if(!app || strcmp(local_app_note_id, app->id) != 0) return NULL;
+    return local_app_note[0] ? local_app_note : NULL;
+}
 
 static void store_timer_cb(lv_timer_t *tm)
 {
@@ -65,6 +86,7 @@ static void store_activate(int idx)
         int n = lz_svc_scan_apps(local, STORE_LOCAL_MAX);
         if(idx < n) {
             S.local_app_sel = local[idx];
+            local_app_note_clear();
             lz_go(LZ_V_LOCALAPP);
         }
         return;
@@ -318,12 +340,27 @@ void lz_open_local_app(const lz_local_app_t *app)
 {
     if(!app) return;
     S.local_app_sel = *app;
+    local_app_note_clear();
     lz_start_local_app();
 }
 
 static void local_app_detail_activate(int idx)
 {
-    if(idx == 0) lz_start_local_app();
+    lz_local_app_t *a = &S.local_app_sel;
+    bool can_clear = a->permissions & LZ_APP_PERM_STORAGE;
+    if(idx == 0) {
+        lz_start_local_app();
+    } else if(can_clear && idx == 1) {
+        char err[48];
+        if(lz_svc_clear_app_data(a, err, sizeof err))
+            local_app_note_set(a, "Local app data cleared");
+        else {
+            char note[64];
+            snprintf(note, sizeof note, "Clear failed: %s", err[0] ? err : "unknown");
+            local_app_note_set(a, note);
+        }
+        lz_rebuild();
+    }
 }
 
 void lz_scr_local_app(lv_obj_t *root)
@@ -382,6 +419,31 @@ void lz_scr_local_app(lv_obj_t *root)
     lv_obj_center(ol);
     lz_nav_track(open, 0);
 
+    const char *note = local_app_note_for(a);
+    if(a->permissions & LZ_APP_PERM_STORAGE) {
+        lv_obj_t *clear = lz_row(body, S.focus == 1);
+        lv_obj_set_style_radius(clear, 11, 0);
+        lz_icon(clear, LZ_I_FOLDER, &lz_icons_18, LZ_TEXT_META);
+        lv_obj_t *cl = lz_box(clear);
+        lv_obj_set_flex_grow(cl, 1);
+        lv_obj_set_height(cl, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(cl, 1, 0);
+        lz_text(cl, "Clear local data", LZ_F_BODY, LZ_TEXT);
+        bool note_fail = note && strncmp(note, "Clear failed", 12) == 0;
+        lz_text(cl, note ? note : "remove files in this app's data folder",
+                LZ_F_SMALL, note ? (note_fail ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN) : LZ_TEXT_META);
+        lz_nav_track(clear, 1);
+    }
+
+    if(note) {
+        lv_color_t c = strncmp(note, "Clear failed", 12) == 0 ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN;
+        lv_obj_t *nl = lz_text(body, note, LZ_F_SMALL, c);
+        lv_obj_set_width(nl, lv_pct(100));
+        lv_label_set_long_mode(nl, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(nl, LV_TEXT_ALIGN_CENTER, 0);
+    }
+
     lv_obj_t *card = lz_card(body);
     lv_obj_set_height(card, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
@@ -427,7 +489,7 @@ void lz_scr_local_app(lv_obj_t *root)
         lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
     }
 
-    lz_nav_set(1, 1, local_app_detail_activate);
+    lz_nav_set(1, (a->permissions & LZ_APP_PERM_STORAGE) ? 2 : 1, local_app_detail_activate);
 }
 
 static void local_app_run_activate(int idx)

@@ -347,11 +347,17 @@ static void shots(const char *dir)
             write_bmp(path);
             printf("wrote %s\n", path);
             lz_ui_key(LZ_K_DOWN, 0);
-            lz_ui_key(LZ_K_DOWN, 0);
             pump(60);
-            snprintf(path, sizeof path, "%s/07c-local-app-permissions.bmp", dir);
+            snprintf(path, sizeof path, "%s/07c-local-app-data-actions.bmp", dir);
             write_bmp(path);
             printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_ENTER, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07c2-local-app-data-cleared.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_UP, 0);
+            pump(30);
             lz_ui_key(LZ_K_ENTER, 0);
             pump(60);
             snprintf(path, sizeof path, "%s/07e-local-app-run.bmp", dir);
@@ -690,6 +696,7 @@ static int codec_selftest(void)
                                               char *err, int err_cap);
         extern bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
                                             char *err, int err_cap);
+        extern bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
         extern bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
         extern bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
         sim_reset_dir("lzdata_appscan");
@@ -773,8 +780,14 @@ static int codec_selftest(void)
               "local app foreground storage counter persists");
         CHECK(action2_ok && run.data_used_bytes > 1536,
               "local app foreground storage counter stays in app data quota");
+        bool clear_ok = an == 1 && lz_store_clear_app_data(&apps[0], data_err, sizeof data_err);
+        CHECK(clear_ok, "local app clear data succeeds inside scoped storage");
+        used = 123;
+        usage_ok = an == 1 && lz_store_app_data_usage(&apps[0], &used, &quota,
+                                                      data_err, sizeof data_err);
+        CHECK(usage_ok && used == 0, "local app clear data resets quota usage");
         sim_write_bytes("lzdata_appscan/apps/weather/data/too-big.bin",
-                        (int)LZ_LOCAL_APP_DATA_QUOTA_BYTES);
+                        (int)LZ_LOCAL_APP_DATA_QUOTA_BYTES + 1);
         lz_local_app_session_t over;
         bool over_ok = an == 1 && lz_store_start_local_app(&apps[0], &over);
         CHECK(!over_ok && strcmp(over.error, "data quota exceeded") == 0,

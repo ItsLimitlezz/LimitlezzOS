@@ -146,4 +146,7 @@ directory prepared under their own package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps
-are launch-blocked before any future runtime code can run.
+are launch-blocked before any future runtime code can run. The App Store detail
+screen also provides `Clear local data` for storage-enabled apps; it removes
+only files and folders inside that app's scoped `data/` directory and then
+recreates the directory for later use.

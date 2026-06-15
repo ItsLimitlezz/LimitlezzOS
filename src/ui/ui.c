@@ -535,7 +535,6 @@ void lz_ui_key(lz_key_t k, char c)
             return;
         case LZ_K_ENTER:
             if(S.view == LZ_V_CONVO) { convo_send(); return; }
-            if(S.view == LZ_V_LOCALAPP) { lz_start_local_app(); return; }
             activate();
             return;
         case LZ_K_DEL:
