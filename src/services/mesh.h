@@ -28,6 +28,7 @@ extern "C" {
 #define LZ_TEXT_MAX     200
 #define LZ_MAX_LOCAL_APPS 12
 #define LZ_MAX_LOCAL_APP_ISSUES 8
+#define LZ_LOCAL_APP_BODY_MAX 360
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -155,6 +156,16 @@ typedef struct {
     char path[112];              /* package directory */
 } lz_local_app_issue_t;
 
+typedef struct {
+    char title[32];              /* app-provided display title */
+    char body[LZ_LOCAL_APP_BODY_MAX];
+    char status[64];             /* short runtime/sandbox state */
+    char data_path[112];         /* prepared only when storage is declared */
+    char error[48];              /* launch blocked reason, if any */
+    bool entry_loaded;
+    bool storage_ready;
+} lz_local_app_session_t;
+
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
@@ -164,6 +175,7 @@ int  lz_svc_scan_apps(lz_local_app_t *out, int cap);    /* SD/appfs local manife
 int  lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap); /* rejected manifests */
 bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
                              char *err, int err_cap);   /* scoped app data dir */
+bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

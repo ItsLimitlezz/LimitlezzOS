@@ -22,7 +22,7 @@ extern "C" {
 typedef enum {
     LZ_V_ONBOARD, LZ_V_LOCK, LZ_V_HOME, LZ_V_MESSAGES, LZ_V_CONVO,
     LZ_V_MESHTASTIC, LZ_V_MESHCORE, LZ_V_APPSTORE,
-    LZ_V_LOCALAPP, LZ_V_CONTACTS, LZ_V_CONTACT, LZ_V_SETTINGS,
+    LZ_V_LOCALAPP, LZ_V_LOCALAPP_RUN, LZ_V_CONTACTS, LZ_V_CONTACT, LZ_V_SETTINGS,
     LZ_V_SYSTEM, LZ_V_TERMINAL, LZ_V_FILES, LZ_V_WIFI, LZ_V_SETTIME, LZ_V_TZPICK,
     LZ_V_TOUCHCAL,
     LZ_V_COUNT
@@ -67,6 +67,7 @@ typedef struct {
     int mc_tab;            /* 0 contacts, 1 rooms  */
     lz_node_rt *contact_sel;
     lz_local_app_t local_app_sel;
+    lz_local_app_session_t local_app_run;
     int home_page;         /* launcher page, 8 cells per page */
     int cal_step;          /* touch calibration: which target (0..2) */
 
@@ -126,6 +127,9 @@ void lz_scr_meshtastic(lv_obj_t *root);
 void lz_scr_meshcore(lv_obj_t *root);
 void lz_scr_appstore(lv_obj_t *root);
 void lz_scr_local_app(lv_obj_t *root);
+void lz_scr_local_app_run(lv_obj_t *root);
+void lz_open_local_app(const lz_local_app_t *app);
+void lz_start_local_app(void);
 void lz_scr_contacts(lv_obj_t *root);
 void lz_scr_contact(lv_obj_t *root);
 void lz_scr_settings(lv_obj_t *root);

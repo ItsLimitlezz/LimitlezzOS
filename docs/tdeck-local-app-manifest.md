@@ -21,7 +21,9 @@ In the native simulator, packages are discovered from:
 Accepted local apps appear after the built-in Home apps. The Home launcher keeps
 the 4x2 tile grid and adds pages with page dots when more apps are available
 than fit on the first screen. The App Store also lists accepted local apps as
-installed local packages and opens the same manifest detail shell.
+installed local packages and opens the same manifest detail shell. Home launches
+the app into the SDK 0.1 foreground shell; the detail shell also has an `OPEN`
+action.
 
 When Developer Mode is enabled, the App Store also shows rejected local package
 folders with a short reason such as `missing manifest`, `unsafe id`, `bad
@@ -38,6 +40,11 @@ Each package directory must contain:
 - optional `data/` directory; for apps that declare `storage`, the firmware
   prepares this directory inside the app package before runtime storage APIs
   exist
+
+The current SDK 0.1 foreground shell reads only bounded display metadata from
+the entry file. It accepts optional `title:`, `status:`, `body:`, or `text:`
+lines, including Lua-comment style lines such as `-- body: Local dashboard`.
+Script execution and API injection are still later runtime work.
 
 Example:
 
@@ -101,8 +108,9 @@ The scanner rejects packages when:
 - `api_version` names an unsupported SDK version
 - `permissions` is not an array of supported namespace strings
 
-The current firmware only scans and displays local app manifests. Script
-execution, sandbox API injection, app data quotas, and network catalog installs
-remain later app-platform work. Permission metadata is parsed and displayed now
-so packages can fail closed before the runtime is added, and apps that declare
-`storage` get a scoped `data/` directory prepared under their own package.
+The current firmware scans local app manifests and can open them in a safe
+foreground shell. Script execution, sandbox API injection, app data quotas, and
+network catalog installs remain later app-platform work. Permission metadata is
+parsed and displayed now so packages can fail closed before richer runtime APIs
+are added, and apps that declare `storage` get a scoped `data/` directory
+prepared under their own package.

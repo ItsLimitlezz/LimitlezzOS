@@ -276,6 +276,7 @@ void lz_rebuild(void)
         case LZ_V_MESHCORE:   lz_scr_meshcore(g_root); break;
         case LZ_V_APPSTORE:   lz_scr_appstore(g_root); break;
         case LZ_V_LOCALAPP:   lz_scr_local_app(g_root); break;
+        case LZ_V_LOCALAPP_RUN: lz_scr_local_app_run(g_root); break;
         case LZ_V_CONTACTS:   lz_scr_contacts(g_root); break;
         case LZ_V_CONTACT:    lz_scr_contact(g_root); break;
         case LZ_V_SETTINGS:   lz_scr_settings(g_root); break;
@@ -534,6 +535,7 @@ void lz_ui_key(lz_key_t k, char c)
             return;
         case LZ_K_ENTER:
             if(S.view == LZ_V_CONVO) { convo_send(); return; }
+            if(S.view == LZ_V_LOCALAPP) { lz_start_local_app(); return; }
             activate();
             return;
         case LZ_K_DEL:

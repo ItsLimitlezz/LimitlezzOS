@@ -220,8 +220,7 @@ static void home_activate(int idx)
         lz_local_app_t local[HOME_LOCAL_MAX];
         int n = lz_svc_scan_apps(local, HOME_LOCAL_MAX);
         if(local_idx < n) {
-            S.local_app_sel = local[local_idx];
-            lz_go(LZ_V_LOCALAPP);
+            lz_open_local_app(&local[local_idx]);
         }
         return;
     }

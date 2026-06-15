@@ -242,6 +242,54 @@ static bool manifest_fail(char *reason, size_t cap, const char *msg)
     return false;
 }
 
+static void clean_line_copy(char *out, size_t cap, const char *src)
+{
+    if(!out || cap == 0) return;
+    while(*src == ' ' || *src == '\t') src++;
+    size_t j = 0;
+    while(src[j] && src[j] != '\r' && src[j] != '\n') j++;
+    while(j > 0 && (src[j - 1] == ' ' || src[j - 1] == '\t')) j--;
+    size_t n = j < cap - 1 ? j : cap - 1;
+    memcpy(out, src, n);
+    out[n] = 0;
+}
+
+static const char *entry_value_for(const char *line, const char *key)
+{
+    line = skip_ws(line);
+    if(line[0] == '-' && line[1] == '-') line = skip_ws(line + 2);
+    else if(line[0] == '#') line = skip_ws(line + 1);
+    size_t kl = strlen(key);
+    if(strncmp(line, key, kl) != 0) return NULL;
+    line = skip_ws(line + kl);
+    if(*line != ':' && *line != '=') return NULL;
+    return skip_ws(line + 1);
+}
+
+static bool append_body_line(char *body, size_t cap, const char *line)
+{
+    char clean[96];
+    clean_line_copy(clean, sizeof clean, line);
+    if(!clean[0]) return false;
+    size_t have = strlen(body);
+    size_t need = strlen(clean);
+    if(have + (have ? 1 : 0) + need + 1 > cap) return false;
+    if(have) strncat(body, "\n", cap - strlen(body) - 1);
+    strncat(body, clean, cap - strlen(body) - 1);
+    return true;
+}
+
+static bool app_session_fail(lz_local_app_session_t *out, const lz_local_app_t *app,
+                             const char *msg)
+{
+    if(out) {
+        if(app && app->name[0]) snprintf(out->title, sizeof out->title, "%s", app->name);
+        if(!out->status[0]) snprintf(out->status, sizeof out->status, "Launch blocked");
+        snprintf(out->error, sizeof out->error, "%s", msg ? msg : "unknown error");
+    }
+    return false;
+}
+
 static bool load_app_manifest(const char *pkg_dir, lz_local_app_t *app,
                               char *reason, size_t reason_cap)
 {
@@ -410,7 +458,80 @@ bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int pa
     return true;
 }
 
-/* addr strings can contain '!' etc — keep alnum only in filenames */
+/* SDK 0.1 launch shell: load bounded display metadata from the app entry file
+ * without executing script code or granting hardware access. */
+bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out)
+{
+    if(!out) return false;
+    memset(out, 0, sizeof *out);
+    if(!app || !app->id[0]) return app_session_fail(out, app, "missing app");
+    snprintf(out->title, sizeof out->title, "%s", app->name[0] ? app->name : app->id);
+    snprintf(out->status, sizeof out->status, "SDK %s foreground sandbox",
+             app->api_version[0] ? app->api_version : "0.1");
+
+    if((app->permissions & LZ_APP_PERM_DISPLAY) == 0)
+        return app_session_fail(out, app, "display permission missing");
+    if(!app->path[0] || !path_is_dir(app->path))
+        return app_session_fail(out, app, "package missing");
+    if(!safe_entry(app->entry))
+        return app_session_fail(out, app, "unsafe entry");
+
+    if(app->permissions & LZ_APP_PERM_STORAGE) {
+        char err[48];
+        if(!lz_store_prepare_app_data(app, out->data_path, sizeof out->data_path,
+                                      err, sizeof err))
+            return app_session_fail(out, app, err[0] ? err : "storage unavailable");
+        out->storage_ready = true;
+    }
+
+    char entry_path[160];
+    path_join(entry_path, sizeof entry_path, app->path, app->entry);
+    FILE *f = fopen(entry_path, "rb");
+    if(!f) return app_session_fail(out, app, "missing entry file");
+
+    char raw[1025];
+    size_t n = fread(raw, 1, sizeof raw - 1, f);
+    fclose(f);
+    raw[n] = 0;
+    if(n == 0) return app_session_fail(out, app, "empty entry");
+    out->entry_loaded = true;
+
+    bool have_body = false;
+    const char *p = raw;
+    while(*p) {
+        char line[128];
+        size_t j = 0;
+        while(p[j] && p[j] != '\n' && j + 1 < sizeof line) { line[j] = p[j]; j++; }
+        line[j] = 0;
+
+        const char *v;
+        if((v = entry_value_for(line, "title")) != NULL) {
+            clean_line_copy(out->title, sizeof out->title, v);
+        } else if((v = entry_value_for(line, "status")) != NULL) {
+            clean_line_copy(out->status, sizeof out->status, v);
+        } else if((v = entry_value_for(line, "body")) != NULL ||
+                  (v = entry_value_for(line, "text")) != NULL) {
+            if(append_body_line(out->body, sizeof out->body, v)) have_body = true;
+        } else {
+            const char *q = skip_ws(line);
+            if(!have_body && q[0] && strncmp(q, "--", 2) != 0 && q[0] != '#' &&
+               strncmp(q, "return", 6) != 0) {
+                if(append_body_line(out->body, sizeof out->body, q)) have_body = true;
+            }
+        }
+
+        while(*p && *p != '\n') p++;
+        if(*p == '\n') p++;
+    }
+
+    if(!out->body[0]) {
+        if(app->summary[0]) snprintf(out->body, sizeof out->body, "%s", app->summary);
+        else snprintf(out->body, sizeof out->body, "This local app opened in the safe SDK shell.");
+    }
+    return true;
+}
+
+/* addr strings can contain '!' etc; keep alnum only in filenames */
 static void log_name(char *out, size_t n, const char *addr)
 {
     char clean[16];

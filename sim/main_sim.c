@@ -97,7 +97,14 @@ static void sim_write_local_app(const char *datadir, const char *slug,
 
     snprintf(path, sizeof path, "%s/%s", dir, entry_name);
     FILE *entry = fopen(path, "wb");
-    if(entry) { fputs("return true\n", entry); fclose(entry); }
+    if(entry) {
+        fprintf(entry, "-- title: %s\n"
+                       "-- status: SDK 0.1 foreground sandbox\n"
+                       "-- body: %s\n"
+                       "return true\n",
+                name, summary);
+        fclose(entry);
+    }
 }
 
 static void sim_seed_local_app(const char *datadir)
@@ -319,6 +326,11 @@ static void shots(const char *dir)
             lz_ui_key(LZ_K_DOWN, 0);
             pump(60);
             snprintf(path, sizeof path, "%s/07c-local-app-permissions.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_ENTER, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07e-local-app-run.bmp", dir);
             write_bmp(path);
             printf("wrote %s\n", path);
         }
@@ -645,6 +657,7 @@ static int codec_selftest(void)
         extern int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
         extern bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
                                               char *err, int err_cap);
+        extern bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
         sim_reset_dir("lzdata_appscan");
         sim_mkdirs("lzdata_appscan/apps/weather");
         sim_mkdirs("lzdata_appscan/apps/bad");
@@ -659,7 +672,13 @@ static int codec_selftest(void)
             fclose(mf);
         }
         FILE *entry = fopen("lzdata_appscan/apps/weather/main.lua", "wb");
-        if(entry) { fputs("return true\n", entry); fclose(entry); }
+        if(entry) {
+            fputs("-- title: Weather Mesh\n"
+                  "-- status: SDK 0.1 foreground sandbox\n"
+                  "-- body: Local weather dashboard\n"
+                  "return true\n", entry);
+            fclose(entry);
+        }
         FILE *bad = fopen("lzdata_appscan/apps/bad/manifest.json", "wb");
         if(bad) { fputs("{\"id\":\"../bad\",\"name\":\"Bad\",\"entry\":\"missing.lua\"}", bad); fclose(bad); }
         FILE *bpm = fopen("lzdata_appscan/apps/badperm/manifest.json", "wb");
@@ -690,6 +709,15 @@ static int codec_selftest(void)
         CHECK(data_ok, "local app storage sandbox prepares");
         CHECK(data_ok && strstr(data_path, "weather/data") != NULL,
               "local app storage sandbox stays inside package");
+        lz_local_app_session_t run;
+        bool run_ok = an == 1 && lz_store_start_local_app(&apps[0], &run);
+        CHECK(run_ok, "local app foreground session starts");
+        CHECK(run_ok && run.entry_loaded && strcmp(run.title, "Weather Mesh") == 0,
+              "local app foreground session reads entry metadata");
+        CHECK(run_ok && strstr(run.body, "Local weather dashboard") != NULL,
+              "local app foreground session renders bounded body text");
+        CHECK(run_ok && run.storage_ready && strstr(run.data_path, "weather/data") != NULL,
+              "local app foreground session keeps scoped storage");
         lz_local_app_issue_t issues[4];
         int in = lz_store_scan_app_issues(issues, 4);
         bool bad_id = false, bad_perm = false;

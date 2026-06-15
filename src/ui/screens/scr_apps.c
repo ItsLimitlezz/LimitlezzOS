@@ -295,6 +295,24 @@ static void app_perm_list(uint16_t perms, char *out, size_t cap)
     if(!out[0]) snprintf(out, cap, "none");
 }
 
+void lz_start_local_app(void)
+{
+    (void)lz_svc_start_local_app(&S.local_app_sel, &S.local_app_run);
+    lz_go(LZ_V_LOCALAPP_RUN);
+}
+
+void lz_open_local_app(const lz_local_app_t *app)
+{
+    if(!app) return;
+    S.local_app_sel = *app;
+    lz_start_local_app();
+}
+
+static void local_app_open_tap(void)
+{
+    lz_start_local_app();
+}
+
 void lz_scr_local_app(lv_obj_t *root)
 {
     lz_local_app_t *a = &S.local_app_sel;
@@ -337,6 +355,17 @@ void lz_scr_local_app(lv_obj_t *root)
         lv_label_set_long_mode(sum, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(sum, LV_TEXT_ALIGN_CENTER, 0);
     }
+
+    lv_obj_t *open = lz_box(body);
+    lv_obj_set_size(open, LV_SIZE_CONTENT, 26);
+    lv_obj_set_style_min_width(open, 92, 0);
+    lv_obj_set_style_radius(open, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(open, LZ_STORE_BTN, 0);
+    lv_obj_set_style_bg_opa(open, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(open, 16, 0);
+    lv_obj_t *ol = lz_text(open, "OPEN", LZ_F_SMALL, LZ_ON_MINT);
+    lv_obj_center(ol);
+    lz_on_click(open, local_app_open_tap);
 
     lv_obj_t *card = lz_card(body);
     lv_obj_set_height(card, LV_SIZE_CONTENT);
@@ -381,8 +410,114 @@ void lz_scr_local_app(lv_obj_t *root)
     lz_nav_set(1, 0, NULL);
 }
 
+static void local_app_close_tap(void)
+{
+    lz_back();
+}
+
+void lz_scr_local_app_run(lv_obj_t *root)
+{
+    lz_local_app_t *a = &S.local_app_sel;
+    lz_local_app_session_t *r = &S.local_app_run;
+    if(!a->id[0]) { lz_back(); return; }
+
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lz_navbar(root, r->title[0] ? r->title : a->name, "Close");
+
+    lv_obj_t *body = lz_vflex(root);
+    lv_obj_set_style_pad_top(body, 10, 0);
+    lv_obj_set_style_pad_hor(body, 12, 0);
+    lv_obj_set_style_pad_bottom(body, 10, 0);
+    lv_obj_set_style_pad_row(body, 8, 0);
+    lz_nav_set_scroll(body);
+
+    lv_obj_t *head = lz_box(body);
+    lv_obj_set_width(head, lv_pct(100));
+    lv_obj_set_height(head, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(head, 10, 0);
+
+    lv_obj_t *tile = lz_box(head);
+    lv_obj_set_size(tile, 42, 42);
+    lv_obj_set_style_radius(tile, 11, 0);
+    lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
+    lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+    lv_obj_t *ic = lz_icon(tile, lz_app_icon_glyph(a->icon), &lz_icons_18, lv_color_white());
+    lv_obj_center(ic);
+
+    lv_obj_t *hcol = lz_box(head);
+    lv_obj_set_flex_grow(hcol, 1);
+    lv_obj_set_height(hcol, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hcol, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(hcol, 2, 0);
+    lv_obj_t *title = lz_text(hcol, r->title[0] ? r->title : a->name, LZ_F_HEAD, LZ_TEXT);
+    lv_obj_set_width(title, 220);
+    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    lv_obj_t *status = lz_text(hcol, r->status[0] ? r->status : "Foreground sandbox",
+                               LZ_F_SMALL, r->error[0] ? lv_color_hex(0xE9B05F) : LZ_TEXT_META);
+    lv_obj_set_width(status, 220);
+    lv_label_set_long_mode(status, LV_LABEL_LONG_DOT);
+
+    lv_obj_t *card = lz_card(body);
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(card, 11, 0);
+    lv_obj_set_style_pad_row(card, 7, 0);
+
+    if(r->error[0]) {
+        lz_text(card, "Launch blocked", LZ_F_BODY, lv_color_hex(0xE9B05F));
+        lv_obj_t *err = lz_text(card, r->error, LZ_F_SMALL, LZ_TEXT);
+        lv_obj_set_width(err, lv_pct(100));
+        lv_label_set_long_mode(err, LV_LABEL_LONG_WRAP);
+    } else {
+        lv_obj_t *body_txt = lz_text(card, r->body, LZ_F_BODY, LZ_TEXT);
+        lv_obj_set_width(body_txt, lv_pct(100));
+        lv_label_set_long_mode(body_txt, LV_LABEL_LONG_WRAP);
+    }
+
+    char perms[104];
+    char storage[80];
+    app_perm_list(a->permissions, perms, sizeof perms);
+    if(a->permissions & LZ_APP_PERM_STORAGE) {
+        snprintf(storage, sizeof storage, "%s",
+                 r->storage_ready ? "data/ ready" : "storage unavailable");
+    } else {
+        snprintf(storage, sizeof storage, "not requested");
+    }
+    const char *ks[4] = { "Permissions", "Storage", "Entry", "Runtime" };
+    const char *vs[4] = { perms, storage, a->entry,
+                          r->entry_loaded ? "foreground only" : "not loaded" };
+    lv_obj_t *meta = lz_card(body);
+    lv_obj_set_height(meta, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_COLUMN);
+    for(int i = 0; i < 4; i++) {
+        lv_obj_t *row = lz_box(meta);
+        lv_obj_set_width(row, lv_pct(100));
+        lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_hor(row, 11, 0);
+        lv_obj_set_style_pad_ver(row, 7, 0);
+        if(i < 3) {
+            lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+            lv_obj_set_style_border_width(row, 1, 0);
+            lv_obj_set_style_border_color(row, lv_color_hex(0x21262D), 0);
+        }
+        lz_text(row, ks[i], LZ_F_SMALL, lv_color_hex(0x8B939C));
+        lv_obj_t *v = lz_text(row, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);
+        lv_obj_set_width(v, lv_pct(100));
+        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+    }
+
+    lv_obj_t *close = lz_row(body, false);
+    lv_obj_set_style_radius(close, 11, 0);
+    lz_text(close, "Close app", LZ_F_BODY, LZ_TEXT);
+    lz_on_click(close, local_app_close_tap);
+    lz_nav_set(1, 0, NULL);
+}
+
 /* ===== Contacts =====
- * Only people the user purposely added — not every node ever heard. Add a
+ * Only people the user purposely added; not every node ever heard. Add a
  * contact from its detail page (reached via the network managers). */
 
 static lz_node_rt *contact_list[LZ_MAX_NODES];
