@@ -217,7 +217,8 @@ Deliverables:
   - per-app data directory
   Implemented for the first local scanner step in
   `docs/tdeck-local-app-manifest.md`: each package has a bounded manifest, a
-  relative entry file, optional assets, and a local package directory.
+  relative entry file, optional assets, a local package directory, and scoped
+  `data/` preparation for apps that declare the `storage` permission.
 - Implement local app scanner for `/apps`. Implemented for local storage:
   firmware scans `/sd/limitlezz/apps`, `/sd/apps`, and `/appfs/apps`; the
   simulator scans `<datadir>/apps`. Unsafe IDs/entry paths and packages without
@@ -239,7 +240,9 @@ Deliverables:
 - Implement a small initial SDK:
   - UI primitives compatible with the T-Deck screen
   - mesh send/receive API through the service, not radio hardware
-  - storage API scoped to app directory
+  - storage API scoped to app directory. Groundwork implemented: accepted local
+    apps that declare `storage` get `<package>/data` prepared and surfaced in
+    the detail shell; runtime API calls and quotas remain below.
   - notification request API routed through Feedback Manager
   - no direct hardware access
 - Add Developer Mode app diagnostics and crash/error display. Partially

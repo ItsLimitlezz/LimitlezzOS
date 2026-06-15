@@ -643,6 +643,8 @@ static int codec_selftest(void)
         extern void lz_store_init(const char *datadir);
         extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
         extern int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
+        extern bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                                              char *err, int err_cap);
         sim_reset_dir("lzdata_appscan");
         sim_mkdirs("lzdata_appscan/apps/weather");
         sim_mkdirs("lzdata_appscan/apps/bad");
@@ -682,6 +684,12 @@ static int codec_selftest(void)
               (apps[0].permissions & LZ_APP_PERM_STORAGE) &&
               !(apps[0].permissions & LZ_APP_PERM_MESH_SEND),
               "local app scanner keeps allowlisted permissions");
+        char data_path[128], data_err[48];
+        bool data_ok = an == 1 && lz_store_prepare_app_data(&apps[0], data_path, sizeof data_path,
+                                                            data_err, sizeof data_err);
+        CHECK(data_ok, "local app storage sandbox prepares");
+        CHECK(data_ok && strstr(data_path, "weather/data") != NULL,
+              "local app storage sandbox stays inside package");
         lz_local_app_issue_t issues[4];
         int in = lz_store_scan_app_issues(issues, 4);
         bool bad_id = false, bad_perm = false;

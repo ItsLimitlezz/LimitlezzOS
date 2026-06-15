@@ -35,6 +35,9 @@ Each package directory must contain:
 - `manifest.json`
 - the manifest `entry` file, relative to the package directory
 - optional assets or per-app data files
+- optional `data/` directory; for apps that declare `storage`, the firmware
+  prepares this directory inside the app package before runtime storage APIs
+  exist
 
 Example:
 
@@ -101,4 +104,5 @@ The scanner rejects packages when:
 The current firmware only scans and displays local app manifests. Script
 execution, sandbox API injection, app data quotas, and network catalog installs
 remain later app-platform work. Permission metadata is parsed and displayed now
-so packages can fail closed before the runtime is added.
+so packages can fail closed before the runtime is added, and apps that declare
+`storage` get a scoped `data/` directory prepared under their own package.

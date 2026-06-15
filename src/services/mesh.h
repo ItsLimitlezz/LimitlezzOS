@@ -162,6 +162,8 @@ void lz_svc_set_dirty_cb(void (*cb)(void));             /* UI refresh request   
 const char *lz_svc_file_root(void);                     /* read-only Files browser root */
 int  lz_svc_scan_apps(lz_local_app_t *out, int cap);    /* SD/appfs local manifests */
 int  lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap); /* rejected manifests */
+bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                             char *err, int err_cap);   /* scoped app data dir */
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

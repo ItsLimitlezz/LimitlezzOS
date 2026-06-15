@@ -22,6 +22,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <errno.h>
+#endif
 
 #if !defined(S_IFMT) && defined(_S_IFMT)
 #define S_IFMT _S_IFMT
@@ -73,6 +78,16 @@ static bool path_is_file(const char *path)
 {
     struct stat st;
     return stat(path, &st) == 0 && !S_ISDIR(st.st_mode);
+}
+
+static bool path_mkdir(const char *path)
+{
+    if(path_is_dir(path)) return true;
+#ifdef _WIN32
+    return _mkdir(path) == 0 || path_is_dir(path);
+#else
+    return mkdir(path, 0775) == 0 || errno == EEXIST || path_is_dir(path);
+#endif
 }
 
 /* ---- local app manifests ----
@@ -370,6 +385,29 @@ int lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap)
         scan_app_issue_root("/appfs/apps", out, cap, &count);
 
     return count;
+}
+
+bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                               char *err, int err_cap)
+{
+    if(path_out && path_cap > 0) path_out[0] = 0;
+    if(err && err_cap > 0) err[0] = 0;
+    if(!g_persist) {
+        if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "storage unavailable");
+        return false;
+    }
+    if(!app || !app->path[0] || !path_is_dir(app->path)) {
+        if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "package missing");
+        return false;
+    }
+    char data[128];
+    path_join(data, sizeof data, app->path, "data");
+    if(!path_mkdir(data) || !path_is_dir(data)) {
+        if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "data mkdir failed");
+        return false;
+    }
+    if(path_out && path_cap > 0) snprintf(path_out, (size_t)path_cap, "%s", data);
+    return true;
 }
 
 /* addr strings can contain '!' etc — keep alnum only in filenames */

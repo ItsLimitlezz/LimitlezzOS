@@ -344,19 +344,30 @@ void lz_scr_local_app(lv_obj_t *root)
 
     char api[28];
     char perms[104];
+    char storage[64];
+    char data_path[112];
+    char data_err[48];
     snprintf(api, sizeof api, "SDK %s", a->api_version);
     app_perm_list(a->permissions, perms, sizeof perms);
+    if(a->permissions & LZ_APP_PERM_STORAGE) {
+        if(lz_svc_prepare_app_data(a, data_path, sizeof data_path, data_err, sizeof data_err))
+            snprintf(storage, sizeof storage, "data/ ready");
+        else
+            snprintf(storage, sizeof storage, "unavailable: %s", data_err[0] ? data_err : "unknown");
+    } else {
+        snprintf(storage, sizeof storage, "not requested");
+    }
 
-    const char *ks[6] = { "Status", "API", "Permissions", "App ID", "Entry", "Folder" };
-    const char *vs[6] = { "Manifest ready", api, perms, a->id, a->entry, a->path };
-    for(int i = 0; i < 6; i++) {
+    const char *ks[7] = { "Status", "API", "Permissions", "Storage", "App ID", "Entry", "Folder" };
+    const char *vs[7] = { "Manifest ready", api, perms, storage, a->id, a->entry, a->path };
+    for(int i = 0; i < 7; i++) {
         lv_obj_t *r = lz_box(card);
         lv_obj_set_width(r, lv_pct(100));
         lv_obj_set_height(r, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_hor(r, 11, 0);
         lv_obj_set_style_pad_ver(r, 7, 0);
-        if(i < 5) {
+        if(i < 6) {
             lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(r, 1, 0);
             lv_obj_set_style_border_color(r, lv_color_hex(0x21262D), 0);

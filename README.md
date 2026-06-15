@@ -119,7 +119,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
   across paged Home launcher screens and App Store detail shells. SDK
   `api_version` and permission metadata are parsed fail-closed, with rejected
-  package diagnostics visible in Developer Mode. Runtime execution, API
+  package diagnostics visible in Developer Mode. Apps that request `storage`
+  get a scoped package `data/` directory prepared. Runtime execution, API
   injection, downloads, updates, and real app launch are still TODO.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
@@ -275,7 +276,8 @@ the demo mesh.
   Nodes/Channels and Contacts/Rooms tabs, SNR color coding, role badges,
   online dots.
 - **App Store** - scans local app manifests, validates SDK/permission metadata,
-  shows rejected-package diagnostics in Developer Mode, and opens a manifest
+  shows rejected-package diagnostics in Developer Mode, prepares scoped app
+  `data/` directories for storage-enabled local apps, and opens a manifest
   detail shell; the static catalog remains a prototype (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
