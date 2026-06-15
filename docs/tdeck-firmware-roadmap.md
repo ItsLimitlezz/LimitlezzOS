@@ -193,7 +193,13 @@ Deliverables:
 
 - Full code review of the hardware, radio, service, storage, and UI boundaries.
 - Optimize slow screens, keyboard input latency, radio loop timing, and memory hot spots.
-- Add size and memory budgets to CI/release notes.
+- Add size and memory budgets to CI/release notes. Implemented: Firmware CI now
+  checks `firmware.bin` against a 2,200,000-byte budget and static RAM against a
+  307,200-byte budget, records the result in the artifact manifest, and uploads
+  the detailed budget report with the flash bundle.
+- Add screenshot and deterministic scenario coverage to CI. Implemented:
+  Firmware CI now runs `--simtest`, generates native simulator screenshots, and
+  uploads the screenshot artifact for release review.
 - Clean up dead demo data and stale comments that no longer match product state.
 - Add basic emoji rendering/input support appropriate for the T-Deck screen and memory budget.
 - Re-run hardware dogfood tests on Meshtastic-only, MeshCore-only, and split-airtime modes.

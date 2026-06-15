@@ -239,9 +239,12 @@ The fetch helper uses the current branch and current commit by default, then
 downloads the matching successful `Firmware CI` artifact with `gh`. It refuses
 to use an older run unless `--allow-latest-success` is passed.
 
-CI runs the native simulator build, native codec selftest, T-Deck firmware build,
-and T-Deck size report in `.github/workflows/firmware.yml`, then uploads the
-firmware artifacts from `.pio/build/tdeck`.
+CI runs the native simulator build, native codec selftest, deterministic simulator
+scenario, screenshot generation, T-Deck firmware build, and T-Deck size report
+in `.github/workflows/firmware.yml`. It also enforces the current T-Deck budget
+gate (2,200,000 bytes for `firmware.bin`, 307,200 bytes static RAM), writes the
+result into `FLASH_MANIFEST.txt`, then uploads the firmware artifacts from
+`.pio/build/tdeck` plus the generated simulator screenshots.
 
 Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RAM
 (82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,

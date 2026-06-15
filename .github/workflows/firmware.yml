@@ -52,13 +52,30 @@ jobs:
       - name: Run native scenario simtest
         run: .pio/build/native/program --simtest
 
-      - name: Build T-Deck firmware
-        run: pio run -e tdeck
+      - name: Generate native simulator screenshots
+        run: |
+          rm -rf .pio/native-shots
+          mkdir -p .pio/native-shots
+          .pio/build/native/program --shots .pio/native-shots
 
-      - name: Capture T-Deck size report
+      - name: Build T-Deck firmware
+        run: |
+          set -o pipefail
+          pio run -e tdeck 2>&1 | tee tdeck-build.txt
+
+      - name: Capture T-Deck size report and budget
         run: |
           pio run -e tdeck -t size | tee tdeck-size.txt
+          cp tdeck-build.txt .pio/build/tdeck/tdeck-build.txt
+          cp tdeck-size.txt .pio/build/tdeck/tdeck-size.txt
+          python scripts/check_tdeck_budget.py \
+            --size-report tdeck-build.txt \
+            --json-out .pio/build/tdeck/size-budget.json \
+            --markdown-out .pio/build/tdeck/SIZE_BUDGET.md \
+            --manifest-out .pio/build/tdeck/SIZE_BUDGET.txt
           {
+            cat .pio/build/tdeck/SIZE_BUDGET.md
+            echo
             echo "## T-Deck firmware size"
             echo
             echo "\`\`\`"
@@ -81,6 +98,7 @@ jobs:
             echo "workflow=${GITHUB_WORKFLOW}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "flash_offsets=0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin"
+            cat .pio/build/tdeck/SIZE_BUDGET.txt
           } > .pio/build/tdeck/FLASH_MANIFEST.txt
 
       - name: Upload T-Deck artifacts
@@ -96,3 +114,15 @@ jobs:
             .pio/build/tdeck/firmware.map
             .pio/build/tdeck/partitions.bin
             .pio/build/tdeck/FLASH_MANIFEST.txt
+            .pio/build/tdeck/SIZE_BUDGET.md
+            .pio/build/tdeck/SIZE_BUDGET.txt
+            .pio/build/tdeck/size-budget.json
+            .pio/build/tdeck/tdeck-build.txt
+            .pio/build/tdeck/tdeck-size.txt
+
+      - name: Upload native screenshots
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-screenshots-${{ github.event.pull_request.head.sha || github.sha }}
+          if-no-files-found: error
+          path: .pio/native-shots/*.bmp

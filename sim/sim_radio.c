@@ -7,17 +7,16 @@
 #include "sim_fs.h"
 #include "../src/services/mtproto.h"
 #include "../src/services/mcproto.h"
+#include <dirent.h>
+#include <errno.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
-#include <dirent.h>
-#include <sys/stat.h>
 #ifdef _WIN32
 #include <direct.h>
-#define SIM_MKDIR(path) _mkdir(path)
 #else
-#define SIM_MKDIR(path) mkdir(path, 0777)
+#include <sys/stat.h>
 #endif
 
 extern uint32_t lz_tick_ms(void);
@@ -435,9 +434,7 @@ static bool mc_emit_dm_to_us(sim_peer_t *speaker, const char *text, float snr)
 {
     if(!tuned(LZ_NET_MC)) return false;
     if(speaker) mc_emit_advert(speaker, snr);
-    uint8_t fallback_pub[32];
-    mc_fill_pub(fallback_pub, 0x9d, 0x4f, 0x21, 0x07);
-    uint32_t from = speaker ? speaker->num : mc_num(fallback_pub);
+    uint32_t from = speaker ? speaker->num : 0x9d4f2107u;  /* fallback MC pubkey leading bytes */
     lz_core_on_text(from, SIM_SELF_NUM, text, 1, snr);      /* directed -> DM thread */
     g_stats.rx_count++;
     return true;

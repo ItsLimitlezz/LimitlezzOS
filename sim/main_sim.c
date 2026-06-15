@@ -37,16 +37,15 @@
 #include "sim_fs.h"
 #include "sim_radio.h"
 #include <SDL.h>
+#include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
-#include <sys/stat.h>
 #ifdef _WIN32
 #include <direct.h>
-#define SIM_MKDIR(path) _mkdir(path)
 #else
-#define SIM_MKDIR(path) mkdir(path, 0777)
+#include <sys/stat.h>
 #endif
 
 #define SCALE 2
@@ -64,11 +63,38 @@ static bool g_headless;
  * lz_rebuild pins an open conversation to the newest message */
 static void on_dirty(void) { lz_rebuild(); }
 
+/* sim_reset_dir() lives in sim_fs.c (recursive, Windows-safe) — included via sim_fs.h */
+
+static int sim_mkdir_one(const char *path)
+{
+#ifdef _WIN32
+    return (_mkdir(path) == 0 || errno == EEXIST) ? 0 : -1;
+#else
+    return (mkdir(path, 0777) == 0 || errno == EEXIST) ? 0 : -1;
+#endif
+}
+
+static void sim_mkdirs(const char *path)
+{
+    char tmp[512];
+    snprintf(tmp, sizeof tmp, "%s", path);
+    for(char *p = tmp; *p; p++) {
+        if(*p != '/' && *p != '\\') continue;
+        char sep = *p;
+        *p = 0;
+        if(tmp[0] && !(strlen(tmp) == 2 && tmp[1] == ':'))
+            sim_mkdir_one(tmp);
+        *p = sep;
+    }
+    if(tmp[0] && sim_mkdir_one(tmp) != 0) {
+        fprintf(stderr, "error: could not create %s\n", path);
+        exit(2);
+    }
+}
+
 /* mouse = touchscreen */
 static int32_t m_x, m_y;
 static bool m_down;
-
-/* sim_reset_dir() lives in sim_fs.c (recursive, Windows-safe) — included via sim_fs.h */
 
 static void mouse_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
@@ -98,7 +124,10 @@ static void write_bmp(const char *path)
     lv_refr_now(NULL);          /* force a synchronous redraw into fb */
     /* RGB565 -> 24-bit BMP */
     FILE *f = fopen(path, "wb");
-    if(!f) return;
+    if(!f) {
+        perror(path);
+        exit(2);
+    }
     int w = LZ_W, h = LZ_H, stride = w * 3, img = stride * h;
     unsigned char hdr[54] = { 'B', 'M' };
     *(uint32_t *)(hdr + 2) = 54 + img;
@@ -166,6 +195,7 @@ static void shots(const char *dir)
         { LZ_V_FILES, "13-files" },
     };
     char path[512];
+    sim_mkdirs(dir);
 
     /* onboarding shots first (fresh boot has no identity) */
     if(lz_svc_needs_onboarding()) {

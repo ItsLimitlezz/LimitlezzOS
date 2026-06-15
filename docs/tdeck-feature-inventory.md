@@ -110,7 +110,7 @@ Status labels:
 | Feedback Manager | Planned | Design spec section 8 | Centralize LED, buzzer, keyboard/display feedback and DND. |
 | Emergency beacon | Planned | Design spec section 12, disabled Emergency UI row | Requires Feedback Manager and dual-network messaging. |
 | BLE companion | Partial, needs validation | NimBLE-based Meshtastic GATT service, official UUIDs, raw `ToRadio` writes, queued `FromRadio` reads, `FromNum` notifications, UI toggle, and serial selftest/status | Validate with the official Meshtastic app over BLE before calling V0.5 complete. |
-| CI and release checks | Partial | `.github/workflows/firmware.yml` runs native simulator build, native protocol selftest, T-Deck build, size reporting, and artifact upload | Add screenshot generation, protocol vectors beyond the native selftest, size budgets, and hardware evidence gates. |
+| CI and release checks | Partial | `.github/workflows/firmware.yml` runs native simulator build, native protocol selftest, deterministic simulator scenario, screenshot generation, T-Deck build, size reporting, an explicit firmware/static-RAM budget gate, and artifact upload with budget metadata plus screenshots | Add protocol vectors beyond the native selftest and hardware evidence gates. |
 
 ## Completion Criteria
 
