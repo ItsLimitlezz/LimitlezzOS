@@ -106,12 +106,17 @@ static void sim_write_local_app(const char *datadir, const char *slug,
     snprintf(path, sizeof path, "%s/%s", dir, entry_name);
     FILE *entry = fopen(path, "wb");
     if(entry) {
+        bool has_storage = strstr(permissions_json, "\"storage\"") != NULL;
         fprintf(entry, "-- title: %s\n"
                        "-- status: SDK 0.1 foreground sandbox\n"
                        "-- body: %s\n"
-                       "-- action: Refresh | SDK action handled | %s refreshed from a bounded foreground action.\n"
+                       "-- action: Refresh | %s | %s%s\n"
                        "return true\n",
-                name, summary, name);
+                name, summary,
+                has_storage ? "SDK action #{count}" : "SDK action handled",
+                name,
+                has_storage ? " refresh count: {count} stored in scoped app data. | counter:refreshes"
+                            : " refreshed from a bounded foreground action.");
         fclose(entry);
     }
 }
@@ -705,7 +710,7 @@ static int codec_selftest(void)
             fputs("-- title: Weather Mesh\n"
                   "-- status: SDK 0.1 foreground sandbox\n"
                   "-- body: Local weather dashboard\n"
-                  "-- action: Refresh | Forecast refreshed | Fresh local forecast rendered by SDK action\n"
+                  "-- action: Refresh | Forecast refreshed #{count} | Fresh local forecast count {count} | counter:refreshes\n"
                   "return true\n", entry);
             fclose(entry);
         }
@@ -759,9 +764,15 @@ static int codec_selftest(void)
               "local app foreground session exposes bounded action");
         bool action_ok = run_ok && lz_store_local_app_action(&run, 0);
         CHECK(action_ok && run.action_last == 1 &&
-              strcmp(run.status, "Forecast refreshed") == 0 &&
-              strstr(run.body, "Fresh local forecast") != NULL,
+              strcmp(run.status, "Forecast refreshed #1") == 0 &&
+              strstr(run.body, "count 1") != NULL,
               "local app foreground action updates sandbox session");
+        bool action2_ok = run_ok && lz_store_local_app_action(&run, 0);
+        CHECK(action2_ok && strcmp(run.status, "Forecast refreshed #2") == 0 &&
+              strstr(run.body, "count 2") != NULL,
+              "local app foreground storage counter persists");
+        CHECK(action2_ok && run.data_used_bytes > 1536,
+              "local app foreground storage counter stays in app data quota");
         sim_write_bytes("lzdata_appscan/apps/weather/data/too-big.bin",
                         (int)LZ_LOCAL_APP_DATA_QUOTA_BYTES);
         lz_local_app_session_t over;
@@ -790,6 +801,28 @@ static int codec_selftest(void)
         bool noinput_ok = noinput && lz_store_start_local_app(noinput, &noinput_run);
         CHECK(!noinput_ok && noinput && strcmp(noinput_run.error, "input permission missing") == 0,
               "local app foreground action requires input permission");
+        sim_mkdirs("lzdata_appscan/apps/nostore");
+        FILE *nsm = fopen("lzdata_appscan/apps/nostore/manifest.json", "wb");
+        if(nsm) {
+            fputs("{\"id\":\"nostore.local\",\"name\":\"No Store\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\"]}", nsm);
+            fclose(nsm);
+        }
+        FILE *nse = fopen("lzdata_appscan/apps/nostore/main.lua", "wb");
+        if(nse) {
+            fputs("-- body: Input app without storage\n"
+                  "-- action: Count | Count #{count} | Missing storage permission | counter:presses\n", nse);
+            fclose(nse);
+        }
+        lz_local_app_t perm_apps[LZ_MAX_LOCAL_APPS];
+        int permn = lz_store_scan_apps(perm_apps, LZ_MAX_LOCAL_APPS);
+        lz_local_app_t *nostore = NULL;
+        for(int i = 0; i < permn; i++)
+            if(strcmp(perm_apps[i].id, "nostore.local") == 0) nostore = &perm_apps[i];
+        lz_local_app_session_t nostore_run;
+        bool nostore_ok = nostore && lz_store_start_local_app(nostore, &nostore_run);
+        CHECK(!nostore_ok && nostore && strcmp(nostore_run.error, "storage permission missing") == 0,
+              "local app foreground storage action requires storage permission");
         sim_mkdirs("lzdata_appscan/apps/huge");
         FILE *hm = fopen("lzdata_appscan/apps/huge/manifest.json", "wb");
         if(hm) {

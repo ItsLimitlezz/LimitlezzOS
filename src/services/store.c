@@ -388,13 +388,102 @@ static bool add_session_action(lz_local_app_session_t *out, const char *spec)
     spec = copy_action_part(spec, a->label, sizeof a->label);
     if(!a->label[0]) return false;
     spec = copy_action_part(spec, a->status, sizeof a->status);
-    copy_action_part(spec, a->body, sizeof a->body);
+    spec = copy_action_part(spec, a->body, sizeof a->body);
+    copy_action_part(spec, a->effect, sizeof a->effect);
     if(!a->status[0]) snprintf(a->status, sizeof a->status, "Action handled");
     if(!a->body[0])
         snprintf(a->body, sizeof a->body, "%s completed in the foreground sandbox.",
                  a->label);
     out->action_count++;
     return true;
+}
+
+static bool effect_counter_key(const char *effect, char *key, size_t cap)
+{
+    if(!effect || !key || cap == 0) return false;
+    const char *p = NULL;
+    if(strncmp(effect, "counter:", 8) == 0) p = effect + 8;
+    else if(strncmp(effect, "count:", 6) == 0) p = effect + 6;
+    if(!p || !p[0]) return false;
+    size_t j = 0;
+    for(; *p; p++) {
+        char c = *p;
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '_' || c == '-';
+        if(!ok) return false;
+        if(j + 1 < cap) key[j++] = c;
+        else return false;
+    }
+    key[j] = 0;
+    return j > 0;
+}
+
+static bool action_needs_storage(const lz_local_app_session_t *s)
+{
+    if(!s) return false;
+    char key[20];
+    for(int i = 0; i < s->action_count; i++)
+        if(effect_counter_key(s->actions[i].effect, key, sizeof key)) return true;
+    return false;
+}
+
+static void template_count(char *out, size_t cap, const char *tmpl, uint32_t count)
+{
+    if(!out || cap == 0) return;
+    out[0] = 0;
+    char num[12];
+    snprintf(num, sizeof num, "%lu", (unsigned long)count);
+    const char *p = tmpl ? tmpl : "";
+    while(*p && strlen(out) + 1 < cap) {
+        if(strncmp(p, "{count}", 7) == 0) {
+            strncat(out, num, cap - strlen(out) - 1);
+            p += 7;
+        } else {
+            size_t n = strlen(out);
+            out[n] = *p++;
+            out[n + 1] = 0;
+        }
+    }
+}
+
+static bool counter_read_write(const char *data_path, const char *key, uint32_t *value)
+{
+    if(value) *value = 0;
+    if(!data_path || !data_path[0] || !key || !key[0] || !path_is_dir(data_path))
+        return false;
+    char name[32], path[160];
+    snprintf(name, sizeof name, "%s.count", key);
+    path_join(path, sizeof path, data_path, name);
+
+    uint32_t count = 0;
+    FILE *r = fopen(path, "rb");
+    if(r) {
+        char buf[24];
+        size_t n = fread(buf, 1, sizeof buf - 1, r);
+        fclose(r);
+        buf[n] = 0;
+        unsigned long raw = strtoul(buf, NULL, 10);
+        count = raw > UINT32_MAX ? UINT32_MAX : (uint32_t)raw;
+    }
+    if(count < UINT32_MAX) count++;
+
+    FILE *w = fopen(path, "wb");
+    if(!w) return false;
+    fprintf(w, "%lu\n", (unsigned long)count);
+    fclose(w);
+    if(value) *value = count;
+    return true;
+}
+
+static void refresh_session_data_usage(lz_local_app_session_t *s)
+{
+    if(!s || !s->storage_ready || !s->data_path[0] || !path_is_dir(s->data_path)) return;
+    int entries = 0;
+    uint32_t used = 0;
+    char err[32];
+    err[0] = 0;
+    if(app_data_usage_walk(s->data_path, 0, &entries, &used, err, sizeof err))
+        s->data_used_bytes = used;
 }
 
 static bool app_session_fail(lz_local_app_session_t *out, const lz_local_app_t *app,
@@ -689,6 +778,8 @@ bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t 
     }
     if(out->action_count > 0 && (app->permissions & LZ_APP_PERM_INPUT) == 0)
         return app_session_fail(out, app, "input permission missing");
+    if(action_needs_storage(out) && !out->storage_ready)
+        return app_session_fail(out, app, "storage permission missing");
     return true;
 }
 
@@ -697,8 +788,26 @@ bool lz_store_local_app_action(lz_local_app_session_t *session, int idx)
     if(!session || session->error[0] || idx < 0 || idx >= session->action_count)
         return false;
     lz_local_app_action_t *a = &session->actions[idx];
-    if(a->status[0]) snprintf(session->status, sizeof session->status, "%s", a->status);
-    if(a->body[0]) snprintf(session->body, sizeof session->body, "%s", a->body);
+    char key[20];
+    uint32_t count = 0;
+    if(effect_counter_key(a->effect, key, sizeof key)) {
+        if(session->data_quota_bytes &&
+           session->data_used_bytes + 16u > session->data_quota_bytes) {
+            snprintf(session->status, sizeof session->status, "Storage quota exceeded");
+            snprintf(session->body, sizeof session->body,
+                     "Action could not write scoped app data.");
+            session->action_last = (uint8_t)(idx + 1);
+            return true;
+        }
+        if(!session->storage_ready || !counter_read_write(session->data_path, key, &count))
+            return false;
+        if(a->status[0]) template_count(session->status, sizeof session->status, a->status, count);
+        if(a->body[0]) template_count(session->body, sizeof session->body, a->body, count);
+        refresh_session_data_usage(session);
+    } else {
+        if(a->status[0]) snprintf(session->status, sizeof session->status, "%s", a->status);
+        if(a->body[0]) snprintf(session->body, sizeof session->body, "%s", a->body);
+    }
     session->action_last = (uint8_t)(idx + 1);
     return true;
 }

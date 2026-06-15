@@ -237,7 +237,8 @@ Deliverables:
 - Add app launcher integration for installed apps. Partially implemented:
   Home opens scanned local apps in an SDK 0.1 foreground shell that reads
   bounded display metadata and up to two bounded foreground actions from the
-  entry file, then terminates on exit; App Store opens the manifest detail shell
+  entry file, including a storage-scoped counter effect for apps that request
+  `storage`, then terminates on exit; App Store opens the manifest detail shell
   with a trackball-accessible `OPEN` action. Script execution and richer
   injected runtime APIs remain below.
 - Parse app SDK metadata and permission namespaces from manifests. Implemented
@@ -246,7 +247,8 @@ Deliverables:
 - Enforce foreground-only app lifecycle.
   Initial implementation: local apps open in a single foreground session and
   exit back to the launcher/detail path; foreground actions can update only the
-  current session body/status, and background execution is not exposed.
+  current session body/status plus scoped counter state, and background
+  execution is not exposed.
 - Enforce memory cap through the runtime allocator or equivalent guard.
 - Implement a small initial SDK:
   - UI primitives compatible with the T-Deck screen
@@ -254,8 +256,9 @@ Deliverables:
   - storage API scoped to app directory. Groundwork implemented: accepted local
     apps that declare `storage` get `<package>/data` prepared and surfaced in
     the detail shell, and launch is blocked when the current `data/` tree
-    exceeds the early 64 KB quota; runtime API calls and richer quota controls
-    remain below.
+    exceeds the early 64 KB quota. SDK 0.1 foreground actions can increment a
+    safe counter file inside that scoped data directory; richer runtime API
+    calls and richer quota controls remain below.
   - notification request API routed through Feedback Manager
   - no direct hardware access
 - Add Developer Mode app diagnostics and crash/error display. Partially

@@ -58,14 +58,21 @@ work.
 Action lines use pipe-separated fields:
 
 ```lua
--- action: Refresh | Forecast refreshed | Fresh local forecast rendered by SDK action
+-- action: Refresh | Forecast refreshed #{count} | Fresh local forecast rendered {count} times | counter:refreshes
 ```
 
 The first field is the button label, the second replaces the foreground status
-after activation, and the third replaces the body text. Actions require the
-`input` permission; display-only apps that declare actions are launch-blocked.
-Actions do not execute arbitrary script and do not grant filesystem, radio, or
-hardware access.
+after activation, and the third replaces the body text. The optional fourth
+field is a tiny SDK effect. The only supported effect is `counter:<safe-key>`,
+which increments `<app>/data/<safe-key>.count` and expands `{count}` in the
+status/body. Counter keys may contain up to 19 letters, numbers, `_`, and `-`
+characters only.
+
+Actions require the `input` permission; display-only apps that declare actions
+are launch-blocked. Counter actions also require `storage` permission and stay
+inside the scoped app `data/` directory and the 64 KB quota. Actions do not
+execute arbitrary script and do not grant raw filesystem, radio, or hardware
+access.
 
 Example:
 
@@ -130,12 +137,12 @@ The scanner rejects packages when:
 - `permissions` is not an array of supported namespace strings
 
 The current firmware scans local app manifests and can open them in a safe
-foreground shell with bounded foreground actions. Script execution, richer
-sandbox API injection, richer data APIs, and network catalog installs remain
-later app-platform work. Permission metadata is parsed and displayed now so
-packages can fail closed before richer runtime APIs are added, and apps that
-declare `storage` get a scoped `data/` directory prepared under their own
-package.
+foreground shell with bounded foreground actions, including a storage-scoped
+counter effect. Script execution, richer sandbox API injection, richer data
+APIs, and network catalog installs remain later app-platform work. Permission
+metadata is parsed and displayed now so packages can fail closed before richer
+runtime APIs are added, and apps that declare `storage` get a scoped `data/`
+directory prepared under their own package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps

@@ -32,6 +32,7 @@ extern "C" {
 #define LZ_LOCAL_APP_ENTRY_MAX 1024u
 #define LZ_LOCAL_APP_DATA_QUOTA_BYTES (64u * 1024u)
 #define LZ_LOCAL_APP_ACTION_MAX 2
+#define LZ_LOCAL_APP_ACTION_EFFECT_MAX 32
 #define LZ_LOCAL_APP_ACTION_BODY_MAX 192
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
@@ -163,6 +164,7 @@ typedef struct {
 typedef struct {
     char label[24];              /* app-provided foreground control label */
     char status[48];             /* bounded status shown after activation */
+    char effect[LZ_LOCAL_APP_ACTION_EFFECT_MAX]; /* optional safe SDK effect */
     char body[LZ_LOCAL_APP_ACTION_BODY_MAX];
 } lz_local_app_action_t;
 
