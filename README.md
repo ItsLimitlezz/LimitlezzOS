@@ -119,11 +119,12 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
   across paged Home launcher screens and App Store detail shells. Home can open
   accepted apps in a safe SDK 0.1 foreground shell that reads bounded display
-  metadata from the entry file and terminates on exit. SDK `api_version` and
-  permission metadata are parsed fail-closed, with rejected package diagnostics
-  visible in Developer Mode. Apps that request `storage` get a scoped package
-  `data/` directory prepared with a 64 KB launch-time quota guard. Script
-  execution, API injection, downloads, and updates are still TODO.
+  metadata plus up to two bounded foreground actions from the entry file and
+  terminates on exit. SDK `api_version` and permission metadata are parsed
+  fail-closed, with rejected package diagnostics visible in Developer Mode.
+  Apps that request `storage` get a scoped package `data/` directory prepared
+  with a 64 KB launch-time quota guard. Script execution, richer API injection,
+  downloads, and updates are still TODO.
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
@@ -288,8 +289,8 @@ apps and read-only inspection when present.
   shows rejected-package diagnostics in Developer Mode, prepares scoped app
   `data/` directories for storage-enabled local apps, reports quota usage,
   opens a manifest detail shell, and launches local apps into the SDK 0.1
-  foreground shell; the static catalog remains a prototype (GET -> "..." ->
-  OPEN).
+  foreground shell with bounded app-provided actions; the static catalog remains
+  a prototype (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

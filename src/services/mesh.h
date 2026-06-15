@@ -31,6 +31,8 @@ extern "C" {
 #define LZ_LOCAL_APP_BODY_MAX 360
 #define LZ_LOCAL_APP_ENTRY_MAX 1024u
 #define LZ_LOCAL_APP_DATA_QUOTA_BYTES (64u * 1024u)
+#define LZ_LOCAL_APP_ACTION_MAX 2
+#define LZ_LOCAL_APP_ACTION_BODY_MAX 192
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -159,6 +161,12 @@ typedef struct {
 } lz_local_app_issue_t;
 
 typedef struct {
+    char label[24];              /* app-provided foreground control label */
+    char status[48];             /* bounded status shown after activation */
+    char body[LZ_LOCAL_APP_ACTION_BODY_MAX];
+} lz_local_app_action_t;
+
+typedef struct {
     char title[32];              /* app-provided display title */
     char body[LZ_LOCAL_APP_BODY_MAX];
     char status[64];             /* short runtime/sandbox state */
@@ -168,6 +176,9 @@ typedef struct {
     uint32_t data_quota_bytes;
     bool entry_loaded;
     bool storage_ready;
+    uint8_t action_count;
+    uint8_t action_last;         /* 1-based selected action, 0 = none */
+    lz_local_app_action_t actions[LZ_LOCAL_APP_ACTION_MAX];
 } lz_local_app_session_t;
 
 /* ---- lifecycle ---- */
@@ -184,6 +195,7 @@ bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path
 bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
                            char *err, int err_cap);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
+bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

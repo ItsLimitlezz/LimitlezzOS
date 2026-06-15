@@ -47,12 +47,25 @@ Each package directory must contain:
   prepares this directory inside the app package before runtime storage APIs
   exist
 
-The current SDK 0.1 foreground shell reads only bounded display metadata from
-the entry file. The entry metadata budget is 1 KB; larger entry files are shown
-as launch-blocked instead of being truncated. It accepts optional `title:`,
-`status:`, `body:`, or `text:` lines, including Lua-comment style lines such as
-`-- body: Local dashboard`. Script execution and API injection are still later
-runtime work.
+The current SDK 0.1 foreground shell reads bounded display metadata and up to
+two bounded foreground actions from the entry file. The entry metadata budget is
+1 KB; larger entry files are shown as launch-blocked instead of being
+truncated. It accepts optional `title:`, `status:`, `body:`, `text:`, and
+`action:` lines, including Lua-comment style lines such as `-- body: Local
+dashboard`. Script execution and richer API injection are still later runtime
+work.
+
+Action lines use pipe-separated fields:
+
+```lua
+-- action: Refresh | Forecast refreshed | Fresh local forecast rendered by SDK action
+```
+
+The first field is the button label, the second replaces the foreground status
+after activation, and the third replaces the body text. Actions require the
+`input` permission; display-only apps that declare actions are launch-blocked.
+Actions do not execute arbitrary script and do not grant filesystem, radio, or
+hardware access.
 
 Example:
 
@@ -117,11 +130,12 @@ The scanner rejects packages when:
 - `permissions` is not an array of supported namespace strings
 
 The current firmware scans local app manifests and can open them in a safe
-foreground shell. Script execution, sandbox API injection, richer data APIs, and
-network catalog installs remain later app-platform work. Permission metadata is
-parsed and displayed now so packages can fail closed before richer runtime APIs
-are added, and apps that declare `storage` get a scoped `data/` directory
-prepared under their own package.
+foreground shell with bounded foreground actions. Script execution, richer
+sandbox API injection, richer data APIs, and network catalog installs remain
+later app-platform work. Permission metadata is parsed and displayed now so
+packages can fail closed before richer runtime APIs are added, and apps that
+declare `storage` get a scoped `data/` directory prepared under their own
+package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps

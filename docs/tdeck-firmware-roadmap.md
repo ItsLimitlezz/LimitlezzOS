@@ -236,15 +236,17 @@ Deliverables:
   lifecycle and sandbox execution remain below.
 - Add app launcher integration for installed apps. Partially implemented:
   Home opens scanned local apps in an SDK 0.1 foreground shell that reads
-  bounded display metadata from the entry file and terminates on exit; App
-  Store opens the manifest detail shell with an `OPEN` action. Script execution
-  and injected runtime APIs remain below.
+  bounded display metadata and up to two bounded foreground actions from the
+  entry file, then terminates on exit; App Store opens the manifest detail shell
+  with a trackball-accessible `OPEN` action. Script execution and richer
+  injected runtime APIs remain below.
 - Parse app SDK metadata and permission namespaces from manifests. Implemented
   for SDK `0.1`: unknown permissions and unsupported SDK versions are rejected
   before reaching the launcher; API injection remains below.
 - Enforce foreground-only app lifecycle.
   Initial implementation: local apps open in a single foreground session and
-  exit back to the launcher/detail path; background execution is not exposed.
+  exit back to the launcher/detail path; foreground actions can update only the
+  current session body/status, and background execution is not exposed.
 - Enforce memory cap through the runtime allocator or equivalent guard.
 - Implement a small initial SDK:
   - UI primitives compatible with the T-Deck screen
@@ -260,7 +262,8 @@ Deliverables:
   implemented: rejected local package folders appear in App Store under
   Developer Mode with bounded rejection reasons; launch-blocked errors render in
   the local app foreground shell for oversized entry files and over-quota app
-  data, while runtime crash capture remains below.
+  data, and display-only apps that declare actions are blocked for missing input
+  permission, while runtime crash capture remains below.
 - Convert prototype catalog examples into installable sample apps where practical:
   - Calculator
   - Notes

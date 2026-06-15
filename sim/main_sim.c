@@ -109,8 +109,9 @@ static void sim_write_local_app(const char *datadir, const char *slug,
         fprintf(entry, "-- title: %s\n"
                        "-- status: SDK 0.1 foreground sandbox\n"
                        "-- body: %s\n"
+                       "-- action: Refresh | SDK action handled | %s refreshed from a bounded foreground action.\n"
                        "return true\n",
-                name, summary);
+                name, summary, name);
         fclose(entry);
     }
 }
@@ -349,6 +350,11 @@ static void shots(const char *dir)
             lz_ui_key(LZ_K_ENTER, 0);
             pump(60);
             snprintf(path, sizeof path, "%s/07e-local-app-run.bmp", dir);
+            write_bmp(path);
+            printf("wrote %s\n", path);
+            lz_ui_key(LZ_K_ENTER, 0);
+            pump(60);
+            snprintf(path, sizeof path, "%s/07f-local-app-action.bmp", dir);
             write_bmp(path);
             printf("wrote %s\n", path);
         }
@@ -680,6 +686,7 @@ static int codec_selftest(void)
         extern bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
                                             char *err, int err_cap);
         extern bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
+        extern bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
         sim_reset_dir("lzdata_appscan");
         sim_mkdirs("lzdata_appscan/apps/weather");
         sim_mkdirs("lzdata_appscan/apps/bad");
@@ -698,6 +705,7 @@ static int codec_selftest(void)
             fputs("-- title: Weather Mesh\n"
                   "-- status: SDK 0.1 foreground sandbox\n"
                   "-- body: Local weather dashboard\n"
+                  "-- action: Refresh | Forecast refreshed | Fresh local forecast rendered by SDK action\n"
                   "return true\n", entry);
             fclose(entry);
         }
@@ -747,12 +755,41 @@ static int codec_selftest(void)
         CHECK(run_ok && run.storage_ready && strstr(run.data_path, "weather/data") != NULL &&
               run.data_used_bytes == 1536,
               "local app foreground session keeps scoped storage");
+        CHECK(run_ok && run.action_count == 1 && strcmp(run.actions[0].label, "Refresh") == 0,
+              "local app foreground session exposes bounded action");
+        bool action_ok = run_ok && lz_store_local_app_action(&run, 0);
+        CHECK(action_ok && run.action_last == 1 &&
+              strcmp(run.status, "Forecast refreshed") == 0 &&
+              strstr(run.body, "Fresh local forecast") != NULL,
+              "local app foreground action updates sandbox session");
         sim_write_bytes("lzdata_appscan/apps/weather/data/too-big.bin",
                         (int)LZ_LOCAL_APP_DATA_QUOTA_BYTES);
         lz_local_app_session_t over;
         bool over_ok = an == 1 && lz_store_start_local_app(&apps[0], &over);
         CHECK(!over_ok && strcmp(over.error, "data quota exceeded") == 0,
               "local app foreground session blocks over-quota data");
+        sim_mkdirs("lzdata_appscan/apps/noinput");
+        FILE *nim = fopen("lzdata_appscan/apps/noinput/manifest.json", "wb");
+        if(nim) {
+            fputs("{\"id\":\"noinput.local\",\"name\":\"No Input\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\"]}", nim);
+            fclose(nim);
+        }
+        FILE *nie = fopen("lzdata_appscan/apps/noinput/main.lua", "wb");
+        if(nie) {
+            fputs("-- body: Display-only app\n"
+                  "-- action: Press me | Should not run | Missing input permission\n", nie);
+            fclose(nie);
+        }
+        lz_local_app_t action_apps[4];
+        int actn = lz_store_scan_apps(action_apps, 4);
+        lz_local_app_t *noinput = NULL;
+        for(int i = 0; i < actn; i++)
+            if(strcmp(action_apps[i].id, "noinput.local") == 0) noinput = &action_apps[i];
+        lz_local_app_session_t noinput_run;
+        bool noinput_ok = noinput && lz_store_start_local_app(noinput, &noinput_run);
+        CHECK(!noinput_ok && noinput && strcmp(noinput_run.error, "input permission missing") == 0,
+              "local app foreground action requires input permission");
         sim_mkdirs("lzdata_appscan/apps/huge");
         FILE *hm = fopen("lzdata_appscan/apps/huge/manifest.json", "wb");
         if(hm) {

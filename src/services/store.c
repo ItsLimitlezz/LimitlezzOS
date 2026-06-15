@@ -365,6 +365,38 @@ static bool append_body_line(char *body, size_t cap, const char *line)
     return true;
 }
 
+static const char *copy_action_part(const char *src, char *out, size_t cap)
+{
+    if(!src || !out || cap == 0) return src;
+    src = skip_ws(src);
+    const char *p = src;
+    while(*p && *p != '|' && *p != '\r' && *p != '\n') p++;
+    const char *end = p;
+    while(end > src && (end[-1] == ' ' || end[-1] == '\t')) end--;
+    size_t n = (size_t)(end - src);
+    if(n >= cap) n = cap - 1;
+    memcpy(out, src, n);
+    out[n] = 0;
+    return *p == '|' ? p + 1 : p;
+}
+
+static bool add_session_action(lz_local_app_session_t *out, const char *spec)
+{
+    if(!out || !spec || out->action_count >= LZ_LOCAL_APP_ACTION_MAX) return false;
+    lz_local_app_action_t *a = &out->actions[out->action_count];
+    memset(a, 0, sizeof *a);
+    spec = copy_action_part(spec, a->label, sizeof a->label);
+    if(!a->label[0]) return false;
+    spec = copy_action_part(spec, a->status, sizeof a->status);
+    copy_action_part(spec, a->body, sizeof a->body);
+    if(!a->status[0]) snprintf(a->status, sizeof a->status, "Action handled");
+    if(!a->body[0])
+        snprintf(a->body, sizeof a->body, "%s completed in the foreground sandbox.",
+                 a->label);
+    out->action_count++;
+    return true;
+}
+
 static bool app_session_fail(lz_local_app_session_t *out, const lz_local_app_t *app,
                              const char *msg)
 {
@@ -637,6 +669,8 @@ bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t 
         } else if((v = entry_value_for(line, "body")) != NULL ||
                   (v = entry_value_for(line, "text")) != NULL) {
             if(append_body_line(out->body, sizeof out->body, v)) have_body = true;
+        } else if((v = entry_value_for(line, "action")) != NULL) {
+            (void)add_session_action(out, v);
         } else {
             const char *q = skip_ws(line);
             if(!have_body && q[0] && strncmp(q, "--", 2) != 0 && q[0] != '#' &&
@@ -653,6 +687,19 @@ bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t 
         if(app->summary[0]) snprintf(out->body, sizeof out->body, "%s", app->summary);
         else snprintf(out->body, sizeof out->body, "This local app opened in the safe SDK shell.");
     }
+    if(out->action_count > 0 && (app->permissions & LZ_APP_PERM_INPUT) == 0)
+        return app_session_fail(out, app, "input permission missing");
+    return true;
+}
+
+bool lz_store_local_app_action(lz_local_app_session_t *session, int idx)
+{
+    if(!session || session->error[0] || idx < 0 || idx >= session->action_count)
+        return false;
+    lz_local_app_action_t *a = &session->actions[idx];
+    if(a->status[0]) snprintf(session->status, sizeof session->status, "%s", a->status);
+    if(a->body[0]) snprintf(session->body, sizeof session->body, "%s", a->body);
+    session->action_last = (uint8_t)(idx + 1);
     return true;
 }
 

@@ -321,9 +321,9 @@ void lz_open_local_app(const lz_local_app_t *app)
     lz_start_local_app();
 }
 
-static void local_app_open_tap(void)
+static void local_app_detail_activate(int idx)
 {
-    lz_start_local_app();
+    if(idx == 0) lz_start_local_app();
 }
 
 void lz_scr_local_app(lv_obj_t *root)
@@ -375,10 +375,12 @@ void lz_scr_local_app(lv_obj_t *root)
     lv_obj_set_style_radius(open, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(open, LZ_STORE_BTN, 0);
     lv_obj_set_style_bg_opa(open, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(open, S.focus == 0 ? LZ_FOCUS_RING_W : 0, 0);
+    lv_obj_set_style_border_color(open, LZ_FOCUS, 0);
     lv_obj_set_style_pad_hor(open, 16, 0);
     lv_obj_t *ol = lz_text(open, "OPEN", LZ_F_SMALL, LZ_ON_MINT);
     lv_obj_center(ol);
-    lz_on_click(open, local_app_open_tap);
+    lz_nav_track(open, 0);
 
     lv_obj_t *card = lz_card(body);
     lv_obj_set_height(card, LV_SIZE_CONTENT);
@@ -425,12 +427,18 @@ void lz_scr_local_app(lv_obj_t *root)
         lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
     }
 
-    lz_nav_set(1, 0, NULL);
+    lz_nav_set(1, 1, local_app_detail_activate);
 }
 
-static void local_app_close_tap(void)
+static void local_app_run_activate(int idx)
 {
-    lz_back();
+    lz_local_app_session_t *r = &S.local_app_run;
+    int actions = (!r->error[0]) ? r->action_count : 0;
+    if(idx >= 0 && idx < actions) {
+        if(lz_svc_local_app_action(r, idx)) lz_rebuild();
+        return;
+    }
+    if(idx == actions) lz_back();
 }
 
 void lz_scr_local_app_run(lv_obj_t *root)
@@ -494,8 +502,35 @@ void lz_scr_local_app_run(lv_obj_t *root)
         lv_label_set_long_mode(body_txt, LV_LABEL_LONG_WRAP);
     }
 
+    int action_count = (!r->error[0]) ? r->action_count : 0;
+    for(int i = 0; i < action_count; i++) {
+        lz_local_app_action_t *act = &r->actions[i];
+        lv_obj_t *row = lz_row(body, i == S.focus);
+        lv_obj_set_style_radius(row, 11, 0);
+
+        lv_obj_t *icbox = lz_box(row);
+        lv_obj_set_size(icbox, 32, 32);
+        lv_obj_set_style_radius(icbox, 9, 0);
+        lv_obj_set_style_bg_color(icbox, lv_color_hex(0x1E2B33), 0);
+        lv_obj_set_style_bg_opa(icbox, LV_OPA_COVER, 0);
+        lv_obj_t *ai = lz_icon(icbox, LZ_I_SEND, &lz_icons_18, LZ_STORE_BTN);
+        lv_obj_center(ai);
+
+        lv_obj_t *cl = lz_box(row);
+        lv_obj_set_flex_grow(cl, 1);
+        lv_obj_set_height(cl, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(cl, 1, 0);
+        lv_obj_t *lbl = lz_text(cl, act->label, LZ_F_BODY, LZ_TEXT);
+        lv_obj_set_width(lbl, 220);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+        lz_text(cl, "SDK foreground action", LZ_F_SMALL, LZ_TEXT_META);
+        lz_nav_track(row, i);
+    }
+
     char perms[104];
     char storage[80];
+    char runtime[48];
     app_perm_list(a->permissions, perms, sizeof perms);
     if(a->permissions & LZ_APP_PERM_STORAGE) {
         if(r->storage_ready)
@@ -505,9 +540,15 @@ void lz_scr_local_app_run(lv_obj_t *root)
     } else {
         snprintf(storage, sizeof storage, "not requested");
     }
+    if(r->action_last > 0 && r->action_last <= r->action_count)
+        snprintf(runtime, sizeof runtime, "action: %s", r->actions[r->action_last - 1].label);
+    else if(r->action_count > 0)
+        snprintf(runtime, sizeof runtime, "%u action%s",
+                 (unsigned)r->action_count, r->action_count == 1 ? "" : "s");
+    else
+        snprintf(runtime, sizeof runtime, "%s", r->entry_loaded ? "foreground only" : "not loaded");
     const char *ks[4] = { "Permissions", "Storage", "Entry", "Runtime" };
-    const char *vs[4] = { perms, storage, a->entry,
-                          r->entry_loaded ? "foreground only" : "not loaded" };
+    const char *vs[4] = { perms, storage, a->entry, runtime };
     lv_obj_t *meta = lz_card(body);
     lv_obj_set_height(meta, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_COLUMN);
@@ -529,11 +570,11 @@ void lz_scr_local_app_run(lv_obj_t *root)
         lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
     }
 
-    lv_obj_t *close = lz_row(body, false);
+    lv_obj_t *close = lz_row(body, action_count == S.focus);
     lv_obj_set_style_radius(close, 11, 0);
     lz_text(close, "Close app", LZ_F_BODY, LZ_TEXT);
-    lz_on_click(close, local_app_close_tap);
-    lz_nav_set(1, 0, NULL);
+    lz_nav_track(close, action_count);
+    lz_nav_set(1, action_count + 1, local_app_run_activate);
 }
 
 /* ===== Contacts =====
