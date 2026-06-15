@@ -27,6 +27,7 @@ extern "C" {
 #define LZ_TAIL_MAX     32
 #define LZ_TEXT_MAX     200
 #define LZ_MAX_LOCAL_APPS 12
+#define LZ_MAX_LOCAL_APP_ISSUES 8
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -148,12 +149,19 @@ typedef struct {
     int  hue;                    /* tile hue, -1 = neutral */
 } lz_local_app_t;
 
+typedef struct {
+    char package[32];            /* folder name, safe for diagnostics only */
+    char reason[48];             /* short plain-language rejection reason */
+    char path[112];              /* package directory */
+} lz_local_app_issue_t;
+
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
 void lz_svc_set_dirty_cb(void (*cb)(void));             /* UI refresh request      */
 const char *lz_svc_file_root(void);                     /* read-only Files browser root */
 int  lz_svc_scan_apps(lz_local_app_t *out, int cap);    /* SD/appfs local manifests */
+int  lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap); /* rejected manifests */
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

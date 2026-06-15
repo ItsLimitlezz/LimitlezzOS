@@ -118,8 +118,9 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
   across paged Home launcher screens and App Store detail shells. SDK
-  `api_version` and permission metadata are parsed fail-closed. Runtime
-  execution, API injection, downloads, updates, and real app launch are still TODO.
+  `api_version` and permission metadata are parsed fail-closed, with rejected
+  package diagnostics visible in Developer Mode. Runtime execution, API
+  injection, downloads, updates, and real app launch are still TODO.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
 - **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
@@ -274,8 +275,8 @@ the demo mesh.
   Nodes/Channels and Contacts/Rooms tabs, SNR color coding, role badges,
   online dots.
 - **App Store** - scans local app manifests, validates SDK/permission metadata,
-  and shows a manifest detail shell; the static catalog remains a prototype
-  (GET -> "..." -> OPEN).
+  shows rejected-package diagnostics in Developer Mode, and opens a manifest
+  detail shell; the static catalog remains a prototype (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

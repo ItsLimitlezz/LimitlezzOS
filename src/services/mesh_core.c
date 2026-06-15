@@ -14,6 +14,7 @@
 void lz_store_init(const char *datadir);
 const char *lz_store_file_root(void);
 int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
 bool lz_store_find_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out);
@@ -256,6 +257,11 @@ const char *lz_svc_file_root(void)
 int lz_svc_scan_apps(lz_local_app_t *out, int cap)
 {
     return lz_store_scan_apps(out, cap);
+}
+
+int lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap)
+{
+    return lz_store_scan_app_issues(out, cap);
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

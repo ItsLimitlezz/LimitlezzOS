@@ -242,7 +242,10 @@ Deliverables:
   - storage API scoped to app directory
   - notification request API routed through Feedback Manager
   - no direct hardware access
-- Add Developer Mode app diagnostics and crash/error display.
+- Add Developer Mode app diagnostics and crash/error display. Partially
+  implemented: rejected local package folders appear in App Store under
+  Developer Mode with bounded rejection reasons; runtime crash capture remains
+  below.
 - Convert prototype catalog examples into installable sample apps where practical:
   - Calculator
   - Notes

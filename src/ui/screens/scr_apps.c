@@ -45,8 +45,10 @@ static void fmt_telemetry(const lz_node_rt *n, char *out, size_t cap)
 /* ===== App Store ===== */
 
 #define STORE_LOCAL_MAX 4
+#define STORE_ISSUE_MAX LZ_MAX_LOCAL_APP_ISSUES
 
 static int store_local_n;
+static int store_issue_n;
 
 static void store_timer_cb(lv_timer_t *tm)
 {
@@ -80,6 +82,8 @@ void lz_scr_appstore(lv_obj_t *root)
 {
     lz_local_app_t local[STORE_LOCAL_MAX];
     store_local_n = lz_svc_scan_apps(local, STORE_LOCAL_MAX);
+    lz_local_app_issue_t issues[STORE_ISSUE_MAX];
+    store_issue_n = S.settings.developer ? lz_svc_scan_app_issues(issues, STORE_ISSUE_MAX) : 0;
 
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lv_obj_t *bar = lz_navbar(root, "App Store", NULL);
@@ -175,6 +179,39 @@ void lz_scr_appstore(lv_obj_t *root)
             lv_obj_t *bl = lz_text(btn, "INFO", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
             lv_obj_center(bl);
             lz_nav_track(row, i);
+        }
+    }
+
+    if(store_issue_n > 0) {
+        lv_obj_t *ih = lz_text(body, "Rejected local apps", LZ_F_BODY, lv_color_hex(0xE9B05F));
+        lv_obj_set_style_pad_top(ih, 3, 0);
+        lv_obj_set_style_pad_bottom(ih, 3, 0);
+
+        for(int i = 0; i < store_issue_n; i++) {
+            lz_local_app_issue_t *it = &issues[i];
+            lv_obj_t *row = lz_row(body, false);
+            lv_obj_set_style_radius(row, 11, 0);
+            lv_obj_set_style_border_color(row, lv_color_hex(0x4B3320), 0);
+
+            lv_obj_t *tile = lz_box(row);
+            lv_obj_set_size(tile, 36, 36);
+            lv_obj_set_style_radius(tile, 10, 0);
+            lv_obj_set_style_bg_color(tile, lv_color_hex(0x4B3320), 0);
+            lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+            lv_obj_t *bang = lz_text(tile, "!", LZ_F_BODY, lv_color_hex(0xE9B05F));
+            lv_obj_center(bang);
+
+            lv_obj_t *cl = lz_box(row);
+            lv_obj_set_flex_grow(cl, 1);
+            lv_obj_set_height(cl, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_row(cl, 1, 0);
+            lv_obj_t *pkg = lz_text(cl, it->package, LZ_F_BODY, LZ_TEXT);
+            lv_obj_set_width(pkg, 190);
+            lv_label_set_long_mode(pkg, LV_LABEL_LONG_DOT);
+            lv_obj_t *why = lz_text(cl, it->reason, LZ_F_SMALL, lv_color_hex(0xC98E54));
+            lv_obj_set_width(why, 190);
+            lv_label_set_long_mode(why, LV_LABEL_LONG_DOT);
         }
     }
 

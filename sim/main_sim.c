@@ -102,6 +102,7 @@ static void sim_write_local_app(const char *datadir, const char *slug,
 
 static void sim_seed_local_app(const char *datadir)
 {
+    char dir[160], path[192];
     sim_write_local_app(datadir, "weather", "weather.mesh", "Weather Mesh",
                         "main.lua", "weather", 48, "Local weather dashboard",
                         "[\"display\",\"input\",\"storage\",\"mesh_read\",\"system_time\",\"battery\"]");
@@ -114,6 +115,28 @@ static void sim_seed_local_app(const char *datadir)
     sim_write_local_app(datadir, "maps", "maps.local", "Offline Maps",
                         "main.lua", "map", 110, "Local map shell",
                         "[\"display\",\"input\",\"storage\"]");
+
+    snprintf(dir, sizeof dir, "%s/apps/badperm", datadir);
+    sim_mkdirs(dir);
+    snprintf(path, sizeof path, "%s/manifest.json", dir);
+    FILE *badperm = fopen(path, "wb");
+    if(badperm) {
+        fputs("{\"id\":\"badperm.local\",\"name\":\"Bad Perm\",\"entry\":\"main.lua\","
+              "\"permissions\":[\"display\",\"raw_radio\"]}", badperm);
+        fclose(badperm);
+    }
+    snprintf(path, sizeof path, "%s/main.lua", dir);
+    FILE *bpe = fopen(path, "wb");
+    if(bpe) { fputs("return true\n", bpe); fclose(bpe); }
+
+    snprintf(dir, sizeof dir, "%s/apps/missing-entry", datadir);
+    sim_mkdirs(dir);
+    snprintf(path, sizeof path, "%s/manifest.json", dir);
+    FILE *missing = fopen(path, "wb");
+    if(missing) {
+        fputs("{\"id\":\"missing.entry\",\"name\":\"Missing Entry\",\"entry\":\"missing.lua\"}", missing);
+        fclose(missing);
+    }
 }
 
 static bool g_headless;
@@ -299,6 +322,19 @@ static void shots(const char *dir)
             write_bmp(path);
             printf("wrote %s\n", path);
         }
+    }
+
+    {
+        bool old_dev = S.settings.developer;
+        S.settings.developer = true;
+        S.view = LZ_V_APPSTORE;
+        S.focus = 4;        /* first catalog row; keeps rejected-app diagnostics in view */
+        lz_rebuild();
+        pump(60);
+        snprintf(path, sizeof path, "%s/07d-appstore-diagnostics.bmp", dir);
+        write_bmp(path);
+        printf("wrote %s\n", path);
+        S.settings.developer = old_dev;
     }
 
     /* behavior scenarios, driven through the real key path */
@@ -606,6 +642,7 @@ static int codec_selftest(void)
     {
         extern void lz_store_init(const char *datadir);
         extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+        extern int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
         sim_reset_dir("lzdata_appscan");
         sim_mkdirs("lzdata_appscan/apps/weather");
         sim_mkdirs("lzdata_appscan/apps/bad");
@@ -645,6 +682,18 @@ static int codec_selftest(void)
               (apps[0].permissions & LZ_APP_PERM_STORAGE) &&
               !(apps[0].permissions & LZ_APP_PERM_MESH_SEND),
               "local app scanner keeps allowlisted permissions");
+        lz_local_app_issue_t issues[4];
+        int in = lz_store_scan_app_issues(issues, 4);
+        bool bad_id = false, bad_perm = false;
+        for(int i = 0; i < in; i++) {
+            if(strcmp(issues[i].package, "bad") == 0 &&
+               strcmp(issues[i].reason, "unsafe id") == 0) bad_id = true;
+            if(strcmp(issues[i].package, "badperm") == 0 &&
+               strcmp(issues[i].reason, "bad permissions") == 0) bad_perm = true;
+        }
+        CHECK(in == 2, "local app diagnostics report rejected packages");
+        CHECK(bad_id, "local app diagnostics explain unsafe id");
+        CHECK(bad_perm, "local app diagnostics explain bad permissions");
         lz_store_init(NULL);
         sim_reset_dir("lzdata_appscan");
     }

@@ -23,6 +23,11 @@ the 4x2 tile grid and adds pages with page dots when more apps are available
 than fit on the first screen. The App Store also lists accepted local apps as
 installed local packages and opens the same manifest detail shell.
 
+When Developer Mode is enabled, the App Store also shows rejected local package
+folders with a short reason such as `missing manifest`, `unsafe id`, `bad
+permissions`, or `missing entry file`. Rejected packages are not exposed on Home
+and cannot be opened.
+
 ## Package Layout
 
 Each package directory must contain:

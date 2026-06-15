@@ -221,18 +221,26 @@ static bool local_app_seen(const lz_local_app_t *out, int n, const char *id)
     return false;
 }
 
-static bool load_app_manifest(const char *pkg_dir, lz_local_app_t *app)
+static bool manifest_fail(char *reason, size_t cap, const char *msg)
+{
+    if(reason && cap > 0) snprintf(reason, cap, "%s", msg);
+    return false;
+}
+
+static bool load_app_manifest(const char *pkg_dir, lz_local_app_t *app,
+                              char *reason, size_t reason_cap)
 {
     char manifest[136];
     path_join(manifest, sizeof manifest, pkg_dir, "manifest.json");
     FILE *f = fopen(manifest, "rb");
-    if(!f) return false;
+    if(!f) return manifest_fail(reason, reason_cap, "missing manifest");
 
     char json[1537];
     size_t n = fread(json, 1, sizeof json - 1, f);
     fclose(f);
     json[n] = 0;
-    if(n == 0 || n >= sizeof json - 1) return false;
+    if(n == 0) return manifest_fail(reason, reason_cap, "empty manifest");
+    if(n >= sizeof json - 1) return manifest_fail(reason, reason_cap, "manifest too large");
 
     memset(app, 0, sizeof *app);
     app->hue = -1;
@@ -242,9 +250,12 @@ static bool load_app_manifest(const char *pkg_dir, lz_local_app_t *app)
     snprintf(app->icon, sizeof app->icon, "description");
     app->permissions = LZ_APP_PERM_DISPLAY | LZ_APP_PERM_INPUT;
 
-    if(!json_get_string(json, "id", app->id, sizeof app->id)) return false;
-    if(!json_get_string(json, "name", app->name, sizeof app->name)) return false;
-    if(!json_get_string(json, "entry", app->entry, sizeof app->entry)) return false;
+    if(!json_get_string(json, "id", app->id, sizeof app->id))
+        return manifest_fail(reason, reason_cap, "missing id");
+    if(!json_get_string(json, "name", app->name, sizeof app->name))
+        return manifest_fail(reason, reason_cap, "missing name");
+    if(!json_get_string(json, "entry", app->entry, sizeof app->entry))
+        return manifest_fail(reason, reason_cap, "missing entry");
     json_get_string(json, "version", app->version, sizeof app->version);
     json_get_string(json, "author", app->author, sizeof app->author);
     json_get_string(json, "api_version", app->api_version, sizeof app->api_version);
@@ -254,15 +265,19 @@ static bool load_app_manifest(const char *pkg_dir, lz_local_app_t *app)
     json_get_int(json, "hue", &app->hue);
 
     const char *perms = json_value_for(json, "permissions");
-    if(perms && !json_parse_permissions_value(perms, &app->permissions)) return false;
+    if(perms && !json_parse_permissions_value(perms, &app->permissions))
+        return manifest_fail(reason, reason_cap, "bad permissions");
 
-    if(!safe_id(app->id) || !safe_entry(app->entry)) return false;
-    if(!api_version_supported(app->api_version)) return false;
+    if(!safe_id(app->id)) return manifest_fail(reason, reason_cap, "unsafe id");
+    if(!safe_entry(app->entry)) return manifest_fail(reason, reason_cap, "unsafe entry");
+    if(!api_version_supported(app->api_version))
+        return manifest_fail(reason, reason_cap, "unsupported SDK");
     if(app->hue < -1 || app->hue > 359) app->hue = -1;
 
     char entry_path[160];
     path_join(entry_path, sizeof entry_path, pkg_dir, app->entry);
-    if(!path_is_file(entry_path)) return false;
+    if(!path_is_file(entry_path))
+        return manifest_fail(reason, reason_cap, "missing entry file");
 
     snprintf(app->path, sizeof app->path, "%s", pkg_dir);
     return true;
@@ -282,7 +297,7 @@ static void scan_app_root(const char *apps_dir, lz_local_app_t *out, int cap, in
         if(!path_is_dir(pkg)) continue;
 
         lz_local_app_t app;
-        if(!load_app_manifest(pkg, &app)) continue;
+        if(!load_app_manifest(pkg, &app, NULL, 0)) continue;
         if(local_app_seen(out, *count, app.id)) continue;
         out[(*count)++] = app;
     }
@@ -306,6 +321,53 @@ int lz_store_scan_apps(lz_local_app_t *out, int cap)
 
     if(count < cap)
         scan_app_root("/appfs/apps", out, cap, &count);
+
+    return count;
+}
+
+static void scan_app_issue_root(const char *apps_dir, lz_local_app_issue_t *out, int cap, int *count)
+{
+    if(!apps_dir || !out || !count || *count >= cap) return;
+    DIR *d = opendir(apps_dir);
+    if(!d) return;
+
+    struct dirent *e;
+    while(*count < cap && (e = readdir(d)) != NULL) {
+        if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        char pkg[128];
+        path_join(pkg, sizeof pkg, apps_dir, e->d_name);
+        if(!path_is_dir(pkg)) continue;
+
+        lz_local_app_t app;
+        char reason[48] = "invalid manifest";
+        if(load_app_manifest(pkg, &app, reason, sizeof reason)) continue;
+
+        lz_local_app_issue_t *issue = &out[(*count)++];
+        memset(issue, 0, sizeof *issue);
+        snprintf(issue->package, sizeof issue->package, "%s", e->d_name);
+        snprintf(issue->reason, sizeof issue->reason, "%s", reason);
+        snprintf(issue->path, sizeof issue->path, "%s", pkg);
+    }
+    closedir(d);
+}
+
+int lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap)
+{
+    if(!g_persist || !out || cap <= 0) return 0;
+    int count = 0;
+
+    char dir[128];
+    path_join(dir, sizeof dir, g_dir, "apps");
+    scan_app_issue_root(dir, out, cap, &count);
+
+    const char *root = lz_store_file_root();
+    if(root && strcmp(root, g_dir) != 0 && count < cap) {
+        path_join(dir, sizeof dir, root, "apps");
+        scan_app_issue_root(dir, out, cap, &count);
+    }
+
+    if(count < cap)
+        scan_app_issue_root("/appfs/apps", out, cap, &count);
 
     return count;
 }
