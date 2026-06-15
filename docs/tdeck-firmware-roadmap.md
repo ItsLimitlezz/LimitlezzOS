@@ -90,7 +90,10 @@ Deliverables:
   Implemented for basic GPS position, altitude, precision, device battery/voltage/uptime,
   and environment temperature/humidity/pressure metrics.
 - Keep radio settings simple in the primary UI; advanced region/preset/channel controls, if added, belong in Developer Mode.
-- Replace static Files screen with a read-only SD/appfs browser. Implemented for mounted SD/local store; appfs mount support remains V0.95 app-platform work.
+- Replace static Files screen with a read-only SD/appfs browser. Implemented:
+  Files exposes mounted SD/local storage and the mounted FAT `appfs` partition
+  through a storage-root picker, with browsing constrained under the selected
+  root.
 - Add hardware dogfood checklist against stock Meshtastic devices. Created as `docs/tdeck-hardware-dogfood-checklist.md`; 2026-06-14 COM8 flash and USB CLI smoke evidence is logged there, and `scripts/tdeck_smoke.py` now gives both Windows and Linux developers a repeatable serial-smoke path. Stock Meshtastic peer dogfood still needs a passing run before calling Phase 1 shippable.
 
 Exit criteria:
@@ -221,8 +224,10 @@ Deliverables:
   `data/` preparation for apps that declare the `storage` permission.
 - Implement local app scanner for `/apps`. Implemented for local storage:
   firmware scans `/sd/limitlezz/apps`, `/sd/apps`, and `/appfs/apps`; the
-  simulator scans `<datadir>/apps`. Unsafe IDs/entry paths and packages without
-  an entry file are rejected before reaching the UI.
+  simulator scans `<datadir>/apps` and optional `<datadir>/appfs/apps`. Unsafe
+  IDs/entry paths and packages without an entry file are rejected before
+  reaching the UI. Appfs-only discovery is supported when SD persistence is
+  absent.
 - Fix the Home UI so installed apps can be added as launcher icons. Partially
   implemented: scanned local apps fill the Home launcher after built-ins and
   continue across 4x2 pages with page dots when needed.

@@ -993,6 +993,7 @@ typedef struct {
     char path[112];
     bool dir;
     bool parent;
+    bool storage_root;
 } file_row_t;
 
 static file_row_t file_rows[FILE_ROW_MAX];
@@ -1000,6 +1001,8 @@ static int file_n;
 static bool file_more;
 static char file_root[96];
 static char file_path[112];
+static const char *file_roots[3];
+static int file_root_n;
 
 static bool path_under_root(const char *root, const char *path)
 {
@@ -1008,14 +1011,41 @@ static bool path_under_root(const char *root, const char *path)
            (strncmp(path, root, n) == 0 && path[n] == '/');
 }
 
+static int files_root_index(const char *path)
+{
+    if(!path || !path[0]) return -1;
+    for(int i = 0; i < file_root_n; i++)
+        if(file_roots[i] && path_under_root(file_roots[i], path)) return i;
+    return -1;
+}
+
+static bool files_at_storage_picker(void)
+{
+    return file_root_n > 1 && !file_path[0];
+}
+
 static const char *files_prepare_root(void)
 {
-    const char *root = lz_svc_file_root();
-    if(!root || !root[0]) {
+    file_root_n = lz_svc_file_roots(file_roots, (int)(sizeof file_roots / sizeof file_roots[0]));
+    if(file_root_n <= 0) {
         file_root[0] = 0;
         file_path[0] = 0;
         return NULL;
     }
+
+    if(file_root_n > 1) {
+        int idx = files_root_index(file_path);
+        if(idx >= 0) {
+            snprintf(file_root, sizeof file_root, "%s", file_roots[idx]);
+            return file_root;
+        }
+        file_root[0] = 0;
+        file_path[0] = 0;
+        S.focus = 0;
+        return "Storage";
+    }
+
+    const char *root = file_roots[0];
     if(strcmp(file_root, root) != 0 || !file_path[0] || !path_under_root(root, file_path)) {
         snprintf(file_root, sizeof file_root, "%s", root);
         snprintf(file_path, sizeof file_path, "%s", root);
@@ -1026,11 +1056,18 @@ static const char *files_prepare_root(void)
 
 static bool files_at_root(void)
 {
+    if(files_at_storage_picker()) return true;
     return file_root[0] && strcmp(file_path, file_root) == 0;
 }
 
 static void files_parent(void)
 {
+    if(files_at_storage_picker()) return;
+    if(files_at_root() && file_root_n > 1) {
+        file_root[0] = 0;
+        file_path[0] = 0;
+        return;
+    }
     if(files_at_root()) return;
     char *slash = strrchr(file_path, '/');
     if(slash && slash > file_path) *slash = 0;
@@ -1085,6 +1122,21 @@ static bool files_load(void)
 {
     file_n = 0;
     file_more = false;
+    if(files_at_storage_picker()) {
+        for(int i = 0; i < file_root_n && file_n < FILE_ROW_MAX; i++) {
+            file_row_t *r = &file_rows[file_n++];
+            memset(r, 0, sizeof *r);
+            const char *root = file_roots[i];
+            snprintf(r->name, sizeof r->name, "%s",
+                     strstr(root, "appfs") ? "App flash" : "SD / local store");
+            snprintf(r->meta, sizeof r->meta, "%s", strstr(root, "appfs") ? "appfs" : "store");
+            snprintf(r->path, sizeof r->path, "%s", root);
+            r->dir = true;
+            r->storage_root = true;
+        }
+        return file_n > 0;
+    }
+
     DIR *d = opendir(file_path);
     if(!d) return false;
 
@@ -1126,7 +1178,11 @@ static void files_activate(int idx)
     if(idx < 0 || idx >= file_n) return;
     file_row_t *r = &file_rows[idx];
     if(r->parent) files_parent();
-    else if(r->dir) snprintf(file_path, sizeof file_path, "%s", r->path);
+    else if(r->dir) {
+        snprintf(file_path, sizeof file_path, "%s", r->path);
+        int idx = files_root_index(file_path);
+        if(idx >= 0) snprintf(file_root, sizeof file_root, "%s", file_roots[idx]);
+    }
     else return;
     S.focus = 0;
     lz_rebuild();
@@ -1146,7 +1202,10 @@ void lz_scr_files(lv_obj_t *root)
     lv_obj_set_style_border_side(path, LV_BORDER_SIDE_BOTTOM, 0);
     lv_obj_set_style_border_width(path, 1, 0);
     lv_obj_set_style_border_color(path, lv_color_hex(0x171B21), 0);
-    lv_obj_t *pl = lz_text(path, have_root ? file_path : "/sd unavailable",
+    const char *path_label = !have_root ? "/sd unavailable"
+                           : files_at_storage_picker() ? "Storage"
+                           : file_path;
+    lv_obj_t *pl = lz_text(path, path_label,
                            LZ_F_MONO, lv_color_hex(0x7F868F));
     lv_obj_set_width(pl, LZ_W - 22);
     lv_label_set_long_mode(pl, LV_LABEL_LONG_DOT);

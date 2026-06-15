@@ -13,6 +13,9 @@
 /* store.c */
 void lz_store_init(const char *datadir);
 const char *lz_store_file_root(void);
+void lz_store_set_appfs_root(const char *root);
+const char *lz_store_appfs_root(void);
+int  lz_store_file_roots(const char **out, int cap);
 int  lz_store_scan_apps(lz_local_app_t *out, int cap);
 int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
 bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
@@ -257,6 +260,16 @@ static void nodes_flush(void)
 const char *lz_svc_file_root(void)
 {
     return lz_store_file_root();
+}
+
+void lz_svc_set_appfs_root(const char *root)
+{
+    lz_store_set_appfs_root(root);
+}
+
+int lz_svc_file_roots(const char **out, int cap)
+{
+    return lz_store_file_roots(out, cap);
 }
 
 int lz_svc_scan_apps(lz_local_app_t *out, int cap)

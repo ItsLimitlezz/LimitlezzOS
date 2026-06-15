@@ -15,6 +15,12 @@ On T-Deck hardware, packages are discovered from:
 In the native simulator, packages are discovered from:
 
 - `<sim-data-dir>/apps/<app-id>/`
+- `<sim-data-dir>/appfs/apps/<app-id>/` when the simulator appfs root exists
+
+On hardware, `appfs` is the FAT flash partition from `partitions.csv`. The
+firmware mounts it at `/appfs` without formatting; if the partition is absent or
+unformatted, SD-backed app discovery still works and appfs apps simply do not
+appear.
 
 ## Launcher Behavior
 

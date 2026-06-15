@@ -154,6 +154,16 @@ static void sim_seed_local_app(const char *datadir)
     }
 }
 
+static void sim_seed_appfs(const char *datadir)
+{
+    char appfs[160];
+    snprintf(appfs, sizeof appfs, "%s/appfs", datadir);
+    sim_mkdirs(appfs);
+    sim_write_local_app(appfs, "calculator", "calc.local", "Calculator",
+                        "main.lua", "calculate", 18, "Field calculator",
+                        "[\"display\",\"input\"]");
+}
+
 static bool g_headless;
 /* incoming radio data → rebuild the current screen (live and headless alike);
  * lz_rebuild pins an open conversation to the newest message */
@@ -661,6 +671,8 @@ static int codec_selftest(void)
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);
+        extern void lz_store_set_appfs_root(const char *root);
+        extern int  lz_store_file_roots(const char **out, int cap);
         extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
         extern int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
         extern bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
@@ -770,10 +782,41 @@ static int codec_selftest(void)
         CHECK(bad_id, "local app diagnostics explain unsafe id");
         CHECK(bad_perm, "local app diagnostics explain bad permissions");
         lz_store_init(NULL);
+        lz_store_set_appfs_root(NULL);
         sim_reset_dir("lzdata_appscan");
     }
 
-    /* 10. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 10. appfs root support: apps can be discovered from appfs even when
+     *     SD-backed persistence is absent, and Files can expose both roots. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_set_appfs_root(const char *root);
+        extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+        extern int  lz_store_file_roots(const char **out, int cap);
+        sim_reset_dir("lzdata_appfsroot");
+        sim_mkdirs("lzdata_appfsroot/local");
+        sim_seed_appfs("lzdata_appfsroot");
+
+        lz_store_init(NULL);
+        lz_store_set_appfs_root("lzdata_appfsroot/appfs");
+        lz_local_app_t apps[4];
+        int an = lz_store_scan_apps(apps, 4);
+        CHECK(an == 1 && strcmp(apps[0].id, "calc.local") == 0,
+              "appfs-only scanner loads local app");
+        const char *roots[3];
+        int rn = lz_store_file_roots(roots, 3);
+        CHECK(rn == 1 && strcmp(roots[0], "lzdata_appfsroot/appfs") == 0,
+              "appfs-only Files root is exposed");
+
+        lz_store_init("lzdata_appfsroot/local");
+        rn = lz_store_file_roots(roots, 3);
+        CHECK(rn == 2, "Files exposes SD/local and appfs roots");
+        lz_store_set_appfs_root(NULL);
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_appfsroot");
+    }
+
+    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -889,6 +932,12 @@ int main(int argc, char **argv)
         datadir = "lzdata_shots";
         sim_reset_dir("lzdata_shots");
         sim_seed_local_app(datadir);
+        sim_seed_appfs(datadir);
+    }
+    {
+        char appfs[160];
+        snprintf(appfs, sizeof appfs, "%s/appfs", datadir);
+        lz_svc_set_appfs_root(appfs);
     }
     lz_svc_init(datadir, true);
     lz_svc_set_time(1781274180);   /* sim: pretend NTP synced so the clock shows */

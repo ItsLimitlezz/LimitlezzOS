@@ -39,7 +39,10 @@
 #endif
 
 static char g_dir[96];
+static char g_appfs_dir[96];
 static bool g_persist;
+
+static bool path_is_dir(const char *path);
 
 void lz_store_init(const char *datadir)
 {
@@ -55,6 +58,32 @@ const char *lz_store_file_root(void)
     if(strcmp(g_dir, "/sd") == 0 || strncmp(g_dir, "/sd/", 4) == 0) return "/sd";
     if(strcmp(g_dir, "/appfs") == 0 || strncmp(g_dir, "/appfs/", 7) == 0) return "/appfs";
     return g_dir;  /* simulator/local POSIX data directory */
+}
+
+void lz_store_set_appfs_root(const char *root)
+{
+    if(root && root[0] && path_is_dir(root)) snprintf(g_appfs_dir, sizeof g_appfs_dir, "%s", root);
+    else g_appfs_dir[0] = 0;
+}
+
+const char *lz_store_appfs_root(void)
+{
+    return g_appfs_dir[0] ? g_appfs_dir : NULL;
+}
+
+int lz_store_file_roots(const char **out, int cap)
+{
+    if(!out || cap <= 0) return 0;
+    int n = 0;
+    const char *root = lz_store_file_root();
+    if(root && root[0]) out[n++] = root;
+    if(g_appfs_dir[0] && n < cap) {
+        bool dup = false;
+        for(int i = 0; i < n; i++)
+            if(strcmp(out[i], g_appfs_dir) == 0) dup = true;
+        if(!dup) out[n++] = g_appfs_dir;
+    }
+    return n;
 }
 
 static void path_for(char *out, size_t n, const char *name)
@@ -426,21 +455,25 @@ static void scan_app_root(const char *apps_dir, lz_local_app_t *out, int cap, in
 
 int lz_store_scan_apps(lz_local_app_t *out, int cap)
 {
-    if(!g_persist || !out || cap <= 0) return 0;
+    if(!out || cap <= 0) return 0;
     int count = 0;
 
     char dir[128];
-    path_join(dir, sizeof dir, g_dir, "apps");
-    scan_app_root(dir, out, cap, &count);
-
-    const char *root = lz_store_file_root();
-    if(root && strcmp(root, g_dir) != 0 && count < cap) {
-        path_join(dir, sizeof dir, root, "apps");
+    if(g_persist) {
+        path_join(dir, sizeof dir, g_dir, "apps");
         scan_app_root(dir, out, cap, &count);
+
+        const char *root = lz_store_file_root();
+        if(root && strcmp(root, g_dir) != 0 && count < cap) {
+            path_join(dir, sizeof dir, root, "apps");
+            scan_app_root(dir, out, cap, &count);
+        }
     }
 
-    if(count < cap)
-        scan_app_root("/appfs/apps", out, cap, &count);
+    if(g_appfs_dir[0] && count < cap) {
+        path_join(dir, sizeof dir, g_appfs_dir, "apps");
+        scan_app_root(dir, out, cap, &count);
+    }
 
     return count;
 }
@@ -473,21 +506,25 @@ static void scan_app_issue_root(const char *apps_dir, lz_local_app_issue_t *out,
 
 int lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap)
 {
-    if(!g_persist || !out || cap <= 0) return 0;
+    if(!out || cap <= 0) return 0;
     int count = 0;
 
     char dir[128];
-    path_join(dir, sizeof dir, g_dir, "apps");
-    scan_app_issue_root(dir, out, cap, &count);
-
-    const char *root = lz_store_file_root();
-    if(root && strcmp(root, g_dir) != 0 && count < cap) {
-        path_join(dir, sizeof dir, root, "apps");
+    if(g_persist) {
+        path_join(dir, sizeof dir, g_dir, "apps");
         scan_app_issue_root(dir, out, cap, &count);
+
+        const char *root = lz_store_file_root();
+        if(root && strcmp(root, g_dir) != 0 && count < cap) {
+            path_join(dir, sizeof dir, root, "apps");
+            scan_app_issue_root(dir, out, cap, &count);
+        }
     }
 
-    if(count < cap)
-        scan_app_issue_root("/appfs/apps", out, cap, &count);
+    if(g_appfs_dir[0] && count < cap) {
+        path_join(dir, sizeof dir, g_appfs_dir, "apps");
+        scan_app_issue_root(dir, out, cap, &count);
+    }
 
     return count;
 }

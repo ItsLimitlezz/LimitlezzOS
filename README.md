@@ -124,6 +124,9 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   visible in Developer Mode. Apps that request `storage` get a scoped package
   `data/` directory prepared with a 64 KB launch-time quota guard. Script
   execution, API injection, downloads, and updates are still TODO.
+- **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
+  `/appfs` without formatting, expose it beside SD/local storage in Files, and
+  scan `/appfs/apps` even when the SD card is absent.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
 - **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
@@ -256,7 +259,8 @@ Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RA
 (82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
 identity, user settings, the node database, and saved Wi-Fi credentials all live
 on the SD card (`/sd/limitlezz`); without a card the OS runs RAM-only and seeds
-the demo mesh.
+the demo mesh. The app flash partition mounts separately at `/appfs` for local
+apps and read-only inspection when present.
 
 ## What's implemented (UI portion of spec Stage 1/2)
 
@@ -277,6 +281,9 @@ the demo mesh.
 - **Meshtastic / MeshCore managers** — per-network identity cards,
   Nodes/Channels and Contacts/Rooms tabs, SNR color coding, role badges,
   online dots.
+- **Files** - read-only browser for mounted storage roots. When SD/local store
+  and appfs are both available, it opens on a Storage root picker before
+  browsing inside the selected root.
 - **App Store** - scans local app manifests, validates SDK/permission metadata,
   shows rejected-package diagnostics in Developer Mode, prepares scoped app
   `data/` directories for storage-enabled local apps, reports quota usage,

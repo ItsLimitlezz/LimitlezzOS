@@ -18,6 +18,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
+#include <FFat.h>
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include "lvgl.h"
@@ -431,6 +432,11 @@ void setup()
     Serial.printf("[%s] microSD %s\n", datadir ? "ok" : "--",
                   datadir ? datadir : "absent (RAM-only this session)");
 
+    bool appfs_ok = FFat.begin(false, "/appfs", 3, "appfs");
+    if(appfs_ok && !FFat.exists("/apps")) FFat.mkdir("/apps");
+    Serial.printf("[%s] appfs %s\n", appfs_ok ? "ok" : "--",
+                  appfs_ok ? "/appfs" : "not mounted");
+
     /* persistence probe: write then read a file so the boot log proves the
      * message store actually round-trips on this card */
     if(datadir) {
@@ -453,6 +459,7 @@ void setup()
     lz_svc_set_node_num(nodenum);
     lz_set_backlight_cb(backlight_set);
     lz_set_sysinfo_cb(tdeck_sysinfo);
+    lz_svc_set_appfs_root(appfs_ok ? "/appfs" : NULL);
     lz_svc_init(datadir, false);          /* false = no demo contacts/messages */
     lz_svc_set_dirty_cb(lz_rebuild);
     /* BLE is NOT started here: the NimBLE controller holds internal DMA RAM that

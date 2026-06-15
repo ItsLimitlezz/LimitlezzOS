@@ -174,7 +174,9 @@ typedef struct {
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
 void lz_svc_set_dirty_cb(void (*cb)(void));             /* UI refresh request      */
+void lz_svc_set_appfs_root(const char *root);           /* optional FAT appfs mount */
 const char *lz_svc_file_root(void);                     /* read-only Files browser root */
+int  lz_svc_file_roots(const char **out, int cap);      /* SD/local + appfs roots */
 int  lz_svc_scan_apps(lz_local_app_t *out, int cap);    /* SD/appfs local manifests */
 int  lz_svc_scan_app_issues(lz_local_app_issue_t *out, int cap); /* rejected manifests */
 bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
