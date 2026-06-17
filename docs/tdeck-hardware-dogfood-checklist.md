@@ -57,6 +57,15 @@ dogfood belong to the later roadmap phases.
 - The ROM saved PC `0x420c67ae` decoded against the flashed ELF to `esp_pm_impl_waiti`, which indicates the previous reset happened while the app was idle rather than at a decoded crash site.
 - Remaining gap: do not count stock Meshtastic peer dogfood as complete from this serial-only evidence.
 
+### 2026-06-17 COM8 Android BLE Companion Validation
+
+- Firmware artifact flashed before this validation: fork CI artifact for commit `33c8836` on branch `codex/ble-companion-disconnect-diagnostics`.
+- COM8 smoke passed after flashing with `scripts/tdeck_smoke.py --no-stub-upload --skip-build`; companion self-test reported Meshtastic-compatible metadata with `fw=2.7.15.567b8ea` and `min_app=30200`.
+- Official Android app connected over Bluetooth to `limitlessdeck` and showed firmware version `2.7.15.567b8ea`, clearing the previous "radio firmware is too old" block.
+- Android Nodes tab populated through the BLE companion session, showing 2 nodes of 55 total in the captured view.
+- Android LongFast chat sent `Test` and `Ping` through the connected T-Deck and received `Pong! --> limitlessdeck`, proving app-side LongFast send/receive over BLE on this firmware.
+- Remaining V0.5 soak gap: repeat reconnect, intentional disconnect, and coexistence testing while capturing the serial `companion` line fields (`c`, `d`, `r`, `mtu`, `to`, `fr`, `fn`).
+
 ## Meshtastic Channel Interop
 
 - Receive a LongFast text from Peer A on the T-Deck.
