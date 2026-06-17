@@ -38,6 +38,13 @@ dogfood belong to the later roadmap phases.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
 - Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`, and `companion ble`.
+- For MeshCore-enabled Phase 3 builds, run the split-airtime probe after the
+  basic serial smoke: `python scripts/tdm_airtime_smoke.py --port COM8` on the
+  Windows rig, or pass the Linux/macOS serial path such as `/dev/ttyACM0`. This
+  asserts the 60/40, 50/50, and 40/60 dwell presets, checks that `switches:`
+  advances between `rf` samples, and confirms `net mc off` returns the radio to
+  `Meshtastic 100%`. If the firmware still has MeshCore gated, the probe exits
+  with a clear failure instead of recording a false TDM pass.
 
 ## Hardware Evidence Log
 

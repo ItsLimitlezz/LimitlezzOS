@@ -43,6 +43,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install platformio
 
+      - name: Run Python tooling selftests
+        run: |
+          python -m py_compile scripts/serial_harness.py scripts/tdm_airtime_smoke.py
+          python scripts/tdm_airtime_smoke.py --selftest
+
       - name: Build native simulator
         run: pio run -e native
 

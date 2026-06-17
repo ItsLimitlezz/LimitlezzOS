@@ -256,6 +256,18 @@ The fetch helper uses the current branch and current commit by default, then
 downloads the matching successful `Firmware CI` artifact with `gh`. It refuses
 to use an older run unless `--allow-latest-success` is passed.
 
+For Phase 3 split-airtime checks on a MeshCore-enabled build, run the dedicated
+serial TDM probe after flashing:
+
+```sh
+python scripts/tdm_airtime_smoke.py --port COM8
+python scripts/tdm_airtime_smoke.py --port /dev/ttyACM0
+```
+
+It drives `net`, `airtime`, and `rf`, asserts the 60/40, 50/50, and 40/60 dwell
+splits, checks that the TDM switch counter advances, and fails clearly if the
+flashed firmware still has MeshCore gated.
+
 CI runs the native simulator build, native codec selftest, deterministic simulator
 scenario, screenshot generation, T-Deck firmware build, and T-Deck size report
 in `.github/workflows/firmware.yml`. It also enforces the current T-Deck budget

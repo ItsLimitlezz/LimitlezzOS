@@ -134,6 +134,7 @@ Deliverables:
   - missed-packet rate
   - Meshtastic delivery impact while MeshCore is enabled
   - MeshCore delivery impact while Meshtastic is enabled
+  - repeatable serial smoke for dwell presets and switch-count motion. Implemented as `scripts/tdm_airtime_smoke.py`; it runs on Windows `COM8` or Linux/macOS serial paths, checks the 60/40, 50/50, and 40/60 dwell reports, verifies `switches:` advances between `rf` samples, and fails clearly if MeshCore is still compile-gated.
 - Confirm target MeshCore RF profiles by region and define how they coexist with the LongFast-only product goal.
 - Build the split airtime config UI around simple choices, not raw radio parameters. Implemented: Settings now exposes Meshtastic first, Balanced, and MeshCore first presets, persists the choice, and reports the active dwell split through serial diagnostics.
 - Finish MeshCore packet handling:
