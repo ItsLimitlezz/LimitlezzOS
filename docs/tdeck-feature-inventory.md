@@ -50,7 +50,7 @@ Status labels:
 | Retransmit/resend | Partial | Long-press failed bubble calls `lz_svc_resend`; expired pending sent DMs retry automatically from persisted log metadata up to the retry cap | Needs hardware ACK/retransmit validation. |
 | Managed flood rebroadcast | Functional, needs validation | `rebroadcast` in `backend_sx1262.cpp` | Needs airtime/backoff validation in busy meshes. |
 | USB companion bridge | Functional, needs validation | `mt_companion.cpp`, serial commands, UI toggle | Config coverage is minimal; USB remains the hardware-tested app bridge. |
-| BLE companion bridge | Partial, needs validation | `mt_companion.cpp` exposes Meshtastic BLE `ToRadio`, `FromRadio`, and `FromNum` over NimBLE; Meshtastic Nodes screen has separate USB/BLE companion rows; `companion ble on\|off\|test` reports status and mailbox proof | Needs official app pairing, reconnect, send, receive, disconnect, and coexistence validation on hardware. |
+| BLE companion bridge | Partial, needs validation | `mt_companion.cpp` exposes Meshtastic BLE `ToRadio`, `FromRadio`, and `FromNum` over NimBLE; Meshtastic Nodes screen has separate USB/BLE companion rows; `companion ble on\|off\|test` reports status and mailbox proof; the companion handshake reports Meshtastic-compatible firmware/min-app metadata for current Android builds; `companion` reports connect/disconnect counts, last GAP disconnect reason, MTU, and characteristic IO counters for official-app drop captures | Needs official app pairing, reconnect, send, receive, disconnect, and coexistence validation on hardware. |
 | Position/telemetry decode | Partial, needs validation | POSITION and TELEMETRY payloads decode into node detail, node DB, serial `nodes`, and codec selftest fixtures | Add stock-device validation plus app-facing map/weather consumers. |
 | Emergency channel/beacon | Prototype/Planned | Emergency row appears but is disabled; design spec covers SOS | Implement after feedback manager and dual-network send. |
 
@@ -109,7 +109,7 @@ Status labels:
 | OTA firmware update | Planned | Partition table and design spec | Implement download, hash verify, inactive-slot write, rollback UX. |
 | Feedback Manager | Planned | Design spec section 8 | Centralize LED, buzzer, keyboard/display feedback and DND. |
 | Emergency beacon | Planned | Design spec section 12, disabled Emergency UI row | Requires Feedback Manager and dual-network messaging. |
-| BLE companion | Partial, needs validation | NimBLE-based Meshtastic GATT service, official UUIDs, raw `ToRadio` writes, queued `FromRadio` reads, `FromNum` notifications, UI toggle, and serial selftest/status | Validate with the official Meshtastic app over BLE before calling V0.5 complete. |
+| BLE companion | Partial, needs validation | NimBLE-based Meshtastic GATT service, official UUIDs, raw `ToRadio` writes, queued `FromRadio` reads, `FromNum` notifications, UI toggle, serial selftest/status, and session counters for connect/drop diagnostics | Validate with the official Meshtastic app over BLE before calling V0.5 complete. |
 | CI and release checks | Partial | `.github/workflows/firmware.yml` runs native simulator build, native protocol selftest, deterministic simulator scenario, screenshot generation, T-Deck build, size reporting, an explicit firmware/static-RAM budget gate, and artifact upload with budget metadata plus screenshots | Add protocol vectors beyond the native selftest and hardware evidence gates. |
 
 ## Completion Criteria

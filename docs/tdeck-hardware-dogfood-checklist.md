@@ -38,6 +38,7 @@ dogfood belong to the later roadmap phases.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
 - Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`, and `companion ble`.
+- For BLE companion phone-app drops, run `companion ble on`, attempt the official app connection, then run `companion` after the drop and capture the whole BLE line. The key fields are `c`/`d` (connect/disconnect counts), `r` (last GAP disconnect reason), `mtu`, `to` (ToRadio writes/last bytes), `fr` (FromRadio reads), and `fn` (FromNum reads/writes).
 
 ## Hardware Evidence Log
 

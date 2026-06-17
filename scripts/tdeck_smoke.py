@@ -37,15 +37,25 @@ def platformio_core_dir() -> Path:
     return Path.home() / ".platformio"
 
 
-def find_esptool() -> Path:
+def find_esptool_cmd() -> list[str]:
     root = platformio_core_dir() / "packages" / "tool-esptoolpy"
     candidates = list(root.rglob("esptool.py")) if root.exists() else []
-    if not candidates:
-        raise FileNotFoundError(
-            "Could not find PlatformIO's esptool.py. Run `pio run -e tdeck` once "
-            "or install the espressif32 platform."
-        )
-    return candidates[0]
+    if candidates:
+        return [sys.executable, str(candidates[0])]
+
+    probe = subprocess.run(
+        [sys.executable, "-m", "esptool", "version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if probe.returncode == 0:
+        return [sys.executable, "-m", "esptool"]
+
+    raise FileNotFoundError(
+        "Could not find PlatformIO's esptool.py or the Python esptool module. "
+        "Run `pio run -e tdeck` once, install the espressif32 platform, or "
+        "install esptool with `python -m pip install esptool`."
+    )
 
 
 def find_boot_app0(artifact_dir: Path | None = None) -> Path:
@@ -78,11 +88,10 @@ def require_artifacts(project_dir: Path, env_name: str, artifact_dir: Path | Non
 
 def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifact_dir: Path | None) -> None:
     bootloader, partitions, boot_app0, firmware = require_artifacts(project_dir, env_name, artifact_dir)
-    esptool = find_esptool()
+    esptool_cmd = find_esptool_cmd()
     run(
         [
-            sys.executable,
-            str(esptool),
+            *esptool_cmd,
             "--chip",
             "esp32s3",
             "--port",
@@ -90,16 +99,16 @@ def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifa
             "--baud",
             str(baud),
             "--before",
-            "default_reset",
+            "default-reset",
             "--after",
-            "hard_reset",
+            "hard-reset",
             "--no-stub",
-            "write_flash",
-            "--flash_mode",
+            "write-flash",
+            "--flash-mode",
             "dio",
-            "--flash_freq",
+            "--flash-freq",
             "80m",
-            "--flash_size",
+            "--flash-size",
             "16MB",
             "0x0",
             str(bootloader),

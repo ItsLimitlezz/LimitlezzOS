@@ -36,7 +36,36 @@ def current_commit(project_dir: Path) -> str:
     return git(project_dir, "rev-parse", "HEAD")
 
 
+def repo_from_remote_url(url: str) -> str | None:
+    clean = url.strip()
+    if clean.endswith(".git"):
+        clean = clean[:-4]
+    marker = "github.com"
+    if marker not in clean:
+        return None
+    tail = clean.split(marker, 1)[1].lstrip("/:").strip("/")
+    parts = tail.split("/")
+    if len(parts) >= 2 and parts[0] and parts[1]:
+        return f"{parts[0]}/{parts[1]}"
+    return None
+
+
+def tracking_repo(project_dir: Path) -> str | None:
+    branch = current_branch(project_dir)
+    if not branch:
+        return None
+    try:
+        remote = git(project_dir, "config", "--get", f"branch.{branch}.remote")
+        url = git(project_dir, "remote", "get-url", remote)
+    except SystemExit:
+        return None
+    return repo_from_remote_url(url)
+
+
 def default_repo(project_dir: Path) -> str:
+    repo = tracking_repo(project_dir)
+    if repo:
+        return repo
     try:
         data = json.loads(run_text(["gh", "repo", "view", "--json", "nameWithOwner"], project_dir))
         repo = data.get("nameWithOwner")

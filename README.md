@@ -80,9 +80,13 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   is still TODO.
 - **Meshtastic BLE companion** — the firmware exposes the official Meshtastic
   BLE GATT service (`ToRadio`, `FromRadio`, `FromNum`) through NimBLE, advertises,
-  and the official app discovers + connects. **Open bug:** the session drops
-  immediately (connect-then-disconnect) — being fixed. (Wi-Fi and BLE are mutually
-  exclusive on this RAM-tight ESP32-S3; enabling one frees the other.)
+  and the official app discovers + connects. Serial `companion` status now reports
+  connect/disconnect counts, last GAP disconnect reason, negotiated MTU, and
+  characteristic IO counters for phone-app drop captures; the companion handshake
+  reports Meshtastic-compatible firmware metadata (`2.7.15.567b8ea`) so current
+  Android builds do not reject it as too old. **Open bug:** phone pairing/send/
+  receive validation is still in progress. (Wi-Fi and BLE are mutually exclusive
+  on this RAM-tight ESP32-S3; enabling one frees the other.)
 
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
@@ -253,8 +257,14 @@ python scripts/tdeck_smoke.py --port /dev/ttyACM0 --no-stub-upload --skip-build 
 ```
 
 The fetch helper uses the current branch and current commit by default, then
-downloads the matching successful `Firmware CI` artifact with `gh`. It refuses
-to use an older run unless `--allow-latest-success` is passed.
+downloads the matching successful `Firmware CI` artifact with `gh`. On fork
+branches, it follows the branch's tracking remote, so a branch tracking
+`fork/codex/...` fetches from the fork; pass `--repo owner/name` to override.
+It refuses to use an older run unless `--allow-latest-success` is passed.
+
+The artifact flash path does not require a local T-Deck firmware build. It does
+need `gh`, Python `esptool` (`python -m pip install esptool` when PlatformIO's
+bundled `esptool.py` is absent), and `pyserial` for the post-flash serial smoke.
 
 CI runs the native simulator build, native codec selftest, deterministic simulator
 scenario, screenshot generation, T-Deck firmware build, and T-Deck size report
@@ -337,7 +347,9 @@ for local apps and read-only inspection when present.
 - **Companion bridge controls** — USB companion mode and BLE companion advertising
   are separate rows in Meshtastic → Nodes. Only one external app transport owns
   the bridge at a time: enabling BLE returns USB to the serial console; enabling
-  USB turns BLE advertising/connection off.
+  USB turns BLE advertising/connection off. `companion` reports BLE session
+  counters (`c`/`d`), last disconnect reason (`r`), MTU, ToRadio writes,
+  FromRadio reads, and FromNum reads/writes for official-app debugging.
 - **Terminal / Files** — Developer Mode mono console with blinking cursor;
   read-only Files browser for the mounted SD/local store.
 

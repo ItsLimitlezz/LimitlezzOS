@@ -111,9 +111,10 @@ Deliverables:
 
 - Add BLE transport for the Meshtastic companion protocol. Implemented in firmware with NimBLE-Arduino and the official Meshtastic BLE GATT service UUIDs: `ToRadio` writes, `FromRadio` reads, and `FromNum` read/notify/write.
 - Reuse the USB companion handshake/model where possible so node DB, channel, config, and packet forwarding behavior stay consistent. Implemented: USB and BLE both feed the same `ToRadio` handler and `FromRadio` builders.
+- Report Meshtastic-compatible app metadata during the companion handshake. Implemented: `MyNodeInfo.min_app_version` uses Meshtastic's current compatibility floor and `DeviceMetadata.firmware_version` reports the current stable Meshtastic firmware line (`2.7.15.567b8ea`) so Android does not hard-block the session as ancient firmware.
 - Add clear UI state for USB companion, BLE companion, and normal serial console mode. Implemented: Meshtastic -> Nodes now has separate USB and BLE companion rows.
 - Define what happens when USB and BLE companion clients compete for the radio. Implemented: only one external app bridge is active at a time; enabling BLE disables USB companion mode, and enabling USB turns BLE advertising/connection off.
-- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical. Implemented: `companion ble on|off|test`, BLE status reporting, and a BLE mailbox/fromnum selftest.
+- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical. Implemented: `companion ble on|off|test`, BLE status reporting, and a BLE mailbox/fromnum selftest. The BLE status line now also captures session-level phone-app drop evidence: connect/disconnect counts (`c`/`d`), last GAP disconnect reason (`r`), negotiated MTU, ToRadio writes, FromRadio reads, and FromNum reads/writes.
 - Hardware-test pairing, reconnect, send, receive, and disconnect flows with the official app.
 
 Exit criteria:
