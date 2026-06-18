@@ -59,7 +59,7 @@ Status labels:
 | Feature | Status | Evidence | Gap / Next Action |
 | --- | --- | --- | --- |
 | MeshCore compile-time gate | Partial | `#define LZ_MESHCORE_ENABLED 0` | Gate should stay off until receive/send/unified inbox tests pass. |
-| TDM radio scheduler | Partial, needs validation | `lz_backend_set_networks`, profile switcher, settings airtime bar | Needs hardware soak and latency/packet-loss measurements. |
+| TDM radio scheduler | Partial, needs validation | `lz_backend_set_networks`, profile switcher, settings airtime bar, serial `rf` diagnostics with delayed-switch average/max and RX/ACK hold counters | Needs hardware soak and packet-loss measurements with real simultaneous Meshtastic/MeshCore traffic. |
 | MeshCore RF profile | Partial, needs validation | 910.525 MHz / 62.5 kHz / SF7 / CR4/5 profile | Confirm target regions and RF compatibility with real MeshCore devices. |
 | MeshCore ADVERT RX | Partial, needs validation | `mc_parse`, `mc_advert_decode`, `lz_core_on_mc_node` | Only ADVERTs are decoded; encrypted payloads are ignored. |
 | MeshCore self-advert TX | Partial, needs validation | Ed25519 identity, self-advert builder, serial/UI advert commands | Needs interop proof with real MeshCore nodes. |

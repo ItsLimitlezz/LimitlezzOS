@@ -130,7 +130,9 @@ Goal: make MeshCore visible in the real product through public chat first, while
 Deliverables:
 
 - Validate TDM on real hardware:
-  - slot switching latency
+  - slot switching latency. Instrumented in `rf`: the scheduler now reports
+    delayed-switch count, average/max lateness, and whether expired slots were
+    held by in-flight RX or MeshCore ACK dwell.
   - missed-packet rate
   - Meshtastic delivery impact while MeshCore is enabled
   - MeshCore delivery impact while Meshtastic is enabled

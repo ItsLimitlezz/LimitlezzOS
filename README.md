@@ -333,7 +333,9 @@ for local apps and read-only inspection when present.
   state are live; identity, settings, node table, and message history persist
   across reboots; nothing on screen is hard-coded demo data on hardware.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
-  `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
+  `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control +
+  diagnostics; `rf` also reports TDM delayed-switch timing and RX/ACK hold
+  counters for split-airtime soak runs.
 - **Companion bridge controls** — USB companion mode and BLE companion advertising
   are separate rows in Meshtastic → Nodes. Only one external app transport owns
   the bridge at a time: enabling BLE returns USB to the serial console; enabling

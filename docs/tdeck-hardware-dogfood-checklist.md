@@ -38,6 +38,10 @@ dogfood belong to the later roadmap phases.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
 - Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`, and `companion ble`.
+- For split-airtime runs, capture `rf` before and after traffic. The `timing:`
+  line reports delayed-switch count, average/max lateness, and whether expired
+  slots were held by in-flight RX or MeshCore ACK dwell; this proves scheduler
+  hold behavior but not packet-loss rate by itself.
 
 ## Hardware Evidence Log
 
