@@ -846,6 +846,7 @@ extern "C" void lz_mtc_ble_set_enabled(bool on)
          * both be resident — free WiFi first so the controller can init. */
         if(lz_wifi_enabled()) lz_wifi_set_enabled(false);
         if(g_companion) g_companion = false;   /* one external app bridge at a time */
+        if(lz_mcc_usb_active()) lz_mcc_usb_set_active(false);
         if(!g_ble_ready) lz_mtc_ble_begin();
         if(!g_ble_ready) {                     /* controller init failed (out of RAM): */
             lz_wifi_set_enabled(true);         /* don't strand the user — restore WiFi */
@@ -1001,6 +1002,7 @@ extern "C" void lz_mtc_poll(void)
 /* ---------- mode control + self-test ---------- */
 extern "C" void lz_mtc_set_active(bool on)
 {
+    if(on && lz_mcc_usb_active()) lz_mcc_usb_set_active(false);
     if(on && g_ble_enabled) lz_mtc_ble_set_enabled(false);
     g_companion = on;
     if(on) {

@@ -1074,6 +1074,36 @@ static int codec_selftest(void)
               "MeshCore companion v0 public send uses service boundary");
         CHECK(lz_svc_mc_companion_send_dm("CompanionPeer", "dm from companion"),
               "MeshCore companion v0 DM send uses service boundary");
+        char mc0[900], proto[120];
+        bool mc0_exit = false;
+        lz_svc_mc_companion_handle_line("MC0 1 HELLO proto=0 app=selftest", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 1 OK proto=0") != NULL && strstr(mc0, "caps=") != NULL,
+              "MeshCore MC0 HELLO reports protocol capabilities");
+        lz_svc_mc_companion_handle_line("MC0 2 STATUS", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 2 OK") != NULL && strstr(mc0, "nodes=1") != NULL &&
+              strstr(mc0, "threads=2") != NULL,
+              "MeshCore MC0 STATUS counts snapshots");
+        lz_svc_mc_companion_handle_line("MC0 3 NODES since=0 limit=5", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 3 BEGIN type=nodes") != NULL &&
+              strstr(mc0, "name=CompanionPeer") != NULL &&
+              strstr(mc0, "MC0 3 END type=nodes") != NULL,
+              "MeshCore MC0 NODES snapshot lists peer");
+        lz_svc_mc_companion_handle_line("MC0 4 THREADS", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 4 BEGIN type=threads") != NULL &&
+              strstr(mc0, "text=CompanionPeer%3A%20public%20hello") != NULL &&
+              strstr(mc0, "text=dm%20hello") != NULL,
+              "MeshCore MC0 THREADS snapshot lists encoded thread text");
+        lz_svc_mc_companion_handle_line("MC0 5 SEND_PUBLIC text=mc0%20public", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 5 OK accepted=1") != NULL,
+              "MeshCore MC0 SEND_PUBLIC uses service boundary");
+        lz_svc_mc_companion_handle_line("MC0 6 SEND_DM to_name=companionpeer text=mc0%20dm", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 6 OK accepted=1") != NULL,
+              "MeshCore MC0 SEND_DM uses service boundary");
+        lz_svc_mc_companion_handle_line("MC0 7 EXIT", mc0, sizeof mc0, &mc0_exit);
+        CHECK(mc0_exit && strstr(mc0, "state=detached") != NULL,
+              "MeshCore MC0 EXIT returns to console");
+        lz_svc_mc_companion_selftest(proto, sizeof proto);
+        CHECK(strstr(proto, "PASS") != NULL, "MeshCore MC0 protocol selftest passes");
     }
 
     /* 13. MeshCore Public-channel GRP_TXT: decode a known reference vector,

@@ -271,6 +271,8 @@ int  lz_svc_mc_companion_nodes(char *buf, int n);
 int  lz_svc_mc_companion_threads(char *buf, int n);
 bool lz_svc_mc_companion_send_public(const char *text);
 bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
+int  lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_selftest(char *buf, int n);
 
 /* ---- radio stats (airtime accounting) ---- */
 typedef struct { uint32_t tx_count, rx_count; float util_pct; } lz_radio_stats_t;
@@ -372,6 +374,13 @@ bool lz_mtc_ble_connected(void);
 void lz_mtc_ble_set_enabled(bool on);
 int  lz_mtc_ble_status(char *buf, int n);
 int  lz_mtc_ble_selftest(char *buf, int n);
+
+/* MeshCore companion bridge: USB serial speaks the MC0 line protocol when active. */
+bool lz_mcc_usb_active(void);
+void lz_mcc_usb_set_active(bool on);
+void lz_mcc_usb_poll(void);
+int  lz_mcc_usb_status(char *buf, int n);
+int  lz_mcc_usb_selftest(char *buf, int n);
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);

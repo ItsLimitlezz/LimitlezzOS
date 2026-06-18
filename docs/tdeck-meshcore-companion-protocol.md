@@ -43,6 +43,21 @@ The current implementation step keeps this in the existing serial console as
 `companion mc ...` commands so CI and COM8 hardware smokes can validate the
 service boundary before the formal host protocol takes ownership of the port.
 
+Formal USB MC0 mode is an explicit mode switch rather than an implicit reuse of
+the normal console prompt. The firmware enters MC0 mode with:
+
+```text
+companion mc usb on
+MC0 1 HELLO proto=0 app=limitlezz-smoke host=windows want=none
+MC0 2 STATUS
+MC0 3 NODES since=0 limit=5
+MC0 99 EXIT
+```
+
+Host smoke keeps the mode-entry command and exit line configurable for older
+artifacts and later protocol revisions, but it must not treat Meshtastic
+companion mode as a fallback.
+
 - Encoding: UTF-8 text lines.
 - Line ending: `\n`; firmware should accept `\r\n`.
 - Request prefix: `MC0`.
@@ -370,6 +385,18 @@ Rules:
 
 ## Validation Checklist
 
+- Default smoke remains the serial-console boundary check:
+  `python scripts/mc_companion_usb_smoke.py` runs `companion mc status` and
+  `companion mc test`.
+- Formal USB MC0 smoke is opt-in:
+  `python scripts/mc_companion_usb_smoke.py --mc0-usb` enters the configured
+  USB mode, sends `HELLO`, `STATUS`, and `NODES`, asserts `MC0 ... OK`,
+  `BEGIN`, and `END` response markers, then exits through the configured
+  `MC0 <id> EXIT` line.
+- If firmware lands different command names, use the smoke helper's
+  `--mc0-enter-command`, `--mc0-*-template`, `--mc0-*-marker`, and
+  `--mc0-exit-template` flags instead of editing firmware or weakening the
+  assertions.
 - USB serial host can enter MeshCore companion mode without enabling
   Meshtastic companion mode.
 - `HELLO`, `IDENTITY`, `STATUS`, and `NODES` work after boot and after
