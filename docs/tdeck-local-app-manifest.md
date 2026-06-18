@@ -30,6 +30,8 @@ than fit on the first screen. The App Store also lists accepted local apps as
 installed local packages and opens the same manifest detail shell. Home launches
 the app into the SDK 0.1 foreground shell; the detail shell also has an `OPEN`
 action.
+Closing the app from the foreground shell, or navigating back with Esc, clears
+the active session while preserving the manifest selection for the detail view.
 
 When Developer Mode is enabled, the App Store also shows rejected local package
 folders with a short reason such as `missing manifest`, `unsafe id`, `bad
@@ -163,3 +165,34 @@ are launch-blocked before any future runtime code can run. The App Store detail
 screen also provides `Clear local data` for storage-enabled apps; it removes
 only files and folders inside that app's scoped `data/` directory and then
 recreates the directory for later use.
+
+## Sample App Pack
+
+The repository includes copyable SDK 0.1 packages in `examples/local-apps/`:
+
+- Calculator
+- Field Notes
+- Offline Maps
+- Weather Mesh
+- Mesh BBS
+- Signal Scope
+- LoRa Chess
+- APRS Bridge
+
+Validate the pack before copying it to a simulator or card-style root:
+
+```sh
+python scripts/validate_local_app_samples.py
+```
+
+For local simulator/data-root testing, install the samples under an app root:
+
+```sh
+python scripts/validate_local_app_samples.py --install-root .pio/local-app-samples --clean
+```
+
+Then copy `.pio/local-app-samples/apps/<sample>` folders to `/sd/limitlezz/apps/`,
+`/sd/apps/`, or `/appfs/apps/` on hardware. The validator mirrors the firmware's
+SDK 0.1 limits for manifest size, string fields, safe entry paths, supported
+permissions, `{time}` / `{battery}` token permissions, foreground action count,
+and storage-scoped counter effects.

@@ -43,6 +43,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install platformio
 
+      - name: Validate local app samples
+        run: |
+          python -m py_compile scripts/validate_local_app_samples.py
+          python scripts/validate_local_app_samples.py
+
       - name: Build native simulator
         run: pio run -e native
 

@@ -336,6 +336,11 @@ void lz_start_local_app(void)
     lz_go(LZ_V_LOCALAPP_RUN);
 }
 
+void lz_stop_local_app(void)
+{
+    lz_svc_stop_local_app(&S.local_app_run);
+}
+
 void lz_open_local_app(const lz_local_app_t *app)
 {
     if(!app) return;
@@ -500,7 +505,10 @@ static void local_app_run_activate(int idx)
         if(lz_svc_local_app_action(r, idx)) lz_rebuild();
         return;
     }
-    if(idx == actions) lz_back();
+    if(idx == actions) {
+        lz_stop_local_app();
+        lz_back();
+    }
 }
 
 void lz_scr_local_app_run(lv_obj_t *root)

@@ -234,6 +234,7 @@ bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *
 bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
+void lz_svc_stop_local_app(lz_local_app_session_t *session);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

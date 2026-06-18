@@ -327,6 +327,7 @@ void lz_go(lz_view_t v)
 void lz_back(void)
 {
     lz_settings_flush();
+    if(S.view == LZ_V_LOCALAPP_RUN) lz_stop_local_app();
     lz_view_t v = LZ_V_HOME;
     if(S.nav_depth > 0) v = S.nav_stack[--S.nav_depth];
     if(v == LZ_V_LOCK) v = LZ_V_HOME;

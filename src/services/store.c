@@ -919,6 +919,11 @@ bool lz_store_local_app_action(lz_local_app_session_t *session, int idx)
     return true;
 }
 
+void lz_store_stop_local_app(lz_local_app_session_t *session)
+{
+    if(session) memset(session, 0, sizeof *session);
+}
+
 /* addr strings can contain '!' etc; keep alnum only in filenames */
 static void log_name(char *out, size_t n, const char *addr)
 {

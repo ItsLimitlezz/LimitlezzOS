@@ -247,6 +247,8 @@ Deliverables:
   `storage`; unknown action effects and malformed counter effects are
   launch-blocked instead of ignored. App sessions terminate on exit; App Store
   opens the manifest detail shell with a trackball-accessible `OPEN` action.
+  Implemented termination now explicitly clears the foreground session on
+  Close/Esc while preserving the selected app manifest for the detail view.
   Script execution and richer injected runtime APIs remain below, with initial
   read-only `{time}` and `{battery}` token injection now routed through
   declared `system_time` and `battery` permissions.
@@ -283,8 +285,11 @@ Deliverables:
   data, and display-only apps that declare actions are blocked for missing input
   permission, while runtime crash capture remains below.
 - Convert prototype catalog examples into installable sample apps where practical:
+  Implemented as copyable SDK 0.1 packages in `examples/local-apps/`, with a
+  CI-validated sample-pack checker that mirrors the firmware manifest, token,
+  foreground-action, and scoped-storage rules.
   - Calculator
-  - Notes
+  - Field Notes
   - Offline Maps shell
   - Weather Mesh
   - Mesh BBS

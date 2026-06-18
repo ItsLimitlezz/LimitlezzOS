@@ -1,0 +1,12 @@
+{
+  "id": "bbs.mesh",
+  "name": "Mesh BBS",
+  "version": "0.1.0",
+  "author": "Limitless",
+  "summary": "Bulletin board shell",
+  "entry": "main.lua",
+  "api_version": "0.1",
+  "permissions": ["display", "input", "storage", "mesh_read", "mesh_send"],
+  "icon": "description",
+  "hue": 280
+}

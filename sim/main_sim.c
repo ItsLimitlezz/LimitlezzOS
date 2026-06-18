@@ -733,6 +733,7 @@ static int codec_selftest(void)
         extern bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
         extern bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
         extern bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
+        extern void lz_store_stop_local_app(lz_local_app_session_t *session);
         sim_reset_dir("lzdata_appscan");
         sim_mkdirs("lzdata_appscan/apps/weather");
         sim_mkdirs("lzdata_appscan/apps/bad");
@@ -814,6 +815,11 @@ static int codec_selftest(void)
               "local app foreground storage counter persists");
         CHECK(action2_ok && run.data_used_bytes > 1536,
               "local app foreground storage counter stays in app data quota");
+        lz_store_stop_local_app(&run);
+        CHECK(!run.entry_loaded && run.action_count == 0 && run.data_path[0] == 0,
+              "local app foreground session terminates cleanly");
+        CHECK(!lz_store_local_app_action(&run, 0),
+              "local app foreground actions stop after termination");
         bool clear_ok = an == 1 && lz_store_clear_app_data(&apps[0], data_err, sizeof data_err);
         CHECK(clear_ok, "local app clear data succeeds inside scoped storage");
         used = 123;

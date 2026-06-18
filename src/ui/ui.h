@@ -130,6 +130,7 @@ void lz_scr_local_app(lv_obj_t *root);
 void lz_scr_local_app_run(lv_obj_t *root);
 void lz_open_local_app(const lz_local_app_t *app);
 void lz_start_local_app(void);
+void lz_stop_local_app(void);
 void lz_scr_contacts(lv_obj_t *root);
 void lz_scr_contact(lv_obj_t *root);
 void lz_scr_settings(lv_obj_t *root);
