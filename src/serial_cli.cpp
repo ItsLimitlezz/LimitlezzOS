@@ -310,8 +310,12 @@ static void cmd_companion(char *args)
             }
             if(strcmp(state, "on") == 0) {
                 lz_mcc_usb_set_active(true);
-                Serial.println("[ok] MeshCore MC0 USB companion mode ON");
-                Serial.println("     send 'MC0 1 EXIT' to return to the text console");
+                if(lz_mcc_usb_active()) {
+                    Serial.println("[ok] MeshCore MC0 USB companion mode ON");
+                    Serial.println("     send 'MC0 1 EXIT' to return to the text console");
+                } else {
+                    Serial.println("[err] MeshCore MC0 USB companion could not allocate line buffer");
+                }
                 return;
             }
             if(strcmp(state, "off") == 0) {
