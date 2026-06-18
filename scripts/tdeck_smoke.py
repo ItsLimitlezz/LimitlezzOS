@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import serial_harness
+
 
 DEFAULT_COMMANDS = ["id", "sys", "net", "rf", "stats", "wifi", "companion test"]
 
@@ -180,15 +182,20 @@ def main() -> int:
 
     project_dir = Path(args.project_dir).resolve()
     artifact_dir = Path(args.artifact_dir).resolve() if args.artifact_dir else None
+    try:
+        upload_port = serial_harness.resolve_port_name(args.port)
+    except Exception as exc:
+        raise SystemExit(f"invalid or unavailable serial port {args.port!r}: {exc}") from exc
+
     if not args.skip_upload:
         if args.no_stub_upload:
             if not args.skip_build:
                 run(["pio", "run", "-e", args.env], cwd=project_dir)
-            nostub_upload(project_dir, args.env, args.port, args.upload_baud, artifact_dir)
+            nostub_upload(project_dir, args.env, upload_port, args.upload_baud, artifact_dir)
         else:
             if args.skip_build or artifact_dir is not None:
                 raise SystemExit("--skip-build/--artifact-dir require --no-stub-upload")
-            run(["pio", "run", "-e", args.env, "-t", "upload", "--upload-port", args.port], cwd=project_dir)
+            run(["pio", "run", "-e", args.env, "-t", "upload", "--upload-port", upload_port], cwd=project_dir)
 
     harness = project_dir / "scripts" / "serial_harness.py"
     cmd = [

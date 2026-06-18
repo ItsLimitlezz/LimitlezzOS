@@ -14,6 +14,7 @@ import time
 
 try:
     import serial
+    from serial.tools import list_ports
 except ImportError as exc:  # pragma: no cover - host setup guard
     raise SystemExit("pyserial is required. PlatformIO installs it, or run: pip install pyserial") from exc
 
@@ -30,10 +31,68 @@ DEFAULT_EXPECT = {
     "companion test": "PASS",
 }
 ROM_DOWNLOAD_MARKERS = ("waiting for download", "DOWNLOAD(USB/UART0)", "DOWNLOAD")
+AUTO_PORT_NAMES = {"auto", "esp32", "tdeck"}
+ESPRESSIF_USB_IDS = {(0x303A, 0x1001)}
+FORBIDDEN_PORT_NAMES = {"COM11", "COM29"}
 
 
 class RomDownloadMode(RuntimeError):
     pass
+
+
+def is_auto_port(name: str) -> bool:
+    return name.strip().lower() in AUTO_PORT_NAMES
+
+
+def is_forbidden_port(name: str) -> bool:
+    return name.strip().upper() in FORBIDDEN_PORT_NAMES
+
+
+def describe_port(info) -> str:
+    vid_pid = ""
+    if info.vid is not None and info.pid is not None:
+        vid_pid = f" VID:PID={info.vid:04X}:{info.pid:04X}"
+    serial_no = f" SER={info.serial_number}" if info.serial_number else ""
+    desc = f" {info.description}" if info.description else ""
+    return f"{info.device}{vid_pid}{serial_no}{desc}".strip()
+
+
+def available_ports() -> str:
+    ports = [p for p in list_ports.comports() if not is_forbidden_port(p.device)]
+    if not ports:
+        return "no allowed serial ports visible"
+    return "\n".join(f"  {describe_port(p)}" for p in ports)
+
+
+def esp32_port_candidates():
+    return [
+        p
+        for p in list_ports.comports()
+        if p.vid is not None
+        and p.pid is not None
+        and (int(p.vid), int(p.pid)) in ESPRESSIF_USB_IDS
+        and not is_forbidden_port(p.device)
+    ]
+
+
+def resolve_port_name(name: str) -> str:
+    if is_forbidden_port(name):
+        raise serial.SerialException(f"{name} is blocked by the local serial safety policy")
+    if not is_auto_port(name):
+        return name
+    candidates = esp32_port_candidates()
+    if len(candidates) == 1:
+        return candidates[0].device
+    if not candidates:
+        raise serial.SerialException(
+            "no Espressif ESP32-S3 USB serial/JTAG port found for --port auto; "
+            f"visible ports:\n{available_ports()}"
+        )
+    choices = "\n".join(f"  {describe_port(p)}" for p in candidates)
+    raise serial.SerialException(
+        "multiple Espressif ESP32-S3 USB serial/JTAG ports found for --port auto; "
+        f"specify one with --port:\n{choices}"
+    )
 
 
 def decode(data: bytes) -> str:
@@ -83,7 +142,7 @@ def open_port_retry(name: str, baud: int, timeout: float, open_timeout: float, d
     last_error: Exception | None = None
     while True:
         try:
-            return open_port(name, baud, timeout, dtr, rts)
+            return open_port(resolve_port_name(name), baud, timeout, dtr, rts)
         except serial.SerialException as exc:
             last_error = exc
             if time.monotonic() >= end:
@@ -152,6 +211,8 @@ def main() -> int:
             with open_port_retry(args.port, args.baud, args.timeout,
                                  min(args.open_timeout, remaining_boot),
                                  args.dtr, args.rts) as port:
+                if is_auto_port(args.port):
+                    print(f"[serial] auto-selected {port.port}")
                 if args.open_only:
                     print("[serial] open ok")
                     return 0
