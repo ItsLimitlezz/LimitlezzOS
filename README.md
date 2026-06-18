@@ -275,11 +275,13 @@ splits, checks that the TDM switch counter advances, and fails clearly if the
 flashed firmware still has MeshCore gated.
 
 CI runs the native simulator build, native codec selftest, deterministic simulator
-scenario, screenshot generation, T-Deck firmware build, and T-Deck size report
-in `.github/workflows/firmware.yml`. It also enforces the current T-Deck budget
-gate (2,200,000 bytes for `firmware.bin`, 307,200 bytes static RAM), writes the
-result into `FLASH_MANIFEST.txt`, then uploads the firmware artifacts from
-`.pio/build/tdeck` plus the generated simulator screenshots.
+scenario, screenshot generation, the default T-Deck firmware build, the opt-in
+MeshCore-enabled TDM validation build, and size reports for both firmware
+artifacts in `.github/workflows/firmware.yml`. It also enforces the current
+T-Deck budget gate (2,200,000 bytes for `firmware.bin`, 307,200 bytes static
+RAM), writes each result into its own `FLASH_MANIFEST.txt`, then uploads the
+`tdeck-firmware-<sha>` and `tdeck-meshcore-firmware-<sha>` bundles plus the
+generated simulator screenshots.
 
 Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RAM
 (82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,

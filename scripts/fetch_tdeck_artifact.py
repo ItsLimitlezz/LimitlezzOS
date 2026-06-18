@@ -157,7 +157,7 @@ def main() -> int:
     parser.add_argument("--branch", help="Branch name. Defaults to the current git branch.")
     parser.add_argument("--commit", help="Commit SHA. Defaults to HEAD.")
     parser.add_argument("--run-id", type=int, help="Download a specific run instead of searching.")
-    parser.add_argument("--artifact-name", help="Artifact name. Defaults to tdeck-firmware-<sha>.")
+    parser.add_argument("--artifact-name", help="Artifact name. Defaults to the selected env prefix plus <sha>.")
     parser.add_argument("--out", help="Output directory. Defaults to .pio/ci-artifacts/<env>.")
     parser.add_argument("--allow-latest-success", action="store_true", help="Allow newest successful run if HEAD has none.")
     args = parser.parse_args()

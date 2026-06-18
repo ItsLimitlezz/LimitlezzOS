@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -59,6 +60,38 @@ def find_esptool_cmd() -> list[str]:
     )
 
 
+def esptool_major(cmd: list[str]) -> int | None:
+    probe = subprocess.run(
+        [*cmd, "version"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+    match = re.search(r"v?(\d+)\.\d+", probe.stdout)
+    return int(match.group(1)) if match else None
+
+
+def esptool_names(cmd: list[str]) -> dict[str, str]:
+    if (esptool_major(cmd) or 5) >= 5:
+        return {
+            "default_reset": "default-reset",
+            "hard_reset": "hard-reset",
+            "write_flash": "write-flash",
+            "flash_mode": "--flash-mode",
+            "flash_freq": "--flash-freq",
+            "flash_size": "--flash-size",
+        }
+    return {
+        "default_reset": "default_reset",
+        "hard_reset": "hard_reset",
+        "write_flash": "write_flash",
+        "flash_mode": "--flash_mode",
+        "flash_freq": "--flash_freq",
+        "flash_size": "--flash_size",
+    }
+
+
 def find_boot_app0(artifact_dir: Path | None = None) -> Path:
     if artifact_dir is not None:
         bundled = artifact_dir / "boot_app0.bin"
@@ -90,6 +123,7 @@ def require_artifacts(project_dir: Path, env_name: str, artifact_dir: Path | Non
 def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifact_dir: Path | None) -> None:
     bootloader, partitions, boot_app0, firmware = require_artifacts(project_dir, env_name, artifact_dir)
     esptool_cmd = find_esptool_cmd()
+    names = esptool_names(esptool_cmd)
     run(
         [
             *esptool_cmd,
@@ -100,16 +134,16 @@ def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifa
             "--baud",
             str(baud),
             "--before",
-            "default-reset",
+            names["default_reset"],
             "--after",
-            "hard-reset",
+            names["hard_reset"],
             "--no-stub",
-            "write-flash",
-            "--flash-mode",
+            names["write_flash"],
+            names["flash_mode"],
             "dio",
-            "--flash-freq",
+            names["flash_freq"],
             "80m",
-            "--flash-size",
+            names["flash_size"],
             "16MB",
             "0x0",
             str(bootloader),
