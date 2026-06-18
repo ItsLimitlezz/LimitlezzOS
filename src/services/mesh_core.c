@@ -396,10 +396,34 @@ bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *o
     return local_app_expand_session(out);
 }
 
+static bool local_app_notify_effect(const char *effect, char *body, size_t cap)
+{
+    if(!effect || !body || cap == 0) return false;
+    if(strncmp(effect, "notify:", 7) != 0 || !effect[7]) return false;
+    const char *src = effect + 7;
+    while(*src == ' ' || *src == '\t') src++;
+    size_t j = 0;
+    while(*src && j + 1 < cap) {
+        char c = *src++;
+        if(c == '\r' || c == '\n' || c < 32) c = ' ';
+        body[j++] = c;
+    }
+    while(j > 0 && body[j - 1] == ' ') j--;
+    body[j] = 0;
+    return body[0] != 0;
+}
+
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx)
 {
     if(!lz_store_local_app_action(session, idx)) return false;
-    return local_app_expand_session(session);
+    bool ok = local_app_expand_session(session);
+    if(ok && idx >= 0 && idx < session->action_count) {
+        char note[LZ_FEEDBACK_BODY_MAX];
+        if(local_app_notify_effect(session->actions[idx].effect, note, sizeof note)) {
+            lz_svc_feedback_notify(session->title, session->actions[idx].label, note);
+        }
+    }
+    return ok;
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

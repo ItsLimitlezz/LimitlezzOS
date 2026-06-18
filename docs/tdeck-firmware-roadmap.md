@@ -274,7 +274,11 @@ Deliverables:
     text can use `{time}` and `{battery}` only when the manifest declares the
     matching `system_time` or `battery` permission; missing permissions block
     launch before the app shell opens.
-  - notification request API routed through Feedback Manager
+  - notification request API routed through Feedback Manager. Initial
+    implementation: SDK 0.1 foreground actions can use a permission-gated
+    `notify:` effect that records the request through a tiny feedback service
+    with serial `feedback status|test` and `app notify test` diagnostics. Full
+    LED/buzzer/DND/emergency policy remains Phase 11 work.
   - no direct hardware access
 - Add Developer Mode app diagnostics and crash/error display. Partially
   implemented: rejected local package folders appear in App Store under

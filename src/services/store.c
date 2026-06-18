@@ -478,6 +478,14 @@ static bool effect_counter_key(const char *effect, char *key, size_t cap)
     return j > 0;
 }
 
+static bool effect_notify_text(const char *effect, char *text, size_t cap)
+{
+    if(!effect || !text || cap == 0) return false;
+    if(strncmp(effect, "notify:", 7) != 0 || !effect[7]) return false;
+    clean_line_copy(text, cap, effect + 7);
+    return text[0] != 0;
+}
+
 static bool action_needs_storage(const lz_local_app_session_t *s)
 {
     if(!s) return false;
@@ -487,15 +495,30 @@ static bool action_needs_storage(const lz_local_app_session_t *s)
     return false;
 }
 
+static bool action_needs_notifications(const lz_local_app_session_t *s)
+{
+    if(!s) return false;
+    char text[LZ_FEEDBACK_BODY_MAX];
+    for(int i = 0; i < s->action_count; i++)
+        if(effect_notify_text(s->actions[i].effect, text, sizeof text)) return true;
+    return false;
+}
+
 static bool action_effect_error(const lz_local_app_session_t *s, char *err, size_t cap)
 {
     if(!s) return false;
     char key[20];
+    char text[LZ_FEEDBACK_BODY_MAX];
     for(int i = 0; i < s->action_count; i++) {
         const char *effect = s->actions[i].effect;
         if(!effect[0]) continue;
         if(strncmp(effect, "counter:", 8) == 0 || strncmp(effect, "count:", 6) == 0) {
             if(effect_counter_key(effect, key, sizeof key)) continue;
+            if(err && cap > 0) snprintf(err, cap, "bad action effect");
+            return true;
+        }
+        if(strncmp(effect, "notify:", 7) == 0) {
+            if(effect_notify_text(effect, text, sizeof text)) continue;
             if(err && cap > 0) snprintf(err, cap, "bad action effect");
             return true;
         }
@@ -887,6 +910,8 @@ bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t 
         return app_session_fail(out, app, effect_err);
     if(action_needs_storage(out) && !out->storage_ready)
         return app_session_fail(out, app, "storage permission missing");
+    if(action_needs_notifications(out) && (out->permissions & LZ_APP_PERM_NOTIFICATIONS) == 0)
+        return app_session_fail(out, app, "notifications permission missing");
     return true;
 }
 

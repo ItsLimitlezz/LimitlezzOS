@@ -63,17 +63,23 @@ Action lines use pipe-separated fields:
 
 The first field is the button label, the second replaces the foreground status
 after activation, and the third replaces the body text. The optional fourth
-field is a tiny SDK effect. The only supported effect is `counter:<safe-key>`,
-which increments `<app>/data/<safe-key>.count` and expands `{count}` in the
-status/body. Counter keys may contain up to 19 letters, numbers, `_`, and `-`
-characters only. Unknown effects and malformed counter keys are launch-blocked
-instead of being ignored.
+field is a tiny SDK effect. Supported effects are:
+
+- `counter:<safe-key>` increments `<app>/data/<safe-key>.count` and expands
+  `{count}` in the status/body. Counter keys may contain up to 19 letters,
+  numbers, `_`, and `-` characters only.
+- `notify:<message>` requests a user-visible app notification through the
+  firmware feedback service. This is a lightweight service boundary only; full
+  LED/buzzer/DND/emergency policy remains later Feedback Manager work.
+
+Unknown effects and malformed effect payloads are launch-blocked instead of
+being ignored.
 
 Actions require the `input` permission; display-only apps that declare actions
 are launch-blocked. Counter actions also require `storage` permission and stay
-inside the scoped app `data/` directory and the 64 KB quota. Actions do not
-execute arbitrary script and do not grant raw filesystem, radio, or hardware
-access.
+inside the scoped app `data/` directory and the 64 KB quota. Notification
+actions require `notifications`. Actions do not execute arbitrary script and do
+not grant raw filesystem, radio, or hardware access.
 
 The SDK 0.1 foreground shell also supports tiny read-only value tokens in
 `status:`, `body:`, `text:`, and action status/body fields:
@@ -150,12 +156,12 @@ The scanner rejects packages when:
 
 The current firmware scans local app manifests and can open them in a safe
 foreground shell with bounded foreground actions, including a storage-scoped
-counter effect and read-only `{time}` / `{battery}` value injection. Script
-execution, richer sandbox API injection, richer data APIs, and network catalog
-installs remain later app-platform work. Permission metadata is parsed and
-displayed now so packages can fail closed before richer runtime APIs are added,
-and apps that declare `storage` get a scoped `data/` directory prepared under
-their own package.
+counter effect, a permission-gated `notify:` feedback request, and read-only
+`{time}` / `{battery}` value injection. Script execution, richer sandbox API
+injection, richer data APIs, and network catalog installs remain later
+app-platform work. Permission metadata is parsed and displayed now so packages
+can fail closed before richer runtime APIs are added, and apps that declare
+`storage` get a scoped `data/` directory prepared under their own package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps

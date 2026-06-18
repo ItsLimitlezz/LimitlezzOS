@@ -122,13 +122,14 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   metadata plus up to two bounded foreground actions from the entry file and
   terminates on exit. Storage-enabled actions can increment a safe counter in
   the app's scoped `data/` directory, unsupported action effects fail closed,
-  and apps with matching permissions can use read-only `{time}` / `{battery}`
-  tokens in foreground text. SDK `api_version` and permission metadata are
-  parsed fail-closed, with rejected package diagnostics visible in Developer
-  Mode. Apps that request `storage` get a scoped package `data/` directory
-  prepared with a 64 KB launch-time quota guard, and the App Store detail screen
-  can clear only that app's scoped data. Script execution, richer API injection,
-  downloads, and updates are still TODO.
+  apps with matching permissions can use read-only `{time}` / `{battery}`
+  tokens in foreground text, and apps with `notifications` can request a
+  feedback-service notification through a bounded `notify:` action effect. SDK
+  `api_version` and permission metadata are parsed fail-closed, with rejected
+  package diagnostics visible in Developer Mode. Apps that request `storage`
+  get a scoped package `data/` directory prepared with a 64 KB launch-time quota
+  guard, and the App Store detail screen can clear only that app's scoped data.
+  Script execution, richer API injection, downloads, and updates are still TODO.
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.

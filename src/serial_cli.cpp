@@ -63,6 +63,8 @@ static void cmd_help(void)
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
         "  companion test       loopback-verify the companion protocol\n"
+        "  feedback status|test  feedback/app-notification diagnostics\n"
+        "  app notify test      request a test app notification\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
@@ -395,6 +397,34 @@ static void cmd_wifi(char *args)
     Serial.println(nn);
 }
 
+static void cmd_feedback(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char b[120];
+        lz_svc_feedback_selftest(b, sizeof b);
+        Serial.println(b);
+        return;
+    }
+    if(args && args[0] && strcmp(args, "status") != 0) {
+        Serial.println("usage: feedback status|test");
+        return;
+    }
+    char b[220];
+    lz_svc_feedback_diag(b, sizeof b);
+    Serial.print(b);
+}
+
+static void cmd_app(char *args)
+{
+    if(args && strcmp(args, "notify test") == 0) {
+        lz_svc_feedback_notify("serial-app", "App notification", "SDK notify smoke");
+        Serial.println("[ok] app notification requested");
+        cmd_feedback((char *)"status");
+        return;
+    }
+    Serial.println("usage: app notify test");
+}
+
 static void cmd_sys(void)
 {
     lz_sysinfo_t si;
@@ -429,6 +459,8 @@ static void dispatch(char *line)
     else if(!strcmp(line, "rf"))      cmd_rf(args);
     else if(!strcmp(line, "mc"))      cmd_mc(args);
     else if(!strcmp(line, "companion")) cmd_companion(args);
+    else if(!strcmp(line, "feedback")) cmd_feedback(args);
+    else if(!strcmp(line, "app"))     cmd_app(args);
     else if(!strcmp(line, "touch"))   cmd_touch(args);
     else if(!strcmp(line, "dm"))      cmd_dm(args);
     else if(!strcmp(line, "rxlog")) {

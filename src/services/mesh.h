@@ -34,6 +34,9 @@ extern "C" {
 #define LZ_LOCAL_APP_ACTION_MAX 2
 #define LZ_LOCAL_APP_ACTION_EFFECT_MAX 32
 #define LZ_LOCAL_APP_ACTION_BODY_MAX 192
+#define LZ_FEEDBACK_SOURCE_MAX 24
+#define LZ_FEEDBACK_TITLE_MAX 32
+#define LZ_FEEDBACK_BODY_MAX 96
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -234,6 +237,22 @@ bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *
 bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
+
+/* ---- feedback / app notifications ----
+ * Minimal V0.95 service boundary: local apps can request user-visible feedback
+ * without owning LED, buzzer, keyboard backlight, or future DND policy. */
+typedef struct {
+    uint32_t request_count;
+    uint32_t last_ms;
+    char     last_source[LZ_FEEDBACK_SOURCE_MAX];
+    char     last_title[LZ_FEEDBACK_TITLE_MAX];
+    char     last_body[LZ_FEEDBACK_BODY_MAX];
+} lz_feedback_status_t;
+
+bool lz_svc_feedback_notify(const char *source, const char *title, const char *body);
+void lz_svc_feedback_status(lz_feedback_status_t *out);
+int  lz_svc_feedback_diag(char *buf, int n);
+int  lz_svc_feedback_selftest(char *buf, int n);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

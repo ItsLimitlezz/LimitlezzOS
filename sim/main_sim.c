@@ -985,16 +985,47 @@ static int codec_selftest(void)
         }
         FILE *nbe = fopen("lzdata_apptokens/apps/nobattery/main.lua", "wb");
         if(nbe) { fputs("-- body: Needs {battery}\n", nbe); fclose(nbe); }
+        sim_mkdirs("lzdata_apptokens/apps/notifier");
+        FILE *nfm = fopen("lzdata_apptokens/apps/notifier/manifest.json", "wb");
+        if(nfm) {
+            fputs("{\"id\":\"notify.local\",\"name\":\"Notifier\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\",\"notifications\"]}", nfm);
+            fclose(nfm);
+        }
+        FILE *nfe = fopen("lzdata_apptokens/apps/notifier/main.lua", "wb");
+        if(nfe) {
+            fputs("-- body: Permissioned app notification\n"
+                  "-- action: Alert | Notification sent | Feedback service recorded it | notify:Field alert ready\n",
+                  nfe);
+            fclose(nfe);
+        }
+        sim_mkdirs("lzdata_apptokens/apps/nonotify");
+        FILE *nnm = fopen("lzdata_apptokens/apps/nonotify/manifest.json", "wb");
+        if(nnm) {
+            fputs("{\"id\":\"nonotify.local\",\"name\":\"No Notify\",\"entry\":\"main.lua\","
+                  "\"permissions\":[\"display\",\"input\"]}", nnm);
+            fclose(nnm);
+        }
+        FILE *nne = fopen("lzdata_apptokens/apps/nonotify/main.lua", "wb");
+        if(nne) {
+            fputs("-- body: Missing notification permission\n"
+                  "-- action: Alert | Notification sent | Should not route | notify:Denied alert\n",
+                  nne);
+            fclose(nne);
+        }
 
         lz_svc_init("lzdata_apptokens", false);
         lz_svc_set_time(1781274180);
         lz_local_app_t apps[LZ_MAX_LOCAL_APPS];
         int an = lz_svc_scan_apps(apps, LZ_MAX_LOCAL_APPS);
         lz_local_app_t *status = NULL, *notime = NULL, *nobattery = NULL;
+        lz_local_app_t *notify = NULL, *nonotify = NULL;
         for(int i = 0; i < an; i++) {
             if(strcmp(apps[i].id, "status.local") == 0) status = &apps[i];
             if(strcmp(apps[i].id, "notime.local") == 0) notime = &apps[i];
             if(strcmp(apps[i].id, "nobattery.local") == 0) nobattery = &apps[i];
+            if(strcmp(apps[i].id, "notify.local") == 0) notify = &apps[i];
+            if(strcmp(apps[i].id, "nonotify.local") == 0) nonotify = &apps[i];
         }
         lz_local_app_session_t run;
         bool run_ok = status && lz_svc_start_local_app(status, &run);
@@ -1014,6 +1045,30 @@ static int codec_selftest(void)
         CHECK(!denied_battery_ok && nobattery &&
               strcmp(denied_battery.error, "battery permission missing") == 0,
               "local app SDK battery token requires battery permission");
+        lz_feedback_status_t fb_before, fb_after;
+        lz_svc_feedback_status(&fb_before);
+        lz_local_app_session_t notify_run;
+        bool notify_ok = notify && lz_svc_start_local_app(notify, &notify_run);
+        bool notify_action_ok = notify_ok && lz_svc_local_app_action(&notify_run, 0);
+        lz_svc_feedback_status(&fb_after);
+        CHECK(notify_action_ok &&
+              fb_after.request_count == fb_before.request_count + 1 &&
+              strcmp(fb_after.last_source, "Notifier") == 0 &&
+              strcmp(fb_after.last_title, "Alert") == 0 &&
+              strcmp(fb_after.last_body, "Field alert ready") == 0,
+              "local app notification action routes through feedback service");
+        lz_local_app_session_t nonotify_run;
+        bool nonotify_ok = nonotify && lz_svc_start_local_app(nonotify, &nonotify_run);
+        CHECK(!nonotify_ok && nonotify &&
+              strcmp(nonotify_run.error, "notifications permission missing") == 0,
+              "local app notification action requires notifications permission");
+        char fb_diag[180], fb_test[120];
+        int fb_diag_n = lz_svc_feedback_diag(fb_diag, sizeof fb_diag);
+        int fb_test_ok = lz_svc_feedback_selftest(fb_test, sizeof fb_test);
+        CHECK(fb_diag_n > 0 && strstr(fb_diag, "feedback: ready") != NULL,
+              "feedback diagnostics report service status");
+        CHECK(fb_test_ok == 1 && strstr(fb_test, "PASS") != NULL,
+              "feedback selftest records a notification request");
         lz_store_init(NULL);
         sim_reset_dir("lzdata_apptokens");
     }
