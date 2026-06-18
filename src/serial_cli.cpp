@@ -62,6 +62,7 @@ static void cmd_help(void)
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
+        "  companion mc hello|status|nodes|threads|send|dm|test  MeshCore companion v0\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  dm status            show pending sent-DM delivery state\n"
@@ -292,6 +293,56 @@ static void cmd_touch(char *args)
 
 static void cmd_companion(char *args)
 {
+    if(args && strncmp(args, "mc", 2) == 0 && (args[2] == 0 || args[2] == ' ')) {
+        char *sub = args + 2;
+        while(*sub == ' ') sub++;
+        if(!sub[0] || strcmp(sub, "status") == 0) {
+            char b[220]; lz_svc_mc_companion_status(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "hello") == 0) {
+            char b[220]; lz_svc_mc_companion_hello(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "nodes") == 0) {
+            char b[760]; lz_svc_mc_companion_nodes(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "threads") == 0) {
+            char b[760]; lz_svc_mc_companion_threads(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "test") == 0) {
+            char h[220], st[220], nodes[220];
+            lz_svc_mc_companion_hello(h, sizeof h);
+            lz_svc_mc_companion_status(st, sizeof st);
+            lz_svc_mc_companion_nodes(nodes, sizeof nodes);
+            bool ok = strstr(h, "mccomp: hello") && strstr(st, "mccomp: status") &&
+                      strstr(nodes, "mccomp-node:");
+            Serial.printf("MeshCore companion v0 selftest: %s\n", ok ? "PASS" : "FAIL");
+            return;
+        }
+        if(strncmp(sub, "send ", 5) == 0) {
+            const char *text = sub + 5;
+            if(lz_svc_mc_companion_send_public(text))
+                Serial.println("[ok] mc companion public send queued");
+            else
+                Serial.println("[err] mc companion public send failed");
+            return;
+        }
+        if(strncmp(sub, "dm ", 3) == 0) {
+            char *p = sub + 3; char *sp = strchr(p, ' ');
+            if(!sp) { Serial.println("usage: companion mc dm <peer-name> <text>"); return; }
+            *sp = 0; const char *text = sp + 1;
+            if(lz_svc_mc_companion_send_dm(p, text))
+                Serial.printf("[ok] mc companion DM queued to %s\n", p);
+            else
+                Serial.println("[err] mc companion DM failed");
+            return;
+        }
+        Serial.println("usage: companion mc hello|status|nodes|threads|send <text>|dm <peer> <text>|test");
+        return;
+    }
     if(args && strncmp(args, "ble", 3) == 0) {
         char state[8] = {0};
         if(sscanf(args, "ble %7s", state) == 1) {

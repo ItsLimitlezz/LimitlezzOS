@@ -1043,6 +1043,105 @@ int lz_svc_delivery_diag(char *buf, int n)
     return pos;
 }
 
+int lz_svc_mc_companion_hello(char *buf, int n)
+{
+    if(!buf || n <= 0) return 0;
+    char addr[24];
+    lz_backend_mc_addr(addr, sizeof addr);
+    const char *build =
+#if LZ_MESHCORE_ENABLED
+        "enabled";
+#else
+        "gated";
+#endif
+    return snprintf(buf, (size_t)n,
+                    "mccomp: hello v0 build=%s meshcore=%s addr=%s protocol=line\n",
+                    build, build, addr);
+}
+
+int lz_svc_mc_companion_status(char *buf, int n)
+{
+    if(!buf || n <= 0) return 0;
+    int mc_nodes = 0, mc_threads = 0, unread = 0;
+    for(int i = 0; i < g_node_count; i++)
+        if(g_nodes[i].net == LZ_NET_MC) mc_nodes++;
+    for(int i = 0; i < g_thread_count; i++) {
+        if(g_threads[i].net != LZ_NET_MC) continue;
+        mc_threads++;
+        unread += g_threads[i].unread;
+    }
+    char addr[24];
+    lz_backend_mc_addr(addr, sizeof addr);
+    return snprintf(buf, (size_t)n,
+                    "mccomp: status v0 addr=%s nodes=%d threads=%d unread=%d public=%s dm=%s\n",
+                    addr, mc_nodes, mc_threads, unread,
+                    lz_backend_mc_send_public ? "sendable" : "unavailable",
+                    lz_backend_mc_dm ? "sendable" : "unavailable");
+}
+
+static bool mc_companion_dm_target(const lz_node_rt *n)
+{
+    if(!n || n->net != LZ_NET_MC) return false;
+    return strcmp(n->role, "Chat") == 0;
+}
+
+int lz_svc_mc_companion_nodes(char *buf, int n)
+{
+    int pos = 0, listed = 0;
+    if(!buf || n <= 0) return 0;
+    for(int i = 0; i < g_node_count; i++) {
+        const lz_node_rt *nd = &g_nodes[i];
+        if(nd->net != LZ_NET_MC) continue;
+        char ago[12];
+        lz_fmt_ago(nd->last_heard, ago, sizeof ago);
+        pos = buf_appendf(buf, n, pos,
+                          "mccomp-node: name=\"%s\" id=%s role=%s snr=%.1f last=%s dm=%s\n",
+                          nd->name, nd->id, nd->role, (double)nd->snr, ago,
+                          mc_companion_dm_target(nd) ? "yes" : "no");
+        listed++;
+    }
+    if(!listed)
+        pos = buf_appendf(buf, n, pos, "mccomp-node: none\n");
+    return pos;
+}
+
+int lz_svc_mc_companion_threads(char *buf, int n)
+{
+    int pos = 0, listed = 0;
+    if(!buf || n <= 0) return 0;
+    for(int oi = 0; oi < g_thread_count; oi++) {
+        int idx = (oi < LZ_MAX_THREADS) ? g_order[oi] : -1;
+        if(idx < 0 || idx >= g_thread_count) continue;
+        const lz_thread_rt *t = &g_threads[idx];
+        if(t->net != LZ_NET_MC) continue;
+        char ago[12];
+        lz_fmt_ago(t->last_ts, ago, sizeof ago);
+        pos = buf_appendf(buf, n, pos,
+                          "mccomp-thread: name=\"%s\" addr=%s kind=%s unread=%d last=%s text=\"%s\"\n",
+                          t->name, t->addr, t->is_channel ? "public" : "dm",
+                          t->unread, ago, t->last_text);
+        listed++;
+    }
+    if(!listed)
+        pos = buf_appendf(buf, n, pos, "mccomp-thread: none\n");
+    return pos;
+}
+
+bool lz_svc_mc_companion_send_public(const char *text)
+{
+    if(!text || !text[0]) return false;
+    lz_thread_rt *t = lz_svc_mc_channel_thread();
+    return t && lz_svc_send_text(t, text);
+}
+
+bool lz_svc_mc_companion_send_dm(const char *name, const char *text)
+{
+    if(!name || !name[0] || !text || !text[0]) return false;
+    lz_node_rt *n = lz_svc_node_by_name(name);
+    if(!mc_companion_dm_target(n)) return false;
+    return lz_backend_mc_dm && lz_backend_mc_dm(name, text);
+}
+
 /* ---------- inbound events from backends ---------- */
 
 void lz_core_on_heard(uint32_t from, float snr)

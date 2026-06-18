@@ -263,6 +263,15 @@ bool lz_svc_resend(int tail_idx);     /* retry a failed sent DM (long-press) */
 const char *lz_svc_delivery_fail_label(uint8_t reason);
 int  lz_svc_delivery_diag(char *buf, int n);  /* serial: pending DM ACK state */
 
+/* MeshCore companion v0: line-oriented snapshot/send surface for USB smoke and
+ * future external bridge work. This is not an external app compatibility claim. */
+int  lz_svc_mc_companion_hello(char *buf, int n);
+int  lz_svc_mc_companion_status(char *buf, int n);
+int  lz_svc_mc_companion_nodes(char *buf, int n);
+int  lz_svc_mc_companion_threads(char *buf, int n);
+bool lz_svc_mc_companion_send_public(const char *text);
+bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
+
 /* ---- radio stats (airtime accounting) ---- */
 typedef struct { uint32_t tx_count, rx_count; float util_pct; } lz_radio_stats_t;
 void lz_svc_radio_stats(lz_radio_stats_t *out);

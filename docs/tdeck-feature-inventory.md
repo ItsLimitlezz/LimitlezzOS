@@ -65,7 +65,7 @@ Status labels:
 | MeshCore self-advert TX | Partial, needs validation | Ed25519 identity, self-advert builder, serial/UI advert commands | Needs interop proof with real MeshCore nodes. |
 | MeshCore public channel / rooms | Planned | README says receive/default Public channel still ahead | V0.6: implement group text decode/send, room model, and split airtime config. |
 | MeshCore DMs | Planned | MeshCore contacts are non-messageable while gated | V0.7: implement key/session model, send path, ACKs, and UI routing. |
-| MeshCore companion bridge | Planned | README lists as later | V0.8: build MeshCore USB and BLE companions after MeshCore messaging is stable. |
+| MeshCore companion bridge | Planned/In progress | `docs/tdeck-meshcore-companion-protocol.md` drafts the V0 USB serial line protocol; `companion mc ...` provides an initial firmware smoke surface for snapshots, sends, and self-test | V0.8: formalize USB first, mirror to BLE later, and do not claim external MeshCore app compatibility until the real app protocol is confirmed. |
 
 ## User Interface
 

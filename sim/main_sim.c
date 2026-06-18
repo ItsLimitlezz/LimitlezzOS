@@ -1048,7 +1048,35 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appfsroot");
     }
 
-    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 12. MeshCore companion v0 line surface: snapshot helpers emit stable
+     *     markers and send through the service boundary. */
+    {
+        lz_svc_init(NULL, false);
+        uint8_t pub[32] = {0};
+        pub[0] = 0x42;
+        lz_core_on_mc_node(pub, "CompanionPeer", 1, -7.5f);
+        lz_core_on_mc_channel_text("CompanionPeer", "public hello", -7.5f);
+        lz_core_on_mc_dm(pub, "CompanionPeer", "dm hello", -7.5f);
+        char hello[180], status[220], nodes[420], threads[520];
+        lz_svc_mc_companion_hello(hello, sizeof hello);
+        lz_svc_mc_companion_status(status, sizeof status);
+        lz_svc_mc_companion_nodes(nodes, sizeof nodes);
+        lz_svc_mc_companion_threads(threads, sizeof threads);
+        CHECK(strstr(hello, "mccomp: hello v0") != NULL,
+              "MeshCore companion v0 hello reports protocol");
+        CHECK(strstr(status, "nodes=1") != NULL && strstr(status, "threads=2") != NULL,
+              "MeshCore companion v0 status counts snapshots");
+        CHECK(strstr(nodes, "CompanionPeer") != NULL && strstr(nodes, "dm=yes") != NULL,
+              "MeshCore companion v0 node snapshot lists messageable peer");
+        CHECK(strstr(threads, "public hello") != NULL && strstr(threads, "dm hello") != NULL,
+              "MeshCore companion v0 thread snapshot lists public and DM threads");
+        CHECK(lz_svc_mc_companion_send_public("public from companion"),
+              "MeshCore companion v0 public send uses service boundary");
+        CHECK(lz_svc_mc_companion_send_dm("CompanionPeer", "dm from companion"),
+              "MeshCore companion v0 DM send uses service boundary");
+    }
+
+    /* 13. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
