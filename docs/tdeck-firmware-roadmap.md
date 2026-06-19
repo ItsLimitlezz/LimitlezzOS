@@ -42,7 +42,7 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
 | V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner, Home paging, and detail shell started; runtime/catalog still TODO |
-| V0.96 | Upgraded Wi-Fi password storage | ⬜ Not started |
+| V0.96 | Upgraded Wi-Fi password storage | ✅ Implemented on T-Deck hardware: credentials use ESP32 NVS, legacy `wifi.cfg` migrates/removes, and diagnostics do not print passwords |
 
 ## Phase 0 - Stabilize The Baseline
 

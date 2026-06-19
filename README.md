@@ -38,7 +38,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   nodes (matches MUI), evicting the stalest when full.
 - **Message history** — persists across leaving a chat and across reboots (SD card).
 - **Compose** — long drafts scroll within the input box instead of overflowing.
-- **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget.
+- **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget; T-Deck
+  hardware stores saved credentials in ESP32 NVS instead of plaintext SD files.
 - **User settings** — network toggles, brightness, sleep timeout, keyboard
   light, TX power, time zone, clock format, GPS toggle, and power saving persist.
 - **Battery & charging** — live percentage + charge state; System page telemetry.
@@ -134,9 +135,10 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   scan `/appfs/apps` even when the SD card is absent.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
-- **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
-  (`/limitlezz/wifi.cfg`) — move to NVS or encrypt (covered by the above when a
-  password is set).
+- **Credential hardening**: T-Deck Wi-Fi passwords are stored in ESP32 NVS, and
+  legacy `/limitlezz/wifi.cfg` credentials are migrated and removed after a
+  successful NVS write. Remaining security work is the optional device
+  password/PIN and encrypted local data files above.
 
 ## Audit and completion plan
 
@@ -315,9 +317,10 @@ for local apps and read-only inspection when present.
   `settings.cfg` and are applied again at boot, including the Developer Mode
   toggle that reveals Terminal on Home.
 - **Wi-Fi** — scan, join (masked password entry), remembers one network's
-  credentials on the SD card, an **auto-connect** toggle (rejoin on boot / on
-  reappearance / after a drop, or never), and long-press-to-forget so you can
-  change a saved password.
+  credentials in ESP32 NVS on T-Deck hardware, an **auto-connect** toggle
+  (rejoin on boot / on reappearance / after a drop, or never), and
+  long-press-to-forget so you can change a saved password. The desktop
+  simulator keeps a file-backed store for repeatable local testing.
 - **MeshCore via TDM** — MeshCore runs as a second RF profile time-division
   multiplexed with Meshtastic on the one SX1262: the radio listens on one
   profile, retunes, listens on the other, round-robin. Both networks on → 50/50
