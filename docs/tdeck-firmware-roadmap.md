@@ -32,12 +32,12 @@ The firmware is complete when:
 
 These maintainer-provided beta labels are the canonical near-term sequence. The broader phases below preserve that order, then add post-V0.96 completion work for OTA, the full App Store, security, feedback, emergency, and release hardening.
 
-**Current release: Beta 0.6.** MeshCore public chat (V0.6) and encrypted DMs (V0.7) are implemented and hardware-verified against a live mesh. **Two open items:** (1) split airtime (the Meshtastic↔MeshCore TDM scheduler) may not be working reliably and needs re-verification; (2) V0.5 BLE companion advertises/serves GATT and the official app connects, but the session drops immediately (connect-then-disconnect). Also delivered this cycle (outside the milestone list): a desktop SDL2 simulator with a 50+ assertion codec/scenario self-test harness, and Wi-Fi/BLE mutual exclusion (they share scarce internal DMA RAM on the ESP32-S3, so only one is resident at a time).
+**Current release: Beta 0.6.** MeshCore public chat (V0.6) + split airtime (V0.6) + encrypted DMs (V0.7) are implemented and hardware-verified against a live mesh — with both networks enabled the SX1262 enters SPLIT mode, dwells per the selected preset (60/40, 50/50, 40/60), switches ~6×/s, and receives on both profiles. **One open item:** V0.5 BLE companion advertises/serves GATT and the official app connects, but the session drops (connect-then-disconnect / reboot-on-connect); PR #4's want_config pacing + FromNum coalescing is merged and the device advertises without crashing — the phone-connect retest is pending. Also delivered this cycle: BLE config-sync hardening, Wi-Fi credentials in NVS, a CI size-budget gate, a local app-manifest scanner (SDK 0.1), a desktop SDL2 simulator with a 50+ assertion self-test harness, and Wi-Fi/BLE mutual exclusion (shared internal DMA RAM on the ESP32-S3).
 
 | Version | Milestone | Status |
 | --- | --- | --- |
 | V0.5 | BLE companion for Meshtastic | 🚧 Firmware done — advertises + GATT (ToRadio/FromRadio/FromNum) works on hardware; **connect-then-disconnect** with the official app is open |
-| V0.6 | MeshCore public chat and split airtime config | 🚧 Public chat send/receive hardware-verified; **split airtime may not be working — needs re-verification**; config UI still TODO |
+| V0.6 | MeshCore public chat and split airtime config | ✅ Public chat + split airtime hardware-verified (both nets → SPLIT mode, dwell per preset, ~6 switches/s, both receiving); presets config UI shipped (MT 60/40, Balanced 50/50, MC 40/60) |
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
@@ -125,7 +125,7 @@ Exit criteria:
 
 Goal: make MeshCore visible in the real product through public chat first, while giving users a simple way to understand and control split airtime.
 
-**Status (Beta 0.6): mostly done — split airtime suspect.** MeshCore ADVERT interop, public/default channel receive, group/room text, the send path through `lz_svc_send_text`, unified-inbox wiring, the public-chat network toggle, and dual-network unread badges all work on a live mesh. **Open:** the split-airtime TDM scheduler (time-sharing the one SX1262 between Meshtastic and MeshCore) **may not be working reliably and needs re-verification** — earlier hardware checks looked OK but the behavior is now in question. Also remaining: a user-facing split-airtime *config UI* (currently a fixed 60/40 split toward Meshtastic).
+**Status (Beta 0.6): done.** MeshCore ADVERT interop, public/default channel receive, group/room text, the send path through `lz_svc_send_text`, unified-inbox wiring, the public-chat network toggle, and dual-network unread badges all work on a live mesh. Split airtime is **hardware-verified**: with both networks enabled the scheduler reports SPLIT mode, dwells per the selected preset (e.g. 300/200 ms for MT-first 60/40), counts ~6 profile switches/s, and receives on both Meshtastic and MeshCore concurrently. The split-airtime **config UI shipped** (PR #5): presets MT-first 60/40, Balanced 50/50, MC-first 40/60, persisted and exposed via Settings + the `airtime` serial command. (When only one network is enabled the scheduler correctly reports that profile at 100% with 0 switches.)
 
 Deliverables:
 

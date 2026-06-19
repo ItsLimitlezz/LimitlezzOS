@@ -72,17 +72,19 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   hardware-verified against a live mesh, in the same unified inbox as Meshtastic.
 - **MeshCore encrypted DMs** — per-pair X25519 ECDH + AES, ACK/delivery state,
   hardware-verified against a real MeshCore peer.
+- **Split airtime** — the one SX1262 is time-shared between Meshtastic and MeshCore
+  by a scheduler that never cuts an in-flight RX/TX. Hardware-verified: both networks
+  on → SPLIT mode, dwell per preset, ~6 switches/s, both receiving. Presets ship in
+  Settings + the `airtime` serial command (MT 60/40, Balanced 50/50, MC 40/60).
 
 ### 🧪 In testing
-- **Split airtime** — one SX1262 is meant to be time-shared between Meshtastic and
-  MeshCore by a scheduler that never cuts an in-flight RX/TX (fixed 60/40 split).
-  **May not be working reliably — under re-verification.** A user-facing config UI
-  is still TODO.
 - **Meshtastic BLE companion** — the firmware exposes the official Meshtastic
   BLE GATT service (`ToRadio`, `FromRadio`, `FromNum`) through NimBLE, advertises,
-  and the official app discovers + connects. **Open bug:** the session drops
-  immediately (connect-then-disconnect) — being fixed. (Wi-Fi and BLE are mutually
-  exclusive on this RAM-tight ESP32-S3; enabling one frees the other.)
+  and the official app discovers + connects. **Open bug:** the session drops on
+  connect (reboot-on-connect) — PR #4's want_config pacing + FromNum coalescing is
+  merged and the device advertises without crashing; phone-connect retest pending.
+  (Wi-Fi and BLE are mutually exclusive on this RAM-tight ESP32-S3; enabling one
+  frees the other.)
 
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
