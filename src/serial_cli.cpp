@@ -302,14 +302,14 @@ static void cmd_companion(char *args)
                 char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b);
             }
         }
-        if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+        if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
         else Serial.println("[--] BLE companion not present");
         return;
     }
     if(args && strcmp(args, "test") == 0) {
         if(lz_mtc_selftest) { char b[160]; lz_mtc_selftest(b, sizeof b); Serial.println(b); }
         if(lz_mtc_ble_selftest) { char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b); }
-        if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+        if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
         else Serial.println("[--] not present");
         return;
     }
@@ -321,7 +321,7 @@ static void cmd_companion(char *args)
     }
     if(args && strcmp(args, "off") == 0) { lz_mtc_set_active(false); Serial.println("[ok] companion mode OFF"); return; }
     Serial.printf("USB companion mode: %s  (on|off|test)\n", lz_mtc_active() ? "ON" : "off");
-    if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+    if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
 static void cmd_nodes(char *args)

@@ -86,6 +86,15 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   merged and the device advertises without crashing; phone-connect retest pending.
   (Wi-Fi and BLE are mutually exclusive on this RAM-tight ESP32-S3; enabling one
   frees the other.)
+  and the official Android app discovers + connects. Serial `companion` status
+  now reports connect/disconnect counts, last GAP disconnect reason, negotiated
+  MTU, and characteristic IO counters for phone-app drop captures; the companion
+  handshake reports Meshtastic-compatible firmware metadata (`2.7.15.567b8ea`)
+  so current Android builds do not reject it as too old. 2026-06-17 COM8 photo
+  evidence shows Android connected to `limitlessdeck`, populated nodes, and
+  LongFast send/receive through the app. Remaining checks: reconnect,
+  disconnect, and coexistence soak. (Wi-Fi and BLE are mutually exclusive on
+  this RAM-tight ESP32-S3; enabling one frees the other.)
 
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
@@ -105,12 +114,15 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   updates the compose pill in place, Contacts uses virtualized rows, and Settings
   brightness adjusts without a full screen rebuild; chat rebuilds preserve scroll
   unless pinned to the newest message. Hardware regression is still open.
-- ✅ **0.5** — **BLE companion** for Meshtastic: firmware GATT transport in place.
+- ✅ **0.5** — **BLE companion** for Meshtastic: firmware GATT transport in
+  place, official Android app connection and LongFast send/receive validated on
+  COM8; reconnect/disconnect soak remains to repeat.
 - 🚀 **0.6 — this release** — **MeshCore is live**: public-channel chat **and**
   encrypted DMs (X25519 + AES), in the same unified inbox as Meshtastic and
   time-shared on the one SX1262 by a **split-airtime scheduler** that never cuts
   an in-flight RX/TX. **BLE companion** merged and running on hardware
-  (advertising + GATT mailbox; phone pairing/send/receive validation next). A full
+  (advertising + GATT mailbox; Android app connection, nodes, and LongFast
+  send/receive validated; reconnect/disconnect soak next). A full
   **desktop simulator** (virtual mesh + 50+ self-test assertions) to cut hardware
   testing. **Wi-Fi and BLE are mutually exclusive** on this RAM-tight ESP32-S3 —
   enabling one frees the other.
@@ -268,8 +280,14 @@ python scripts/tdeck_smoke.py --port /dev/ttyACM0 --no-stub-upload --skip-build 
 ```
 
 The fetch helper uses the current branch and current commit by default, then
-downloads the matching successful `Firmware CI` artifact with `gh`. It refuses
-to use an older run unless `--allow-latest-success` is passed.
+downloads the matching successful `Firmware CI` artifact with `gh`. On fork
+branches, it follows the branch's tracking remote, so a branch tracking
+`fork/codex/...` fetches from the fork; pass `--repo owner/name` to override.
+It refuses to use an older run unless `--allow-latest-success` is passed.
+
+The artifact flash path does not require a local T-Deck firmware build. It does
+need `gh`, Python `esptool` (`python -m pip install esptool` when PlatformIO's
+bundled `esptool.py` is absent), and `pyserial` for the post-flash serial smoke.
 
 For release PRs, `python scripts/release_evidence.py --artifact-dir .pio/ci-artifacts/tdeck --port COM8`
 prints the required local, Actions, artifact, and COM8 evidence checklist.
@@ -360,7 +378,9 @@ for local apps and read-only inspection when present.
 - **Companion bridge controls** — USB companion mode and BLE companion advertising
   are separate rows in Meshtastic → Nodes. Only one external app transport owns
   the bridge at a time: enabling BLE returns USB to the serial console; enabling
-  USB turns BLE advertising/connection off.
+  USB turns BLE advertising/connection off. `companion` reports BLE session
+  counters (`c`/`d`), last disconnect reason (`r`), MTU, ToRadio writes,
+  FromRadio reads, and FromNum reads/writes for official-app debugging.
 - **Terminal / Files** — Developer Mode mono console with blinking cursor;
   read-only Files browser for the mounted SD/local store.
 

@@ -38,6 +38,12 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | --- | --- | --- |
 | V0.5 | BLE companion for Meshtastic | 🚧 Firmware done — advertises + GATT (ToRadio/FromRadio/FromNum) works on hardware; **connect-then-disconnect** with the official app is open |
 | V0.6 | MeshCore public chat and split airtime config | ✅ Public chat + split airtime hardware-verified (both nets → SPLIT mode, dwell per preset, ~6 switches/s, both receiving); presets config UI shipped (MT 60/40, Balanced 50/50, MC 40/60) |
+**Current release: Beta 0.6.** MeshCore public chat (V0.6) and encrypted DMs (V0.7) are implemented and hardware-verified against a live mesh. **Open item:** split airtime (the Meshtastic↔MeshCore TDM scheduler) may not be working reliably and needs re-verification. V0.5 BLE companion now advertises/serves GATT, reports current Meshtastic compatibility metadata, connects to the official Android app, populates nodes, and passes LongFast send/receive photo validation on COM8; reconnect/disconnect/coexistence soak remains to repeat. Also delivered this cycle (outside the milestone list): a desktop SDL2 simulator with a 50+ assertion codec/scenario self-test harness, and Wi-Fi/BLE mutual exclusion (they share scarce internal DMA RAM on the ESP32-S3, so only one is resident at a time).
+
+| Version | Milestone | Status |
+| --- | --- | --- |
+| V0.5 | BLE companion for Meshtastic | ✅ Firmware + Android interop validation: advertises + GATT (ToRadio/FromRadio/FromNum), current firmware metadata, nodes populated, LongFast send/receive on COM8; reconnect/disconnect soak remains |
+| V0.6 | MeshCore public chat and split airtime config | 🚧 Public chat send/receive hardware-verified; **split airtime may not be working — needs re-verification**; config UI still TODO |
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
@@ -105,20 +111,21 @@ Exit criteria:
 
 Goal: let the official Meshtastic app connect wirelessly to the T-Deck radio after the USB companion path is stable.
 
-**Status (Beta 0.6): mostly done — one open bug.** BLE transport, the GATT service, the USB/BLE companion UI rows, USB↔BLE arbitration, and the serial selftest are implemented and on hardware. The official app discovers and connects to the radio, but the session drops immediately (**connect-then-disconnect**) — the one open item, tracked as the current top bug (likely BLE bonding/security or the want_config handshake).
+**Status (Beta 0.6): Android interop validated, soak still open.** BLE transport, the GATT service, the USB/BLE companion UI rows, USB↔BLE arbitration, current Meshtastic compatibility metadata, and the serial selftest are implemented and on hardware. On 2026-06-17 the official Android app connected to the COM8 T-Deck as `limitlessdeck`, showed firmware `2.7.15.567b8ea`, populated nodes, and exchanged LongFast traffic through the app. Remaining V0.5 validation is reconnect/disconnect behavior and coexistence soak.
 
 Deliverables:
 
 - Add BLE transport for the Meshtastic companion protocol. Implemented in firmware with NimBLE-Arduino and the official Meshtastic BLE GATT service UUIDs: `ToRadio` writes, `FromRadio` reads, and `FromNum` read/notify/write.
 - Reuse the USB companion handshake/model where possible so node DB, channel, config, and packet forwarding behavior stay consistent. Implemented: USB and BLE both feed the same `ToRadio` handler and `FromRadio` builders.
+- Report Meshtastic-compatible app metadata during the companion handshake. Implemented: `MyNodeInfo.min_app_version` uses Meshtastic's current compatibility floor and `DeviceMetadata.firmware_version` reports the current stable Meshtastic firmware line (`2.7.15.567b8ea`) so Android does not hard-block the session as ancient firmware.
 - Add clear UI state for USB companion, BLE companion, and normal serial console mode. Implemented: Meshtastic -> Nodes now has separate USB and BLE companion rows.
 - Define what happens when USB and BLE companion clients compete for the radio. Implemented: only one external app bridge is active at a time; enabling BLE disables USB companion mode, and enabling USB turns BLE advertising/connection off.
-- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical. Implemented: `companion ble on|off|test`, BLE status reporting, and a BLE mailbox/fromnum selftest.
-- Hardware-test pairing, reconnect, send, receive, and disconnect flows with the official app.
+- Add serial diagnostics and a loopback/selftest equivalent for BLE where practical. Implemented: `companion ble on|off|test`, BLE status reporting, and a BLE mailbox/fromnum selftest. The BLE status line now also captures session-level phone-app drop evidence: connect/disconnect counts (`c`/`d`), last GAP disconnect reason (`r`), negotiated MTU, ToRadio writes, FromRadio reads, and FromNum reads/writes.
+- Hardware-test pairing, reconnect, send, receive, and disconnect flows with the official app. Pairing/connect plus send/receive are validated by 2026-06-17 Android photo evidence on COM8; reconnect/disconnect/coexistence soak remains.
 
 Exit criteria:
 
-- A phone can pair over BLE, see the T-Deck as a Meshtastic companion radio, and send/receive through the T-Deck without USB. Firmware path is implemented; official app hardware validation remains open.
+- A phone can pair over BLE, see the T-Deck as a Meshtastic companion radio, and send/receive through the T-Deck without USB. Validated on COM8 with the official Android app on 2026-06-17; repeat reconnect/disconnect/coexistence soak before closing all V0.5 hardware notes.
 - Normal on-device messaging still works when BLE companion is off.
 
 ## Phase 3 - V0.6 MeshCore Public Chat And Split Airtime Config
