@@ -645,9 +645,31 @@ void lz_scr_local_app_run(lv_obj_t *root)
 
 static lz_node_rt *contact_list[LZ_MAX_NODES];
 static int contact_n;
+static char contact_trace_id[16];
+static char contact_trace_note[112];
 
 #define CONTACT_ROW_H 46
 #define CONTACT_STRIDE 49
+
+static void contact_trace_clear(void)
+{
+    contact_trace_id[0] = 0;
+    contact_trace_note[0] = 0;
+}
+
+static void contact_trace_set(lz_node_rt *n)
+{
+    if(!n) { contact_trace_clear(); return; }
+    snprintf(contact_trace_id, sizeof contact_trace_id, "%s", n->id);
+    lz_svc_node_trace(n, contact_trace_note, sizeof contact_trace_note);
+}
+
+static const char *contact_trace_for(const lz_node_rt *n)
+{
+    if(!n || !contact_trace_note[0] || strcmp(contact_trace_id, n->id) != 0)
+        return NULL;
+    return contact_trace_note;
+}
 
 static bool contact_locked(int idx)   /* MeshCore contacts inert until Stage 2 */
 {
@@ -751,16 +773,29 @@ static void contact_activate(int idx)
     lz_node_rt *n = S.contact_sel;
     if(!n) return;
     bool messageable = lz_node_messageable(n);
-    if(idx == 0 && messageable) {
-        lz_thread_rt *t = lz_svc_thread_for_node(n);
-        lz_open_convo(t);
+    if(idx == 0) {
+        if(messageable) {
+            lz_thread_rt *t = lz_svc_thread_for_node(n);
+            lz_open_convo(t);
+        } else if(!n->contact) {
+            contact_trace_clear();
+            lz_svc_add_contact(n);
+            lz_rebuild();
+        }
         return;
     }
-    if(idx == 0 && !messageable) return;          /* infra: no Message action */
     /* Add-contact / Trace button */
     if(idx == 1) {
-        if(!n->contact) lz_svc_add_contact(n);
-        else lz_rebuild();                         /* Trace: no-op for now */
+        if(messageable && !n->contact) {
+            contact_trace_clear();
+            lz_svc_add_contact(n);
+            lz_rebuild();
+        } else if(messageable) {
+            lz_rebuild();
+        } else {
+            contact_trace_set(n);
+            lz_rebuild();
+        }
     }
 }
 
@@ -861,6 +896,17 @@ void lz_scr_contact(lv_obj_t *root)
         lz_nav_track(trace, 1);
     }
     #undef LZ_BTN
+
+    const char *trace_note = contact_trace_for(n);
+    if(trace_note) {
+        lv_obj_t *trace_card = lz_card(body);
+        lv_obj_set_height(trace_card, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(trace_card, 11, 0);
+        lv_obj_set_style_pad_ver(trace_card, 8, 0);
+        lv_obj_t *tl = lz_text(trace_card, trace_note, LZ_F_SMALL, LZ_TEXT_VALUE);
+        lv_obj_set_width(tl, lv_pct(100));
+        lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);
+    }
 
     /* spec table */
     lv_obj_t *card = lz_card(body);
