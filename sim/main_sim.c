@@ -271,8 +271,13 @@ static void tap_at(int x, int y)
     pump(150);
 }
 
-static void shots(const char *dir)
+static int shots(const char *dir)
 {
+    int fails = 0;
+    #define SHOT_CHECK(cond, msg) do { \
+        if(cond) printf("ok  : %s\n", msg); \
+        else { printf("FAIL: %s\n", msg); fails++; } } while(0)
+
     sim_mkdirs(dir);
 
     static const struct { lz_view_t v; const char *name; } SHOTS[] = {
@@ -398,6 +403,32 @@ static void shots(const char *dir)
     }
 
     /* behavior scenarios, driven through the real key path */
+
+    /* input regression: the Home grid is the launcher users hit most with the
+     * trackball. Assert state transitions so the CI screenshot pass also fails
+     * on focus/page regressions instead of only producing changed bitmaps. */
+    S.view = LZ_V_HOME; S.home_page = 0; S.focus = 0; lz_rebuild(); pump(30);
+    lz_ui_key(LZ_K_UP, 0); pump(30);
+    SHOT_CHECK(S.view == LZ_V_HOME && S.home_page == 0 && S.focus == 0,
+               "INPUT: Home up clamps at first tile");
+
+    S.focus = 1; lz_rebuild(); pump(30);
+    lz_ui_key(LZ_K_RIGHT, 0); pump(30);
+    SHOT_CHECK(S.view == LZ_V_HOME && S.home_page == 0 && S.focus == 3,
+               "INPUT: Home right skips disabled MeshCore tile");
+
+    S.focus = 3; lz_rebuild(); pump(30);
+    lz_ui_key(LZ_K_RIGHT, 0); pump(30);
+    SHOT_CHECK(S.view == LZ_V_HOME && S.home_page == 1 && S.focus == 0,
+               "INPUT: Home right pages from row edge");
+    lz_ui_key(LZ_K_LEFT, 0); pump(30);
+    SHOT_CHECK(S.view == LZ_V_HOME && S.home_page == 0 && S.focus == 3,
+               "INPUT: Home left pages back from first column");
+
+    lz_ui_key(LZ_K_ENTER, 0); pump(30);
+    SHOT_CHECK(S.view == LZ_V_CONTACTS,
+               "INPUT: Home Enter opens the focused tile");
+    lz_ui_key(LZ_K_BACK, 0); pump(30);
 
     /* toggle MeshCore off in Settings -> airtime rebalances to 100% */
     S.view = LZ_V_SETTINGS; S.focus = 1; lz_rebuild();
@@ -549,6 +580,9 @@ static void shots(const char *dir)
       if(a) { S.contact_sel = a; S.view = LZ_V_CONTACT; S.focus = 0; lz_rebuild(); pump(40);
               snprintf(path, sizeof path, "%s/35-contact-add.bmp", dir);
               write_bmp(path); printf("wrote %s\n", path); } }
+
+    #undef SHOT_CHECK
+    return fails;
 }
 
 /* Codec round-trip verification — proves header framing, AES-CTR symmetry,
@@ -1177,8 +1211,7 @@ int main(int argc, char **argv)
     lz_ui_init(lv_scr_act());
 
     if(headless) {
-        shots(argv[2]);
-        return 0;
+        return shots(argv[2]);
     }
 
     bool quit = false;

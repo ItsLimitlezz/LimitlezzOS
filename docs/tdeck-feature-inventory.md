@@ -29,7 +29,7 @@ Status labels:
 | T-Deck PlatformIO firmware target | Functional, CI-covered, needs hardware validation | `platformio.ini`, `src/main_tdeck.cpp`; `.github/workflows/firmware.yml` builds `pio run -e tdeck`, captures size output, and uploads firmware artifacts | Keep validating board profile against actual T-Deck flash/PSRAM during hardware smoke runs. |
 | OTA-ready partition layout | Partial | `partitions.csv` has `ota_0`, `ota_1`, `otadata`, `config`, `appfs` | OTA service and update UI are not implemented. |
 | Display and LVGL shell | Functional, needs validation | LovyanGFX ST7789 setup, LVGL buffers, UI screens | Hardware flash/smoke checklist needed for every release. |
-| Trackball and keyboard input | Functional, needs validation | GPIO interrupts and I2C keyboard polling in `main_tdeck.cpp` | Add hardware test checklist and input regression tests in simulator. |
+| Trackball and keyboard input | Functional, needs validation | GPIO interrupts and I2C keyboard polling in `main_tdeck.cpp`; native screenshot pass now asserts Home key navigation clamps, skips disabled tiles, pages, and opens the focused tile | Run COM8 hardware input smoke for keyboard, trackball roll/press, and wake-from-input behavior. |
 | Touch and calibration | Functional, needs validation | GT911 driver and `touch.cfg` persistence | Add explicit touch calibration validation after flash. |
 | SD-backed data directory | Functional, needs validation | SD mount and `/sd/limitlezz` store | Add corruption/power-loss tests and storage quota handling. |
 | Battery/system telemetry | Partial | ADC battery reading, system screen stats | Charge state is inferred/limited; no dedicated charge-detect line. |
