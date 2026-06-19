@@ -419,7 +419,7 @@ Deliverables:
   - app developer guide
   - hardware flashing/recovery guide
   - release checklist
-  - troubleshooting
+  - troubleshooting. Initial T-Deck troubleshooting guide is implemented in `docs/tdeck-troubleshooting.md`.
 - Automated checks:
   - T-Deck compile
   - simulator selftest
