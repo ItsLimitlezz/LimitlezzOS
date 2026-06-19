@@ -348,9 +348,12 @@ static void local_app_detail_activate(int idx)
 {
     lz_local_app_t *a = &S.local_app_sel;
     bool can_clear = a->permissions & LZ_APP_PERM_STORAGE;
+    int clear_idx = can_clear ? 1 : -1;
+    int keep_idx = can_clear ? 2 : -1;
+    int delete_idx = can_clear ? 3 : 1;
     if(idx == 0) {
         lz_start_local_app();
-    } else if(can_clear && idx == 1) {
+    } else if(idx == clear_idx) {
         char err[48];
         if(lz_svc_clear_app_data(a, err, sizeof err))
             local_app_note_set(a, "Local app data cleared");
@@ -360,7 +363,37 @@ static void local_app_detail_activate(int idx)
             local_app_note_set(a, note);
         }
         lz_rebuild();
+    } else if(idx == keep_idx || idx == delete_idx) {
+        bool keep_data = idx == keep_idx;
+        char err[48];
+        if(lz_svc_uninstall_local_app(a, keep_data, err, sizeof err)) {
+            local_app_note_clear();
+            memset(&S.local_app_sel, 0, sizeof S.local_app_sel);
+            lz_go(LZ_V_APPSTORE);
+        } else {
+            char note[64];
+            snprintf(note, sizeof note, "Remove failed: %s", err[0] ? err : "unknown");
+            local_app_note_set(a, note);
+            lz_rebuild();
+        }
     }
+}
+
+static void local_app_action_row(lv_obj_t *body, int idx, const char *title,
+                                 const char *subtitle, const char *icon,
+                                 lv_color_t icon_color)
+{
+    lv_obj_t *row = lz_row(body, S.focus == idx);
+    lv_obj_set_style_radius(row, 11, 0);
+    lz_icon(row, icon, &lz_icons_18, icon_color);
+    lv_obj_t *cl = lz_box(row);
+    lv_obj_set_flex_grow(cl, 1);
+    lv_obj_set_height(cl, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(cl, 1, 0);
+    lz_text(cl, title, LZ_F_BODY, LZ_TEXT);
+    lz_text(cl, subtitle, LZ_F_SMALL, LZ_TEXT_META);
+    lz_nav_track(row, idx);
 }
 
 void lz_scr_local_app(lv_obj_t *root)
@@ -420,24 +453,23 @@ void lz_scr_local_app(lv_obj_t *root)
     lz_nav_track(open, 0);
 
     const char *note = local_app_note_for(a);
+    int action_idx = 1;
     if(a->permissions & LZ_APP_PERM_STORAGE) {
-        lv_obj_t *clear = lz_row(body, S.focus == 1);
-        lv_obj_set_style_radius(clear, 11, 0);
-        lz_icon(clear, LZ_I_FOLDER, &lz_icons_18, LZ_TEXT_META);
-        lv_obj_t *cl = lz_box(clear);
-        lv_obj_set_flex_grow(cl, 1);
-        lv_obj_set_height(cl, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(cl, 1, 0);
-        lz_text(cl, "Clear local data", LZ_F_BODY, LZ_TEXT);
-        bool note_fail = note && strncmp(note, "Clear failed", 12) == 0;
-        lz_text(cl, note ? note : "remove files in this app's data folder",
-                LZ_F_SMALL, note ? (note_fail ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN) : LZ_TEXT_META);
-        lz_nav_track(clear, 1);
+        const char *clear_note = note && strncmp(note, "Clear", 5) == 0 ? note : NULL;
+        bool note_fail = clear_note && strncmp(clear_note, "Clear failed", 12) == 0;
+        local_app_action_row(body, action_idx++, "Clear local data",
+                             clear_note ? clear_note : "remove files in this app's data folder",
+                             LZ_I_FOLDER, note_fail ? lv_color_hex(0xE9B05F) : LZ_TEXT_META);
+        local_app_action_row(body, action_idx++, "Remove app, keep data",
+                             "save data for a future reinstall",
+                             LZ_I_FOLDER, LZ_TEXT_META);
     }
+    local_app_action_row(body, action_idx++, "Remove app and data",
+                         "delete package and scoped data",
+                         LZ_I_DESCRIPTION, lv_color_hex(0xE9B05F));
 
     if(note) {
-        lv_color_t c = strncmp(note, "Clear failed", 12) == 0 ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN;
+        lv_color_t c = strstr(note, "failed") ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN;
         lv_obj_t *nl = lz_text(body, note, LZ_F_SMALL, c);
         lv_obj_set_width(nl, lv_pct(100));
         lv_label_set_long_mode(nl, LV_LABEL_LONG_DOT);
@@ -489,7 +521,7 @@ void lz_scr_local_app(lv_obj_t *root)
         lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
     }
 
-    lz_nav_set(1, (a->permissions & LZ_APP_PERM_STORAGE) ? 2 : 1, local_app_detail_activate);
+    lz_nav_set(1, action_idx, local_app_detail_activate);
 }
 
 static void local_app_run_activate(int idx)

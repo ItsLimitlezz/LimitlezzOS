@@ -329,7 +329,9 @@ Deliverables:
 - Verify SHA256 before install.
 - Extract to app staging directory, then atomically promote to installed directory.
 - Show update badges on installed apps.
-- Support uninstall/delete with data retention choice.
+- Support uninstall/delete with data retention choice. Initial implementation:
+  local App Store details expose keep-data and delete-data removal paths; retained
+  data is hidden from app scanning and restored on reinstall.
 - Add plain-language permission prompts.
 - Add catalog/source settings suitable for community repos without confusing first-time users.
 
