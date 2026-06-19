@@ -148,6 +148,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
 - [`docs/tdeck-release-checklist.md`](docs/tdeck-release-checklist.md) - slow-host Actions artifact and COM8 release evidence checklist.
 - [`docs/tdeck-troubleshooting.md`](docs/tdeck-troubleshooting.md) - build, flash, boot, radio, storage, Wi-Fi, and companion troubleshooting.
+- [`docs/tdeck-user-guide.md`](docs/tdeck-user-guide.md) - practical on-device user guide.
 
 ![screens](docs/screens.png)
 
