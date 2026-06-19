@@ -243,6 +243,8 @@ lz_node_rt *lz_svc_node_by_num(uint32_t num);          /* node for a DM thread *
 void lz_svc_add_contact(lz_node_rt *n);
 bool lz_node_messageable(const lz_node_rt *n);          /* people, not infrastructure */
 int  lz_svc_node_count(lz_net_t net);
+const char *lz_svc_mt_role_label(int role);
+const char *lz_svc_mt_hw_label(int hw);
 
 /* ---- threads / messages ----
  * Storage is stable: thread/node pointers never move, so the UI can hold a

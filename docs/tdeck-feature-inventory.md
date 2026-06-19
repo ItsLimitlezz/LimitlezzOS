@@ -42,7 +42,7 @@ Status labels:
 | --- | --- | --- | --- |
 | LongFast public channel | Functional, needs validation | `mtproto.*`, `backend_sx1262.cpp`, channel thread | Add interop test notes with stock Meshtastic devices. |
 | Channel send/receive | Functional, needs validation | `lz_svc_channel_thread`, `lz_core_on_text`, `lz_backend_send` | Add delivery/error handling for TX failures. |
-| Node discovery | Functional, needs validation | NodeInfo parse, heard-node table, 250-node cap | Add role/hardware enum coverage beyond current minimal parse. |
+| Node discovery | Functional, needs validation | NodeInfo parse, heard-node table, 250-node cap, Meshtastic role/hardware enum labels in native scenario coverage | Add stock-device role/hardware validation beyond simulator fixtures. |
 | Node table persistence | Functional | `nodes.db` save/load | Add versioning/migration for future schema changes. |
 | Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Add stock-device interop validation. |
 | PKI encrypted DMs | Functional, needs validation | `mtpki.cpp`, NodeInfo public key capture | Add test vectors or a deterministic host test. |
