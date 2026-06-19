@@ -331,7 +331,10 @@ Deliverables:
 - Show update badges on installed apps.
 - Support uninstall/delete with data retention choice.
 - Add plain-language permission prompts.
-- Add catalog/source settings suitable for community repos without confusing first-time users.
+- Add catalog/source settings suitable for community repos without confusing
+  first-time users. Initial implementation: Settings persists an App source
+  selector with `Official`, `Community`, and `Local only`; App Store reflects
+  the selected source and hides catalog examples in local-only mode.
 
 Exit criteria:
 

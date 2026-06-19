@@ -45,6 +45,27 @@ extern "C" {
 #define LZ_APP_PERM_NOTIFICATIONS 0x0080u
 #define LZ_APP_PERM_NETWORK_WIFI  0x0100u
 
+enum {
+    LZ_APP_SOURCE_OFFICIAL = 0,
+    LZ_APP_SOURCE_COMMUNITY = 1,
+    LZ_APP_SOURCE_LOCAL_ONLY = 2,
+    LZ_APP_SOURCE_COUNT = 3,
+};
+
+static inline int lz_app_source_clamp(int source)
+{
+    return (source >= 0 && source < LZ_APP_SOURCE_COUNT) ? source : LZ_APP_SOURCE_OFFICIAL;
+}
+
+static inline const char *lz_app_source_label(int source)
+{
+    switch(lz_app_source_clamp(source)) {
+        case LZ_APP_SOURCE_COMMUNITY: return "Community";
+        case LZ_APP_SOURCE_LOCAL_ONLY: return "Local only";
+        default: return "Official";
+    }
+}
+
 /* MeshCore (2nd RF profile, TDM with Meshtastic) is built but not receive-ready,
  * so it's shown as "Coming soon" / grayed for the Alpha. Default off; a dev/sim
  * build can enable the V0.6 work with -DLZ_MESHCORE_ENABLED=1. */
@@ -287,6 +308,7 @@ typedef struct {
     bool clock24;
     bool save;
     bool developer;
+    int  app_source;
 } lz_user_settings_t;
 
 void lz_store_save_settings(const lz_user_settings_t *s);

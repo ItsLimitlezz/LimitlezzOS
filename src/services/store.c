@@ -1270,11 +1270,12 @@ void lz_store_save_settings(const lz_user_settings_t *s)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if(!f) return;
-    fprintf(f, "3 %d %d %d %d %d %d %d %d %d %d %d %d\n",
+    fprintf(f, "4 %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
             s->net_mt ? 1 : 0, s->net_mc ? 1 : 0, lz_airtime_mode_clamp(s->airtime),
             s->tx, s->gps ? 1 : 0,
             s->bright, s->timeout, s->kb_light, s->tz_idx,
-            s->clock24 ? 1 : 0, s->save ? 1 : 0, s->developer ? 1 : 0);
+            s->clock24 ? 1 : 0, s->save ? 1 : 0, s->developer ? 1 : 0,
+            lz_app_source_clamp(s->app_source));
     fclose(f);
     remove(path);
     rename(tmp, path);
@@ -1287,14 +1288,20 @@ bool lz_store_load_settings(lz_user_settings_t *s)
     path_for(path, sizeof path, "settings.cfg");
     FILE *f = fopen(path, "r");
     if(!f) return false;
-    char line[160];
+    char line[192];
     bool have_line = fgets(line, sizeof line, f) != NULL;
     fclose(f);
     if(!have_line) return false;
     int ver = 0;
     if(sscanf(line, "%d", &ver) != 1) return false;
-    int mt, mc, airtime = LZ_AIRTIME_DEFAULT, tx, gps, bright, timeout, kb, tz, clock24, save, developer = 0;
-    if(ver == 3) {
+    int mt, mc, airtime = LZ_AIRTIME_DEFAULT, tx, gps, bright, timeout, kb, tz, clock24, save;
+    int developer = 0, app_source = LZ_APP_SOURCE_OFFICIAL;
+    if(ver == 4) {
+        int got = sscanf(line, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+                         &ver, &mt, &mc, &airtime, &tx, &gps, &bright, &timeout, &kb, &tz,
+                         &clock24, &save, &developer, &app_source);
+        if(got != 14) return false;
+    } else if(ver == 3) {
         int got = sscanf(line, "%d %d %d %d %d %d %d %d %d %d %d %d %d",
                          &ver, &mt, &mc, &airtime, &tx, &gps, &bright, &timeout, &kb, &tz,
                          &clock24, &save, &developer);
@@ -1319,6 +1326,7 @@ bool lz_store_load_settings(lz_user_settings_t *s)
     s->clock24 = clock24 != 0;
     s->save = save != 0;
     s->developer = ver >= 2 && developer != 0;
+    s->app_source = lz_app_source_clamp(app_source);
     return true;
 }
 

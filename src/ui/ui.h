@@ -80,6 +80,7 @@ typedef struct {
         int tz_idx;                           /* timezone: offset hours = tz_idx - 12 */
         bool clock24;                         /* 24-hour vs 12-hour (AM/PM) */
         bool developer;                       /* show power-user tools on Home */
+        int app_source;                       /* LZ_APP_SOURCE_* */
     } settings;
 } lz_state_t;
 

@@ -81,6 +81,7 @@ static void store_timer_cb(lv_timer_t *tm)
 static void store_activate(int idx)
 {
     if(idx < 0) return;
+    bool show_catalog = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY;
     if(idx < store_local_n) {
         lz_local_app_t local[STORE_LOCAL_MAX];
         int n = lz_svc_scan_apps(local, STORE_LOCAL_MAX);
@@ -92,6 +93,7 @@ static void store_activate(int idx)
         return;
     }
     idx -= store_local_n;
+    if(!show_catalog) return;
     if(idx >= 8) return;
     if(LZ_STORE[idx].state == LZ_ST_OPEN || LZ_STORE[idx].state == LZ_ST_INSTALLING) return;
     LZ_STORE[idx].state = LZ_ST_INSTALLING;
@@ -119,40 +121,49 @@ void lz_scr_appstore(lv_obj_t *root)
     lv_obj_set_style_pad_row(body, 3, 0);
     lz_nav_set_scroll(body);
 
-    /* featured card (flattened to solid fill per rendering constraints) */
-    lv_obj_t *feat = lz_box(body);
-    lv_obj_set_width(feat, lv_pct(100));
-    lv_obj_set_height(feat, LV_SIZE_CONTENT);
-    lv_obj_set_style_radius(feat, 13, 0);
-    lv_obj_set_style_bg_color(feat, LZ_FEATURED, 0);
-    lv_obj_set_style_bg_opa(feat, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(feat, 11, 0);
-    lv_obj_set_flex_flow(feat, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(feat, 7, 0);
-    lz_text(feat, "FEATURED", LZ_F_SMALL, lv_color_hex(0xC9CBE8));
-    lv_obj_t *frow = lz_box(feat);
-    lv_obj_set_width(frow, lv_pct(100));
-    lv_obj_set_height(frow, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(frow, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(frow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(frow, 10, 0);
-    lv_obj_t *ftile = lz_box(frow);
-    lv_obj_set_size(ftile, 42, 42);
-    lv_obj_set_style_radius(ftile, 11, 0);
-    lv_obj_set_style_bg_color(ftile, lz_tile_color(150), 0);
-    lv_obj_set_style_bg_opa(ftile, LV_OPA_COVER, 0);
-    lv_obj_t *fic = lz_icon(ftile, LZ_I_MAP, &lz_icons_24, lv_color_white());
-    lv_obj_center(fic);
-    lv_obj_t *fcol = lz_box(frow);
-    lv_obj_set_flex_grow(fcol, 1);
-    lv_obj_set_height(fcol, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(fcol, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(fcol, 1, 0);
-    lz_text(fcol, "Node Mapper", LZ_F_HEAD, lv_color_white());
-    lv_obj_t *fd = lz_text(fcol, "Live mesh topology & GPS positions on an offline map",
-                           LZ_F_SMALL, lv_color_hex(0xCFD0E4));
-    lv_label_set_long_mode(fd, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(fd, lv_pct(100));
+    bool show_catalog = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY;
+    char source_line[48];
+    snprintf(source_line, sizeof source_line, "Source: %s", lz_app_source_label(S.settings.app_source));
+    lv_obj_t *src = lz_text(body, source_line, LZ_F_SMALL, LZ_TEXT_META);
+    lv_obj_set_style_pad_left(src, 4, 0);
+    lv_obj_set_style_pad_bottom(src, 3, 0);
+
+    if(show_catalog) {
+        /* featured card (flattened to solid fill per rendering constraints) */
+        lv_obj_t *feat = lz_box(body);
+        lv_obj_set_width(feat, lv_pct(100));
+        lv_obj_set_height(feat, LV_SIZE_CONTENT);
+        lv_obj_set_style_radius(feat, 13, 0);
+        lv_obj_set_style_bg_color(feat, LZ_FEATURED, 0);
+        lv_obj_set_style_bg_opa(feat, LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_all(feat, 11, 0);
+        lv_obj_set_flex_flow(feat, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(feat, 7, 0);
+        lz_text(feat, "FEATURED", LZ_F_SMALL, lv_color_hex(0xC9CBE8));
+        lv_obj_t *frow = lz_box(feat);
+        lv_obj_set_width(frow, lv_pct(100));
+        lv_obj_set_height(frow, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(frow, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(frow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(frow, 10, 0);
+        lv_obj_t *ftile = lz_box(frow);
+        lv_obj_set_size(ftile, 42, 42);
+        lv_obj_set_style_radius(ftile, 11, 0);
+        lv_obj_set_style_bg_color(ftile, lz_tile_color(150), 0);
+        lv_obj_set_style_bg_opa(ftile, LV_OPA_COVER, 0);
+        lv_obj_t *fic = lz_icon(ftile, LZ_I_MAP, &lz_icons_24, lv_color_white());
+        lv_obj_center(fic);
+        lv_obj_t *fcol = lz_box(frow);
+        lv_obj_set_flex_grow(fcol, 1);
+        lv_obj_set_height(fcol, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(fcol, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(fcol, 1, 0);
+        lz_text(fcol, "Node Mapper", LZ_F_HEAD, lv_color_white());
+        lv_obj_t *fd = lz_text(fcol, "Live mesh topology & GPS positions on an offline map",
+                               LZ_F_SMALL, lv_color_hex(0xCFD0E4));
+        lv_label_set_long_mode(fd, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(fd, lv_pct(100));
+    }
 
     if(store_local_n > 0) {
         lv_obj_t *lh = lz_text(body, "Installed locally", LZ_F_BODY, lv_color_hex(0xCFD4DA));
@@ -237,61 +248,63 @@ void lz_scr_appstore(lv_obj_t *root)
         }
     }
 
-    lv_obj_t *hd = lz_text(body, store_local_n > 0 ? "Catalog examples" : "Apps & utilities",
-                           LZ_F_BODY, lv_color_hex(0xCFD4DA));
-    lv_obj_set_style_pad_bottom(hd, 3, 0);
+    if(show_catalog) {
+        lv_obj_t *hd = lz_text(body, store_local_n > 0 ? "Catalog examples" : "Apps & utilities",
+                               LZ_F_BODY, lv_color_hex(0xCFD4DA));
+        lv_obj_set_style_pad_bottom(hd, 3, 0);
 
-    for(int i = 0; i < 8; i++) {
-        int nav_idx = store_local_n + i;
-        lz_store_app_t *a = &LZ_STORE[i];
-        lv_obj_t *row = lz_row(body, nav_idx == S.focus);
-        lv_obj_set_style_radius(row, 11, 0);
+        for(int i = 0; i < 8; i++) {
+            int nav_idx = store_local_n + i;
+            lz_store_app_t *a = &LZ_STORE[i];
+            lv_obj_t *row = lz_row(body, nav_idx == S.focus);
+            lv_obj_set_style_radius(row, 11, 0);
 
-        lv_obj_t *tile = lz_box(row);
-        lv_obj_set_size(tile, 36, 36);
-        lv_obj_set_style_radius(tile, 10, 0);
-        lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
-        lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-        lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_18, lv_color_white());
-        lv_obj_center(ic);
+            lv_obj_t *tile = lz_box(row);
+            lv_obj_set_size(tile, 36, 36);
+            lv_obj_set_style_radius(tile, 10, 0);
+            lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
+            lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+            lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_18, lv_color_white());
+            lv_obj_center(ic);
 
-        lv_obj_t *cl = lz_box(row);
-        lv_obj_set_flex_grow(cl, 1);
-        lv_obj_set_height(cl, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(cl, 1, 0);
-        lz_text(cl, a->name, LZ_F_BODY, LZ_TEXT);
-        lv_obj_t *meta = lz_box(cl);
-        lv_obj_set_size(meta, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(meta, 4, 0);
-        lz_icon(meta, LZ_I_STAR, &lz_icons_14, LZ_SNR_MID);
-        lz_text(meta, a->rating, LZ_F_SMALL, LZ_TEXT_VALUE);
-        char cs[32]; snprintf(cs, sizeof cs, "- %s - %s", a->cat, a->size);
-        lz_text(meta, cs, LZ_F_SMALL, LZ_TEXT_3);
+            lv_obj_t *cl = lz_box(row);
+            lv_obj_set_flex_grow(cl, 1);
+            lv_obj_set_height(cl, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_row(cl, 1, 0);
+            lz_text(cl, a->name, LZ_F_BODY, LZ_TEXT);
+            lv_obj_t *meta = lz_box(cl);
+            lv_obj_set_size(meta, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(meta, 4, 0);
+            lz_icon(meta, LZ_I_STAR, &lz_icons_14, LZ_SNR_MID);
+            lz_text(meta, a->rating, LZ_F_SMALL, LZ_TEXT_VALUE);
+            char cs[32]; snprintf(cs, sizeof cs, "- %s - %s", a->cat, a->size);
+            lz_text(meta, cs, LZ_F_SMALL, LZ_TEXT_3);
 
-        const char *lbl = a->state == LZ_ST_INSTALLING ? "..."
-                        : a->state == LZ_ST_OPEN       ? "OPEN"
-                        : a->state == LZ_ST_UPDATE     ? "UPDATE" : "GET";
-        bool open = a->state == LZ_ST_OPEN;
-        lv_obj_t *btn = lz_box(row);
-        lv_obj_set_size(btn, LV_SIZE_CONTENT, 21);
-        lv_obj_set_style_min_width(btn, 52, 0);
-        lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(btn, open ? lv_color_hex(0x222A33) : LZ_STORE_BTN, 0);
-        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-        if(open) {
-            lv_obj_set_style_border_width(btn, 1, 0);
-            lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
+            const char *lbl = a->state == LZ_ST_INSTALLING ? "..."
+                            : a->state == LZ_ST_OPEN       ? "OPEN"
+                            : a->state == LZ_ST_UPDATE     ? "UPDATE" : "GET";
+            bool open = a->state == LZ_ST_OPEN;
+            lv_obj_t *btn = lz_box(row);
+            lv_obj_set_size(btn, LV_SIZE_CONTENT, 21);
+            lv_obj_set_style_min_width(btn, 52, 0);
+            lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(btn, open ? lv_color_hex(0x222A33) : LZ_STORE_BTN, 0);
+            lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+            if(open) {
+                lv_obj_set_style_border_width(btn, 1, 0);
+                lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
+            }
+            lv_obj_set_style_pad_hor(btn, 11, 0);
+            lv_obj_t *bl = lz_text(btn, lbl, LZ_F_SMALL,
+                                   open ? lv_color_hex(0xCFD4DA) : LZ_ON_MINT);
+            lv_obj_center(bl);
+            lz_nav_track(row, nav_idx);
         }
-        lv_obj_set_style_pad_hor(btn, 11, 0);
-        lv_obj_t *bl = lz_text(btn, lbl, LZ_F_SMALL,
-                               open ? lv_color_hex(0xCFD4DA) : LZ_ON_MINT);
-        lv_obj_center(bl);
-        lz_nav_track(row, nav_idx);
     }
-    lz_nav_set(1, store_local_n + 8, store_activate);
+    lz_nav_set(1, store_local_n + (show_catalog ? 8 : 0), store_activate);
 }
 
 static void app_perm_list(uint16_t perms, char *out, size_t cap)
