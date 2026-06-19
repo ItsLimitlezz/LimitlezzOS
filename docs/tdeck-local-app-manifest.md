@@ -150,12 +150,12 @@ The scanner rejects packages when:
 
 The current firmware scans local app manifests and can open them in a safe
 foreground shell with bounded foreground actions, including a storage-scoped
-counter effect and read-only `{time}` / `{battery}` value injection. Script
-execution, richer sandbox API injection, richer data APIs, and network catalog
-installs remain later app-platform work. Permission metadata is parsed and
-displayed now so packages can fail closed before richer runtime APIs are added,
-and apps that declare `storage` get a scoped `data/` directory prepared under
-their own package.
+counter effect, bounded launch/action fault snapshots, and read-only `{time}` /
+`{battery}` value injection. Script execution, richer sandbox API injection,
+richer data APIs, and network catalog installs remain later app-platform work.
+Permission metadata is parsed and displayed now so packages can fail closed
+before richer runtime APIs are added, and apps that declare `storage` get a
+scoped `data/` directory prepared under their own package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps

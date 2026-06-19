@@ -559,6 +559,12 @@ void lz_scr_local_app_run(lv_obj_t *root)
         lv_obj_set_width(err, lv_pct(100));
         lv_label_set_long_mode(err, LV_LABEL_LONG_WRAP);
     } else {
+        if(r->fault[0]) {
+            lz_text(card, "Runtime fault", LZ_F_BODY, lv_color_hex(0xE9B05F));
+            lv_obj_t *fault = lz_text(card, r->fault, LZ_F_SMALL, LZ_TEXT);
+            lv_obj_set_width(fault, lv_pct(100));
+            lv_label_set_long_mode(fault, LV_LABEL_LONG_WRAP);
+        }
         lv_obj_t *body_txt = lz_text(card, r->body, LZ_F_BODY, LZ_TEXT);
         lv_obj_set_width(body_txt, lv_pct(100));
         lv_label_set_long_mode(body_txt, LV_LABEL_LONG_WRAP);
@@ -602,7 +608,9 @@ void lz_scr_local_app_run(lv_obj_t *root)
     } else {
         snprintf(storage, sizeof storage, "not requested");
     }
-    if(r->action_last > 0 && r->action_last <= r->action_count)
+    if(r->fault[0])
+        snprintf(runtime, sizeof runtime, "%s", r->fault);
+    else if(r->action_last > 0 && r->action_last <= r->action_count)
         snprintf(runtime, sizeof runtime, "action: %s", r->actions[r->action_last - 1].label);
     else if(r->action_count > 0)
         snprintf(runtime, sizeof runtime, "%u action%s",

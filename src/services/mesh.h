@@ -208,6 +208,7 @@ typedef struct {
     char status[64];             /* short runtime/sandbox state */
     char data_path[112];         /* prepared only when storage is declared */
     char error[48];              /* launch blocked reason, if any */
+    char fault[64];              /* bounded launch/action fault snapshot */
     uint32_t data_used_bytes;
     uint32_t data_quota_bytes;
     uint16_t permissions;         /* manifest permissions captured at launch */

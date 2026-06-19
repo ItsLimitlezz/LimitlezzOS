@@ -814,6 +814,19 @@ static int codec_selftest(void)
               "local app foreground storage counter persists");
         CHECK(action2_ok && run.data_used_bytes > 1536,
               "local app foreground storage counter stays in app data quota");
+        lz_local_app_session_t action_fault = run;
+        snprintf(action_fault.data_path, sizeof action_fault.data_path,
+                 "lzdata_appscan/missing-counter-data");
+        bool action_fault_ok = lz_store_local_app_action(&action_fault, 0);
+        CHECK(action_fault_ok &&
+                  strcmp(action_fault.fault, "action: storage write failed") == 0 &&
+                  strcmp(action_fault.status, "Action failed") == 0,
+              "local app foreground captures action storage faults");
+        snprintf(action_fault.data_path, sizeof action_fault.data_path, "%s", run.data_path);
+        bool action_recover_ok = lz_store_local_app_action(&action_fault, 0);
+        CHECK(action_recover_ok && action_fault.fault[0] == 0 &&
+                  strcmp(action_fault.status, "Forecast refreshed #3") == 0,
+              "local app foreground clears recovered action faults");
         bool clear_ok = an == 1 && lz_store_clear_app_data(&apps[0], data_err, sizeof data_err);
         CHECK(clear_ok, "local app clear data succeeds inside scoped storage");
         used = 123;
@@ -824,7 +837,8 @@ static int codec_selftest(void)
                         (int)LZ_LOCAL_APP_DATA_QUOTA_BYTES + 1);
         lz_local_app_session_t over;
         bool over_ok = an == 1 && lz_store_start_local_app(&apps[0], &over);
-        CHECK(!over_ok && strcmp(over.error, "data quota exceeded") == 0,
+        CHECK(!over_ok && strcmp(over.error, "data quota exceeded") == 0 &&
+                  strcmp(over.fault, "launch: data quota exceeded") == 0,
               "local app foreground session blocks over-quota data");
         sim_mkdirs("lzdata_appscan/apps/noinput");
         FILE *nim = fopen("lzdata_appscan/apps/noinput/manifest.json", "wb");
@@ -906,7 +920,8 @@ static int codec_selftest(void)
         lz_local_app_session_t badcounter_run;
         bool badcounter_ok = badcounter && lz_store_start_local_app(badcounter, &badcounter_run);
         CHECK(!badcounter_ok && badcounter &&
-              strcmp(badcounter_run.error, "bad action effect") == 0,
+              strcmp(badcounter_run.error, "bad action effect") == 0 &&
+              strcmp(badcounter_run.fault, "launch: bad action effect") == 0,
               "local app foreground rejects malformed action effects");
         lz_local_app_session_t badeffect_run;
         bool badeffect_ok = badeffect && lz_store_start_local_app(badeffect, &badeffect_run);

@@ -281,7 +281,9 @@ Deliverables:
   Developer Mode with bounded rejection reasons; launch-blocked errors render in
   the local app foreground shell for oversized entry files and over-quota app
   data, and display-only apps that declare actions are blocked for missing input
-  permission, while runtime crash capture remains below.
+  permission. Bounded launch/action fault snapshots now keep the last foreground
+  shell failure visible in the runtime metadata; full VM crash capture remains
+  below.
 - Convert prototype catalog examples into installable sample apps where practical:
   - Calculator
   - Notes
