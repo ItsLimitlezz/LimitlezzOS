@@ -328,7 +328,9 @@ Deliverables:
 - Download app zip/package.
 - Verify SHA256 before install.
 - Extract to app staging directory, then atomically promote to installed directory.
-- Show update badges on installed apps.
+- Show update badges on installed apps. Initial implementation: local App Store
+  rows compare manifest versions with catalog metadata and display update chips
+  plus detail status when a newer catalog version exists.
 - Support uninstall/delete with data retention choice.
 - Add plain-language permission prompts.
 - Add catalog/source settings suitable for community repos without confusing first-time users.

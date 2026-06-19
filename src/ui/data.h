@@ -49,7 +49,7 @@ typedef struct {
 } lz_node_t;
 
 typedef struct {
-    const char *id, *name, *cat, *size, *rating, *icon;
+    const char *id, *name, *version, *cat, *size, *rating, *icon;
     int hue;
     int state;               /* see LZ_ST_* */
 } lz_store_app_t;
