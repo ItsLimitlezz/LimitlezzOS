@@ -597,7 +597,63 @@ static int codec_selftest(void)
     CHECK(pl > 0 && mt_data_decode(pb, pl, &back), "routing Data encodes/decodes");
     CHECK(back.request_id == 0xdeadbeef, "request_id (fixed32) round-trips");
 
-    /* 5. POSITION decode: lat/lon fixed32, altitude varint, precision_bits */
+    /* 5. Meshtastic guard vectors: channel variants, tight buffers, and
+     *    malformed protobuf inputs must fail closed instead of decoding junk. */
+    {
+        uint8_t psk32[32];
+        for(int i = 0; i < 32; i++) psk32[i] = (uint8_t)(i + 1);
+        mt_set_channel("FieldOps", psk32, (int)sizeof psk32);
+        CHECK(mt_channel_hash() == 0x2e, "channel hash(FieldOps,32B PSK) == 0x2e");
+
+        uint8_t cframe[256];
+        int cflen = mt_build_text(cframe, sizeof cframe, from, to, 0xabcdef01u, 5, false, "custom PSK");
+        mt_frame_t cf;
+        CHECK(cflen > MT_HEADER_LEN && mt_header_read(cframe, cflen, &cf) &&
+              cf.channel_hash == 0x2e && cf.hop_limit == 5 && !cf.want_ack,
+              "custom channel text frame carries expected hash/flags");
+
+        uint8_t bad_psk[3] = { 1, 2, 3 };
+        mt_set_channel("LongFast", bad_psk, (int)sizeof bad_psk);
+        CHECK(mt_channel_hash() == 0x08, "invalid PSK length falls back to LongFast default");
+        mt_set_channel("LongFast", NULL, 0);
+
+        uint8_t tiny[20];
+        CHECK(mt_build_text(tiny, sizeof tiny, from, to, 0x10203040u, 3, false,
+                            "this message cannot fit") < 0,
+              "mt_build_text rejects undersized output buffer");
+
+        mt_frame_t short_header;
+        CHECK(!mt_header_read(frame, MT_HEADER_LEN - 1, &short_header),
+              "header truncation rejected");
+
+        mt_data_t bd;
+        uint8_t bad_tag[] = { 0x80 };
+        CHECK(!mt_data_decode(bad_tag, sizeof bad_tag, &bd),
+              "Data rejects unterminated tag varint");
+        uint8_t bad_value[] = { 0x08, 0x80 };
+        CHECK(!mt_data_decode(bad_value, sizeof bad_value, &bd),
+              "Data rejects unterminated value varint");
+        uint8_t bad_len[] = { 0x12, 0x80 };
+        CHECK(!mt_data_decode(bad_len, sizeof bad_len, &bd),
+              "Data rejects unterminated length varint");
+        uint8_t bad_unknown[] = { 0x48, 0x80 };
+        CHECK(!mt_data_decode(bad_unknown, sizeof bad_unknown, &bd),
+              "Data rejects unterminated unknown varint field");
+        uint8_t bad_wire[] = { 0x0F };
+        CHECK(!mt_data_decode(bad_wire, sizeof bad_wire, &bd),
+              "Data rejects unsupported wire type");
+
+        mt_position_t bp;
+        uint8_t bad_pos[] = { 0x18, 0x80 };
+        CHECK(!mt_position_decode(bad_pos, sizeof bad_pos, &bp),
+              "POSITION rejects unterminated altitude varint");
+        mt_telemetry_t bt;
+        uint8_t bad_tel[] = { 0x12, 0x80 };
+        CHECK(!mt_telemetry_decode(bad_tel, sizeof bad_tel, &bt),
+              "TELEMETRY rejects unterminated submessage length");
+    }
+
+    /* 6. POSITION decode: lat/lon fixed32, altitude varint, precision_bits */
     {
         uint8_t pos[] = {
             0x0D, 0x44,0x33,0x22,0x11,     /* field 1  latitude_i  = 0x11223344 */
@@ -623,7 +679,7 @@ static int codec_selftest(void)
         CHECK(!mt_position_decode(ovf, sizeof ovf, &po), "POSITION oversized length rejected");
     }
 
-    /* 6. TELEMETRY device metrics: battery varint, voltage float, uptime varint */
+    /* 7. TELEMETRY device metrics: battery varint, voltage float, uptime varint */
     {
         float voltage = 4.10f;
         uint8_t dm[16]; int dn = 0;
@@ -640,7 +696,7 @@ static int codec_selftest(void)
         CHECK(t.has_uptime && t.uptime_s == 3600, "TELEMETRY uptime");
     }
 
-    /* 7. TELEMETRY env metrics: a hostile NaN float must decode without OOB and
+    /* 8. TELEMETRY env metrics: a hostile NaN float must decode without OOB and
      *    be preserved as NaN so the clamp layer (not the decoder) rejects it */
     {
         uint32_t nanbits = 0x7FC00000u; float humidity = 55.0f, pressure = 1013.0f;
@@ -663,7 +719,7 @@ static int codec_selftest(void)
         CHECK(!mt_telemetry_decode(bad, sizeof bad, &tb), "TELEMETRY oversized submsg rejected");
     }
 
-    /* 8. store delivery-metadata round-trip: updating a DM that is NOT the first
+    /* 9. store delivery-metadata round-trip: updating a DM that is NOT the first
      *    self-record must not desync the scan over the preceding v3 meta record. */
     {
         extern void lz_store_init(const char *datadir);
@@ -697,7 +753,7 @@ static int codec_selftest(void)
         lz_store_init(NULL);              /* back to RAM-only */
     }
 
-    /* 9. Wi-Fi credential store round-trip. T-Deck uses an NVS backend under the
+    /* 10. Wi-Fi credential store round-trip. T-Deck uses an NVS backend under the
      * same API; native keeps the file path for simulator repeatability. */
     {
         extern void lz_store_init(const char *datadir);
@@ -718,7 +774,7 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
-    /* 10. local app scanner: valid manifests become local apps; broken packages
+    /* 11. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);
@@ -946,7 +1002,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appscan");
     }
 
-    /* 10. service-level SDK token injection: dynamic read-only values are
+    /* 12. service-level SDK token injection: dynamic read-only values are
      *     expanded only when the matching permissions are declared. */
     {
         extern void lz_store_init(const char *datadir);
@@ -1018,7 +1074,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_apptokens");
     }
 
-    /* 11. appfs root support: apps can be discovered from appfs even when
+    /* 13. appfs root support: apps can be discovered from appfs even when
      *     SD-backed persistence is absent, and Files can expose both roots. */
     {
         extern void lz_store_init(const char *datadir);
@@ -1048,7 +1104,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appfsroot");
     }
 
-    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 14. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -1082,7 +1138,7 @@ static int codec_selftest(void)
               strcmp(rm.text, "hi there") == 0, "MeshCore GRP_TXT round-trip fields");
     }
 
-    /* 13. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
+    /* 15. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
      *     full encode->parse->decode round-trip + ACK match + MAC tamper check. */
     {
         uint8_t seedA[32], pubA[32], pubB[32], ref[32];

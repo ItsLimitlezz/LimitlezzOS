@@ -203,6 +203,10 @@ Deliverables:
 - Add screenshot and deterministic scenario coverage to CI. Implemented:
   Firmware CI now runs `--simtest`, generates native simulator screenshots, and
   uploads the screenshot artifact for release review.
+- Add protocol unit vectors to CI. First slice implemented in the native codec
+  selftest: Meshtastic custom 32-byte PSK/channel hash, text-frame buffer
+  bounds, truncated headers, and malformed protobuf tag/value/length rejection
+  for Data, POSITION, and TELEMETRY decoders.
 - Clean up dead demo data and stale comments that no longer match product state.
 - Add basic emoji rendering/input support appropriate for the T-Deck screen and memory budget.
 - Re-run hardware dogfood tests on Meshtastic-only, MeshCore-only, and split-airtime modes.
@@ -425,7 +429,8 @@ Deliverables:
   - simulator selftest
   - screenshot generation where host supports SDL2
   - size budget
-  - protocol unit tests/test vectors
+  - protocol unit tests/test vectors. First Meshtastic parser guard vectors are
+    implemented in `--selftest`; broader stock-device captures remain.
 - Hardware test matrix:
   - T-Deck and T-Deck Plus
   - SD present/absent

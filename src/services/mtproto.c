@@ -167,25 +167,29 @@ static int pb_varint(uint8_t *b, uint64_t v)
     return i;
 }
 
-static uint64_t pb_read_varint(const uint8_t *b, int len, int *pos)
+static bool pb_read_varint(const uint8_t *b, int len, int *pos, uint64_t *out)
 {
     uint64_t v = 0; int shift = 0;
     while(*pos < len && shift < 64) {
         uint8_t byte = b[(*pos)++];
         v |= (uint64_t)(byte & 0x7F) << shift;
-        if(!(byte & 0x80)) break;
+        if(!(byte & 0x80)) {
+            if(out) *out = v;
+            return true;
+        }
         shift += 7;
     }
-    return v;
+    return false;
 }
 
 static bool pb_skip(const uint8_t *b, int len, int *pos, int wire)
 {
     if(wire == 0) {
-        pb_read_varint(b, len, pos);
-        return *pos <= len;
+        uint64_t ignored;
+        return pb_read_varint(b, len, pos, &ignored);
     } else if(wire == 2) {
-        uint64_t l = pb_read_varint(b, len, pos);
+        uint64_t l;
+        if(!pb_read_varint(b, len, pos, &l)) return false;
         if((uint64_t)*pos + l > (uint64_t)len) return false;
         *pos += (int)l;
         return true;
@@ -252,13 +256,17 @@ bool mt_data_decode(const uint8_t *buf, int len, mt_data_t *d)
     memset(d, 0, sizeof *d);
     int pos = 0;
     while(pos < len) {
-        uint64_t tag = pb_read_varint(buf, len, &pos);
+        uint64_t tag;
+        if(!pb_read_varint(buf, len, &pos, &tag)) return false;
         int field = (int)(tag >> 3);
         int wire = (int)(tag & 0x07);
         if(field == 1 && wire == 0) {
-            d->portnum = (uint8_t)pb_read_varint(buf, len, &pos);
+            uint64_t v;
+            if(!pb_read_varint(buf, len, &pos, &v)) return false;
+            d->portnum = (uint8_t)v;
         } else if(field == 2 && wire == 2) {
-            uint64_t l = pb_read_varint(buf, len, &pos);
+            uint64_t l;
+            if(!pb_read_varint(buf, len, &pos, &l)) return false;
             /* compare as uint64: a huge attacker length must not cast to a
              * negative int and slip past the bound (OOB read from a packet) */
             if((uint64_t)pos + l > (uint64_t)len) return false;
@@ -267,23 +275,16 @@ bool mt_data_decode(const uint8_t *buf, int len, mt_data_t *d)
             d->plen = (uint8_t)copy;
             pos += (int)l;   /* l <= len-pos here, so the cast is safe */
         } else if(field == 3 && wire == 0) {
-            d->want_response = pb_read_varint(buf, len, &pos) != 0;
+            uint64_t v;
+            if(!pb_read_varint(buf, len, &pos, &v)) return false;
+            d->want_response = v != 0;
         } else if(field == 6 && wire == 5) {       /* request_id: fixed32 LE */
             if(pos + 4 > len) return false;
             d->request_id = (uint32_t)buf[pos] | ((uint32_t)buf[pos+1] << 8) |
                             ((uint32_t)buf[pos+2] << 16) | ((uint32_t)buf[pos+3] << 24);
             pos += 4;
-        } else {
-            /* skip unknown field by wire type (bounded against malformed input) */
-            if(wire == 0) pb_read_varint(buf, len, &pos);
-            else if(wire == 2) {
-                uint64_t l = pb_read_varint(buf, len, &pos);
-                if((uint64_t)pos + l > (uint64_t)len) return false;
-                pos += (int)l;
-            }
-            else if(wire == 5) pos += 4;
-            else if(wire == 1) pos += 8;
-            else return false;
+        } else if(!pb_skip(buf, len, &pos, wire)) {
+            return false;
         }
     }
     return true;
@@ -296,7 +297,8 @@ bool mt_position_decode(const uint8_t *buf, int len, mt_position_t *p)
     int pos = 0;
     bool ok = true;
     while(pos < len) {
-        uint64_t tag = pb_read_varint(buf, len, &pos);
+        uint64_t tag;
+        if(!pb_read_varint(buf, len, &pos, &tag)) return false;
         int field = (int)(tag >> 3);
         int wire = (int)(tag & 0x07);
         if(field == 1 && wire == 5) {
@@ -306,12 +308,15 @@ bool mt_position_decode(const uint8_t *buf, int len, mt_position_t *p)
             p->longitude_i = (int32_t)pb_read_fixed32(buf, len, &pos, &ok);
             p->has_lon = ok;
         } else if(field == 3 && wire == 0) {
-            p->altitude_m = (int32_t)pb_read_varint(buf, len, &pos);
+            uint64_t v;
+            if(!pb_read_varint(buf, len, &pos, &v)) return false;
+            p->altitude_m = (int32_t)v;
             p->has_alt = true;
         } else if((field == 4 || field == 7) && wire == 5) {
             p->time = pb_read_fixed32(buf, len, &pos, &ok);
         } else if(field == 23 && wire == 0) {
-            uint64_t v = pb_read_varint(buf, len, &pos);
+            uint64_t v;
+            if(!pb_read_varint(buf, len, &pos, &v)) return false;
             p->precision_bits = v > 255 ? 255 : (uint8_t)v;
         } else if(!pb_skip(buf, len, &pos, wire)) {
             return false;
@@ -326,18 +331,22 @@ static bool mt_device_metrics_decode(const uint8_t *buf, int len, mt_telemetry_t
     int pos = 0;
     bool ok = true;
     while(pos < len) {
-        uint64_t tag = pb_read_varint(buf, len, &pos);
+        uint64_t tag;
+        if(!pb_read_varint(buf, len, &pos, &tag)) return false;
         int field = (int)(tag >> 3);
         int wire = (int)(tag & 0x07);
         if(field == 1 && wire == 0) {
-            uint64_t v = pb_read_varint(buf, len, &pos);
+            uint64_t v;
+            if(!pb_read_varint(buf, len, &pos, &v)) return false;
             t->battery_level = v > 255 ? 255 : (uint8_t)v;
             t->has_battery = true;
         } else if(field == 2 && wire == 5) {
             t->voltage = pb_read_float(buf, len, &pos, &ok);
             t->has_voltage = ok;
         } else if(field == 5 && wire == 0) {
-            t->uptime_s = (uint32_t)pb_read_varint(buf, len, &pos);
+            uint64_t v;
+            if(!pb_read_varint(buf, len, &pos, &v)) return false;
+            t->uptime_s = (uint32_t)v;
             t->has_uptime = true;
         } else if(!pb_skip(buf, len, &pos, wire)) {
             return false;
@@ -352,7 +361,8 @@ static bool mt_environment_metrics_decode(const uint8_t *buf, int len, mt_teleme
     int pos = 0;
     bool ok = true;
     while(pos < len) {
-        uint64_t tag = pb_read_varint(buf, len, &pos);
+        uint64_t tag;
+        if(!pb_read_varint(buf, len, &pos, &tag)) return false;
         int field = (int)(tag >> 3);
         int wire = (int)(tag & 0x07);
         if(field == 1 && wire == 5) {
@@ -378,11 +388,13 @@ bool mt_telemetry_decode(const uint8_t *buf, int len, mt_telemetry_t *t)
     memset(t, 0, sizeof *t);
     int pos = 0;
     while(pos < len) {
-        uint64_t tag = pb_read_varint(buf, len, &pos);
+        uint64_t tag;
+        if(!pb_read_varint(buf, len, &pos, &tag)) return false;
         int field = (int)(tag >> 3);
         int wire = (int)(tag & 0x07);
         if((field == 2 || field == 3) && wire == 2) {
-            uint64_t l = pb_read_varint(buf, len, &pos);
+            uint64_t l;
+            if(!pb_read_varint(buf, len, &pos, &l)) return false;
             if((uint64_t)pos + l > (uint64_t)len) return false;
             bool ok = field == 2
                     ? mt_device_metrics_decode(buf + pos, (int)l, t)
