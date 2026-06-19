@@ -76,6 +76,8 @@ static struct {
     char addr[16];
 } g_delivery[LZ_DELIVERY_PEND];
 
+static lz_thread_rt *find_thread(uint32_t num);
+
 /* ---------- helpers ---------- */
 
 static uint32_t now_epoch(void)                  /* UTC */
@@ -520,6 +522,40 @@ int lz_svc_node_count(lz_net_t net)
     for(int i = 0; i < g_node_count; i++)
         if(g_nodes[i].net == net && g_nodes[i].num != g_id.num) c++;
     return c;
+}
+
+int lz_svc_node_trace(const lz_node_rt *n, char *buf, int nbuf)
+{
+    if(!buf || nbuf <= 0) return 0;
+    buf[0] = 0;
+    if(!n) return snprintf(buf, (size_t)nbuf, "trace: no node selected");
+
+    char ago[12];
+    lz_fmt_ago(n->last_heard, ago, sizeof ago);
+
+    char route[28];
+    lz_thread_rt *t = find_thread(n->num);
+    if(t && t->path[0]) {
+        snprintf(route, sizeof route, "path %s", t->path);
+    } else if(n->dist[0] && strcmp(n->dist, "-") != 0) {
+        snprintf(route, sizeof route, "distance %s", n->dist);
+    } else {
+        snprintf(route, sizeof route, "no route path");
+    }
+
+    const char *net = n->net == LZ_NET_MC ? "MC" : "MT";
+    const char *role = n->role[0] ? n->role : "node";
+    int pos = 0;
+    pos = buf_appendf(buf, nbuf, pos, "trace: %s %s", net, role);
+    if(n->net == LZ_NET_MC && !LZ_MESHCORE_ENABLED)
+        pos = buf_appendf(buf, nbuf, pos, " gated");
+    if(!lz_node_messageable(n))
+        pos = buf_appendf(buf, nbuf, pos, " observe-only");
+    pos = buf_appendf(buf, nbuf, pos, ", %s, ", route);
+    if(isnan(n->snr)) pos = buf_appendf(buf, nbuf, pos, "SNR --");
+    else              pos = buf_appendf(buf, nbuf, pos, "SNR %+.1f", (double)n->snr);
+    pos = buf_appendf(buf, nbuf, pos, ", heard %s", ago);
+    return pos;
 }
 
 void lz_svc_add_contact(lz_node_rt *n)

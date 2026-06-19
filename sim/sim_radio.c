@@ -746,6 +746,18 @@ int sim_scenario_run(void)
     lz_node_rt *base = lz_svc_node_by_name("Base-01");
     ST_CHECK(base && (base->telem_flags & LZ_NODE_TEL_VOLT), "MT: TELEMETRY voltage decoded");
 
+    lz_core_on_nodeinfo(0x10203040, "!10203040", "Ridge Relay", "RLY",
+                        1, "T-Beam", -4.5f);
+    lz_node_rt *relay = lz_svc_node_by_name("Ridge Relay");
+    char trace[128];
+    int trace_n = lz_svc_node_trace(relay, trace, sizeof trace);
+    ST_CHECK(trace_n > 0 && strstr(trace, "MT Router") != NULL,
+             "TRACE: includes network role");
+    ST_CHECK(strstr(trace, "observe-only") != NULL,
+             "TRACE: infrastructure node marked observe-only");
+    ST_CHECK(strstr(trace, "SNR -4.5") != NULL && strstr(trace, "heard now") != NULL,
+             "TRACE: radio evidence included");
+
     /* 7. MeshCore ADVERT -> a MeshCore Chat node named "Limitlezz" */
     sim_inject_mc_advert();   /* rotates; force Limitlezz explicitly too */
     mc_emit_advert(peer_by_name("Limitlezz"), 4.0f);
