@@ -2,6 +2,7 @@
  * Terminal, Files */
 #include "../ui.h"
 #include "../vlist.h"
+#include "../../services/app_permissions.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -294,29 +295,6 @@ void lz_scr_appstore(lv_obj_t *root)
     lz_nav_set(1, store_local_n + 8, store_activate);
 }
 
-static void app_perm_list(uint16_t perms, char *out, size_t cap)
-{
-    static const struct { uint16_t bit; const char *name; } P[] = {
-        { LZ_APP_PERM_DISPLAY,       "display" },
-        { LZ_APP_PERM_INPUT,         "input" },
-        { LZ_APP_PERM_STORAGE,       "storage" },
-        { LZ_APP_PERM_MESH_READ,     "mesh read" },
-        { LZ_APP_PERM_MESH_SEND,     "mesh send" },
-        { LZ_APP_PERM_SYSTEM_TIME,   "time" },
-        { LZ_APP_PERM_BATTERY,       "battery" },
-        { LZ_APP_PERM_NOTIFICATIONS, "notify" },
-        { LZ_APP_PERM_NETWORK_WIFI,  "wifi" },
-    };
-    if(!out || cap == 0) return;
-    out[0] = 0;
-    for(unsigned i = 0; i < sizeof(P) / sizeof(P[0]); i++) {
-        if((perms & P[i].bit) == 0) continue;
-        if(out[0]) strncat(out, ", ", cap - strlen(out) - 1);
-        strncat(out, P[i].name, cap - strlen(out) - 1);
-    }
-    if(!out[0]) snprintf(out, cap, "none");
-}
-
 static void app_data_quota_label(uint32_t used, uint32_t quota, char *out, size_t cap)
 {
     if(!out || cap == 0) return;
@@ -450,11 +428,13 @@ void lz_scr_local_app(lv_obj_t *root)
 
     char api[28];
     char perms[104];
+    char access[220];
     char storage[80];
     char data_path[112];
     char data_err[48];
     snprintf(api, sizeof api, "SDK %s", a->api_version);
-    app_perm_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_summary(a->permissions, access, sizeof access);
     if(a->permissions & LZ_APP_PERM_STORAGE) {
         if(lz_svc_prepare_app_data(a, data_path, sizeof data_path, data_err, sizeof data_err)) {
             uint32_t used = 0, quota = 0;
@@ -469,16 +449,16 @@ void lz_scr_local_app(lv_obj_t *root)
         snprintf(storage, sizeof storage, "not requested");
     }
 
-    const char *ks[7] = { "Status", "API", "Permissions", "Storage", "App ID", "Entry", "Folder" };
-    const char *vs[7] = { "Manifest ready", api, perms, storage, a->id, a->entry, a->path };
-    for(int i = 0; i < 7; i++) {
+    const char *ks[8] = { "Status", "API", "Permissions", "Access", "Storage", "App ID", "Entry", "Folder" };
+    const char *vs[8] = { "Manifest ready", api, perms, access, storage, a->id, a->entry, a->path };
+    for(int i = 0; i < 8; i++) {
         lv_obj_t *r = lz_box(card);
         lv_obj_set_width(r, lv_pct(100));
         lv_obj_set_height(r, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_hor(r, 11, 0);
         lv_obj_set_style_pad_ver(r, 7, 0);
-        if(i < 6) {
+        if(i < 7) {
             lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(r, 1, 0);
             lv_obj_set_style_border_color(r, lv_color_hex(0x21262D), 0);
@@ -486,7 +466,7 @@ void lz_scr_local_app(lv_obj_t *root)
         lz_text(r, ks[i], LZ_F_SMALL, lv_color_hex(0x8B939C));
         lv_obj_t *v = lz_text(r, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);
         lv_obj_set_width(v, lv_pct(100));
-        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+        lv_label_set_long_mode(v, strcmp(ks[i], "Access") == 0 ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
     }
 
     lz_nav_set(1, (a->permissions & LZ_APP_PERM_STORAGE) ? 2 : 1, local_app_detail_activate);
@@ -591,9 +571,11 @@ void lz_scr_local_app_run(lv_obj_t *root)
     }
 
     char perms[104];
+    char access[220];
     char storage[80];
     char runtime[48];
-    app_perm_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_summary(a->permissions, access, sizeof access);
     if(a->permissions & LZ_APP_PERM_STORAGE) {
         if(r->storage_ready)
             app_data_quota_label(r->data_used_bytes, r->data_quota_bytes, storage, sizeof storage);
@@ -609,19 +591,19 @@ void lz_scr_local_app_run(lv_obj_t *root)
                  (unsigned)r->action_count, r->action_count == 1 ? "" : "s");
     else
         snprintf(runtime, sizeof runtime, "%s", r->entry_loaded ? "foreground only" : "not loaded");
-    const char *ks[4] = { "Permissions", "Storage", "Entry", "Runtime" };
-    const char *vs[4] = { perms, storage, a->entry, runtime };
+    const char *ks[5] = { "Permissions", "Access", "Storage", "Entry", "Runtime" };
+    const char *vs[5] = { perms, access, storage, a->entry, runtime };
     lv_obj_t *meta = lz_card(body);
     lv_obj_set_height(meta, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_COLUMN);
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < 5; i++) {
         lv_obj_t *row = lz_box(meta);
         lv_obj_set_width(row, lv_pct(100));
         lv_obj_set_height(row, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_hor(row, 11, 0);
         lv_obj_set_style_pad_ver(row, 7, 0);
-        if(i < 3) {
+        if(i < 4) {
             lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(row, 1, 0);
             lv_obj_set_style_border_color(row, lv_color_hex(0x21262D), 0);
@@ -629,7 +611,7 @@ void lz_scr_local_app_run(lv_obj_t *root)
         lz_text(row, ks[i], LZ_F_SMALL, lv_color_hex(0x8B939C));
         lv_obj_t *v = lz_text(row, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);
         lv_obj_set_width(v, lv_pct(100));
-        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+        lv_label_set_long_mode(v, strcmp(ks[i], "Access") == 0 ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
     }
 
     lv_obj_t *close = lz_row(body, action_count == S.focus);

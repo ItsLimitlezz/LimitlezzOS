@@ -330,7 +330,10 @@ Deliverables:
 - Extract to app staging directory, then atomically promote to installed directory.
 - Show update badges on installed apps.
 - Support uninstall/delete with data retention choice.
-- Add plain-language permission prompts.
+- Add plain-language permission prompts. Initial implementation: local app
+  detail and foreground metadata now show a bounded `Access` summary generated
+  from the manifest permission bits, while keeping raw permission IDs visible
+  for diagnostics.
 - Add catalog/source settings suitable for community repos without confusing first-time users.
 
 Exit criteria:

@@ -126,15 +126,20 @@ Optional:
 
 Supported permission names:
 
-- `display`
-- `input`
-- `storage`
-- `mesh_read`
-- `mesh_send`
-- `system_time`
-- `battery`
-- `notifications`
-- `network_wifi`
+- `display`: show content on screen
+- `input`: use buttons, trackball, or keyboard while open
+- `storage`: read and write this app's own `data/` folder
+- `mesh_read`: read mesh messages routed to app APIs
+- `mesh_send`: send mesh messages through OS services
+- `system_time`: read the device clock
+- `battery`: read battery level
+- `notifications`: ask the OS to show notifications
+- `network_wifi`: use Wi-Fi through OS network services
+
+The App Store detail screen shows both the manifest permission IDs and a
+plain-language `Access` summary before opening the app. For example, an app
+that declares `display`, `input`, and `storage` is summarized as able to show
+content, use controls while open, and read/write only its own app data.
 
 ## Safety Rules
 

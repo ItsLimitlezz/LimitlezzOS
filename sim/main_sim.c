@@ -30,6 +30,7 @@
  */
 #include "lvgl.h"
 #include "ui/ui.h"
+#include "services/app_permissions.h"
 #include "services/mesh.h"
 #include "services/mtproto.h"
 #include "services/mcproto.h"
@@ -779,6 +780,21 @@ static int codec_selftest(void)
               (apps[0].permissions & LZ_APP_PERM_STORAGE) &&
               !(apps[0].permissions & LZ_APP_PERM_MESH_SEND),
               "local app scanner keeps allowlisted permissions");
+        char perm_ids[96], perm_text[220], broad_text[220], none_text[64];
+        lz_app_permissions_list(apps[0].permissions, perm_ids, sizeof perm_ids);
+        lz_app_permissions_summary(apps[0].permissions, perm_text, sizeof perm_text);
+        lz_app_permissions_summary(LZ_APP_PERM_MESH_SEND | LZ_APP_PERM_NETWORK_WIFI |
+                                   LZ_APP_PERM_NOTIFICATIONS,
+                                   broad_text, sizeof broad_text);
+        lz_app_permissions_summary(0, none_text, sizeof none_text);
+        CHECK(strstr(perm_ids, "storage") && strstr(perm_text, "own data"),
+              "local app permissions get user-facing storage summary");
+        CHECK(strstr(broad_text, "send mesh messages") &&
+              strstr(broad_text, "Wi-Fi") &&
+              strstr(broad_text, "notifications"),
+              "local app permissions explain broad access requests");
+        CHECK(strcmp(none_text, "No app permissions requested.") == 0,
+              "local app permissions explain empty access request");
         char data_path[128], data_err[48];
         bool data_ok = an == 1 && lz_store_prepare_app_data(&apps[0], data_path, sizeof data_path,
                                                             data_err, sizeof data_err);
