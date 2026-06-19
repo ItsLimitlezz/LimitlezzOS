@@ -394,6 +394,10 @@ Deliverables:
   - emergency
   - OTA progress/failure
 - Add low-battery and critical-battery behaviors.
+  Initial policy foundation implemented in `src/services/power_policy.*`: low
+  and critical thresholds are centralized, charging/USB quiets aggressive
+  actions, native selftest covers the decision matrix, and the `power` serial
+  diagnostic reports the current hardware action request.
 - Implement emergency beacon:
   - key combo or guarded UI action
   - send on Meshtastic and MeshCore when available

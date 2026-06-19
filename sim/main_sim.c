@@ -32,6 +32,7 @@
 #include "ui/ui.h"
 #include "services/mesh.h"
 #include "services/feedback.h"
+#include "services/power_policy.h"
 #include "services/mtproto.h"
 #include "services/mcproto.h"
 #include "services/mc_x25519.h"
@@ -754,6 +755,38 @@ static int codec_selftest(void)
         CHECK(dn > 0 && strstr(diag, "silent: message=queued") != NULL &&
               strstr(diag, "emergency=show+buzz+bypass") != NULL,
               "feedback policy diagnostic summarizes DND matrix");
+    }
+
+    /* 8b. power warning policy: low and critical battery states request
+     *    progressively stronger action, except while external power is present. */
+    {
+        lz_power_decision_t p;
+        p = lz_power_assess(-1, 0, false, false);
+        CHECK(p.state == LZ_POWER_UNKNOWN && !p.notify,
+              "power policy unknown battery stays quiet");
+        p = lz_power_assess(87, 4100, false, false);
+        CHECK(p.state == LZ_POWER_OK && !p.notify,
+              "power policy healthy battery is ok");
+        p = lz_power_assess(20, 3900, false, false);
+        CHECK(p.state == LZ_POWER_LOW && p.notify && !p.dim_screen && !p.allow_buzz,
+              "power policy low percent notifies without aggressive actions");
+        p = lz_power_assess(-1, 3650, false, false);
+        CHECK(p.state == LZ_POWER_LOW && p.notify && p.reason &&
+              strcmp(p.reason, "voltage") == 0,
+              "power policy low voltage fallback works");
+        p = lz_power_assess(5, 3800, false, false);
+        CHECK(p.state == LZ_POWER_CRITICAL && p.notify && p.wake_screen &&
+              p.dim_screen && p.force_power_save && p.allow_buzz,
+              "power policy critical battery requests strong feedback");
+        p = lz_power_assess(4, 3400, true, true);
+        CHECK(p.state == LZ_POWER_CRITICAL && p.notify && !p.wake_screen &&
+              !p.dim_screen && !p.allow_buzz,
+              "power policy critical charging stays quiet");
+        char diag[320];
+        int dn = lz_power_policy_diag(diag, sizeof diag, 4, 3400, false, false);
+        CHECK(dn > 0 && strstr(diag, "power: critical") != NULL &&
+              strstr(diag, "buzz=yes") != NULL,
+              "power policy diagnostic summarizes actions");
     }
 
     /* 9. store delivery-metadata round-trip: updating a DM that is NOT the first
