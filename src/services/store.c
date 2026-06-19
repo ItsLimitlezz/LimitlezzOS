@@ -236,6 +236,115 @@ static bool app_data_clear_walk(const char *dir, int depth, int *entries,
     return true;
 }
 
+bool lz_store_save_app_catalog_cache(const char *json, int len, char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    if(!json || len <= 0) {
+        set_err(err, err_cap, "catalog empty");
+        return false;
+    }
+    if(len > LZ_APP_CATALOG_CACHE_MAX) {
+        set_err(err, err_cap, "catalog too large");
+        return false;
+    }
+
+    char path[128], tmp[132];
+    path_for(path, sizeof path, "app_catalog.json");
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if(!f) {
+        set_err(err, err_cap, "catalog write failed");
+        return false;
+    }
+    bool ok = fwrite(json, 1, (size_t)len, f) == (size_t)len;
+    if(fclose(f) != 0) ok = false;
+    if(!ok) {
+        remove(tmp);
+        set_err(err, err_cap, "catalog write failed");
+        return false;
+    }
+    remove(path);
+    if(rename(tmp, path) != 0) {
+        remove(tmp);
+        set_err(err, err_cap, "catalog commit failed");
+        return false;
+    }
+    return true;
+}
+
+bool lz_store_load_app_catalog_cache(char *out, int cap, int *out_len,
+                                     char *err, int err_cap)
+{
+    if(out && cap > 0) out[0] = 0;
+    if(out_len) *out_len = 0;
+    set_err(err, err_cap, "");
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    if(!out || cap <= 1) {
+        set_err(err, err_cap, "catalog buffer small");
+        return false;
+    }
+
+    char path[128];
+    path_for(path, sizeof path, "app_catalog.json");
+    FILE *f = fopen(path, "rb");
+    if(!f) {
+        set_err(err, err_cap, "catalog missing");
+        return false;
+    }
+    if(fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        set_err(err, err_cap, "catalog read failed");
+        return false;
+    }
+    long raw_len = ftell(f);
+    if(raw_len < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        set_err(err, err_cap, "catalog read failed");
+        return false;
+    }
+    if(raw_len > LZ_APP_CATALOG_CACHE_MAX) {
+        fclose(f);
+        set_err(err, err_cap, "catalog too large");
+        return false;
+    }
+    if(raw_len >= cap) {
+        fclose(f);
+        set_err(err, err_cap, "catalog buffer small");
+        return false;
+    }
+    size_t n = fread(out, 1, (size_t)raw_len, f);
+    bool ok = n == (size_t)raw_len && ferror(f) == 0;
+    fclose(f);
+    if(!ok) {
+        out[0] = 0;
+        set_err(err, err_cap, "catalog read failed");
+        return false;
+    }
+    out[raw_len] = 0;
+    if(out_len) *out_len = (int)raw_len;
+    return true;
+}
+
+bool lz_store_clear_app_catalog_cache(char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    char path[128];
+    path_for(path, sizeof path, "app_catalog.json");
+    remove(path);
+    return true;
+}
+
 /* ---- local app manifests ----
  *
  * First V0.95 app-platform increment: discover installable local app packages

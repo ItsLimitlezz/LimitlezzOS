@@ -324,7 +324,8 @@ Deliverables:
 
 - Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired.
 - Fetch catalog over Wi-Fi.
-- Cache catalog for offline browsing.
+- Cache catalog for offline browsing. Initial implementation: bounded atomic
+  catalog JSON cache save/load/clear service APIs with native simulator coverage.
 - Download app zip/package.
 - Verify SHA256 before install.
 - Extract to app staging directory, then atomically promote to installed directory.

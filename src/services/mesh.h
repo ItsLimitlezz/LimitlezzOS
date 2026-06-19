@@ -218,6 +218,8 @@ typedef struct {
     lz_local_app_action_t actions[LZ_LOCAL_APP_ACTION_MAX];
 } lz_local_app_session_t;
 
+#define LZ_APP_CATALOG_CACHE_MAX 4096
+
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
@@ -232,6 +234,9 @@ bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path
 bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
                            char *err, int err_cap);
 bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
+bool lz_svc_save_app_catalog_cache(const char *json, int len, char *err, int err_cap);
+bool lz_svc_load_app_catalog_cache(char *out, int cap, int *out_len, char *err, int err_cap);
+bool lz_svc_clear_app_catalog_cache(char *err, int err_cap);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
 

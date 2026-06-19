@@ -718,7 +718,48 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
-    /* 10. local app scanner: valid manifests become local apps; broken packages
+    /* 10. app catalog cache: future Wi-Fi fetches can persist bounded catalog
+     *     JSON for offline browsing without parsing it in the store layer. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern bool lz_store_save_app_catalog_cache(const char *json, int len,
+                                                    char *err, int err_cap);
+        extern bool lz_store_load_app_catalog_cache(char *out, int cap, int *out_len,
+                                                    char *err, int err_cap);
+        extern bool lz_store_clear_app_catalog_cache(char *err, int err_cap);
+        const char *catalog =
+            "{\"apps\":[{\"id\":\"weather\",\"version\":\"0.2.0\",\"sha256\":\"abc\"}]}";
+        char out[160];
+        char err[48];
+        int out_len = 0;
+        remove("./app_catalog.json");
+        lz_store_init(".");
+        CHECK(!lz_store_load_app_catalog_cache(out, sizeof out, &out_len, err, sizeof err) &&
+                  strcmp(err, "catalog missing") == 0,
+              "app catalog cache reports missing cache");
+        CHECK(lz_store_save_app_catalog_cache(catalog, (int)strlen(catalog), err, sizeof err),
+              "app catalog cache saves bounded JSON");
+        CHECK(lz_store_load_app_catalog_cache(out, sizeof out, &out_len, err, sizeof err) &&
+                  out_len == (int)strlen(catalog) && strcmp(out, catalog) == 0,
+              "app catalog cache reloads exact JSON");
+        CHECK(!lz_store_load_app_catalog_cache(out, 8, &out_len, err, sizeof err) &&
+                  strcmp(err, "catalog buffer small") == 0,
+              "app catalog cache rejects undersized read buffer");
+        static char too_big[LZ_APP_CATALOG_CACHE_MAX + 1];
+        memset(too_big, 'x', sizeof too_big);
+        CHECK(!lz_store_save_app_catalog_cache(too_big, (int)sizeof too_big, err, sizeof err) &&
+                  strcmp(err, "catalog too large") == 0,
+              "app catalog cache rejects oversized JSON");
+        CHECK(lz_store_clear_app_catalog_cache(err, sizeof err),
+              "app catalog cache clears saved catalog");
+        CHECK(!lz_store_load_app_catalog_cache(out, sizeof out, &out_len, err, sizeof err) &&
+                  strcmp(err, "catalog missing") == 0,
+              "app catalog cache clear removes file");
+        remove("./app_catalog.json");
+        lz_store_init(NULL);
+    }
+
+    /* 11. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);
