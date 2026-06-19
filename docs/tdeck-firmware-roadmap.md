@@ -444,7 +444,7 @@ Deliverables:
   - no known P0/P1 bugs
   - README status matches code and test evidence
   - binaries attached to release
-  - upgrade path documented
+  - upgrade path documented. Initial USB artifact upgrade and rollback guide is implemented in `docs/tdeck-upgrade-path.md`.
 
 Exit criteria:
 
