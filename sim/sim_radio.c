@@ -495,8 +495,9 @@ static void pump_replies(void)
 
 bool sim_radio_send(lz_mt_packet_t *p)
 {
-    g_stats.tx_count++;
     if(!p) return false;
+    if(!tuned(LZ_NET_MT)) return false;
+    g_stats.tx_count++;
 
     /* DM (not broadcast) to a real peer: ack it, and let a chatty peer reply */
     if(p->to != LZ_BROADCAST && p->portnum == 1 /* TEXT */) {
@@ -732,6 +733,20 @@ int sim_scenario_run(void)
     lz_thread_rt *ch = lz_svc_channel_thread();
     ST_CHECK(ch != NULL, "MT: LongFast channel thread exists");
     ST_CHECK(ch && strstr(ch->last_text, "ridge") != NULL, "MT: broadcast decoded to channel");
+
+    {
+        lz_svc_open_thread(ch);
+        g_net_mt = false;
+        bool ok = lz_svc_send_text(ch, "offline channel probe");
+        const lz_msg_rt *tail; int tn = lz_svc_tail(&tail);
+        bool failed = false;
+        for(int i = tn - 1; i >= 0; i--)
+            if(tail[i].self && tail[i].status == LZ_MSG_FAILED &&
+               tail[i].fail_reason == LZ_FAIL_RADIO_SEND) { failed = true; break; }
+        ST_CHECK(ok, "CHANNEL SEND: failed TX is accepted into the thread");
+        ST_CHECK(failed, "CHANNEL SEND: radio failure shown as failed");
+        g_net_mt = true;
+    }
 
     /* 5. NodeInfo enriches a node's name/short code */
     sim_inject_mt_nodeinfo();

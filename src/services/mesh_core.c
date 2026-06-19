@@ -928,6 +928,25 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
     uint32_t ts = now_epoch();
     uint32_t pid = next_packet_id();
     bool track = !t->is_channel;          /* DMs get delivery status; channels don't */
+
+    if(!track) {
+        bool sent = send_text_packet(t, text, pid);
+        uint8_t status = sent ? LZ_MSG_NONE : LZ_MSG_FAILED;
+        uint8_t fail = sent ? LZ_FAIL_NONE : LZ_FAIL_RADIO_SEND;
+        lz_msg_rt m = { .self = true, .ts = ts, .status = status,
+                        .pkt_id = sent ? 0 : pid, .sent_ms = 0,
+                        .fail_reason = fail };
+        snprintf(m.text, sizeof m.text, "%s", text);
+        lz_store_append(t->addr, &m);
+        if(g_open == t) tail_push(true, text, ts, status, sent ? 0 : pid,
+                                  0, fail);
+        touch_thread_meta(t, text, ts, false);
+        reorder_threads();
+        lz_store_save_threads(g_threads, g_thread_count);
+        mark_dirty();
+        return true;
+    }
+
     uint8_t status = track ? LZ_MSG_SENDING : LZ_MSG_NONE;
     lz_msg_rt m = { .self = true, .ts = ts, .status = status,
                     .pkt_id = track ? pid : 0, .sent_ms = lz_tick_ms() };
