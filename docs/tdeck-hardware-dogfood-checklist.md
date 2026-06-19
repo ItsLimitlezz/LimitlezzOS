@@ -59,6 +59,32 @@ dogfood belong to the later roadmap phases.
 - COM8 serial smoke passed with `python scripts/tdeck_smoke.py --skip-upload --port COM8 --open-timeout 60 --boot-timeout 60 --timeout 30 --commands id rf stats`.
 - `rf` reported the new timing diagnostic line on hardware: `timing: late 0 avg 0ms max 0ms | holds rx 0 ack 0`.
 - This run used the default Meshtastic-only image, so it proves the diagnostic is present and stable in serial output; split-airtime RX/ACK hold counts still need a MeshCore-enabled soak run after the TDM artifact branch lands.
+- For MeshCore-enabled Phase 3 builds, fetch and flash the opt-in CI artifact
+  with `python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore`, then
+  `python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore`.
+  Run the split-airtime probe after the basic serial smoke:
+  `python scripts/tdm_airtime_smoke.py --port COM8` on the Windows rig, or pass
+  the Linux/macOS serial path such as `/dev/ttyACM0`. This asserts the 60/40,
+  50/50, and 40/60 dwell presets, checks that `switches:` advances between `rf`
+  samples, and confirms `net mc off` returns the radio to `Meshtastic 100%`. If
+  the firmware still has MeshCore gated, the probe exits with a clear failure
+  instead of recording a false TDM pass.
+
+## Hardware Evidence Log
+
+### 2026-06-18 COM8 MeshCore TDM Smoke
+
+- Firmware flashed: opt-in `tdeck-meshcore` GitHub Actions artifact from `n30nex/LimitlezzOS` run `27728176574`, commit `1552fa8`.
+- Artifact manifest recorded `meshcore_enabled=1`, `budget_status=pass`, `firmware_bytes=1536832`, and `static_ram_bytes=274676`.
+- Port boundary: only `COM8` was opened/flashed/probed during this validation.
+- Direct ROM flashing with `python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore --upload-baud 460800` succeeded; bootloader, partitions, `boot_app0.bin`, and firmware hashes all verified.
+- Split-airtime smoke passed with `python scripts/tdm_airtime_smoke.py --port COM8 --open-timeout 60 --boot-timeout 60 --timeout 30`.
+- TDM evidence: `airtime mt` reported 60/40 with 300/200 ms dwell and `switches: 2`; `airtime balanced` reported 50/50 with 250/250 ms dwell and `switches: 3`; `airtime mc` reported 40/60 with 200/300 ms dwell and `switches: 4`.
+- Switch motion evidence: after returning to balanced mode, `rf` advanced from `switches: 5` to `switches: 10` during the settle window and the active side flipped from MeshCore to Meshtastic.
+- Restore evidence: `net mc off` returned `rf` to `mode: Meshtastic 100%` with no additional switch-count growth.
+- Follow-up serial smoke passed with `python scripts/tdeck_smoke.py --skip-upload --port COM8 --env tdeck-meshcore --open-timeout 60 --boot-timeout 60 --timeout 30`.
+- Serial smoke evidence: identity `!a20d1428` / `limitlessdeck`, battery 100% on USB, `net` reported Meshtastic on and MeshCore off after restore, `rf` reported `mode: Meshtastic 100%`, `stats` reported radio TX/RX counters, Wi-Fi reported `cred=nvs`, and `companion test` reported `63 frames ... -> PASS`.
+- Remaining gap: this proves the opt-in MeshCore TDM image reports correct dwell presets and live switch motion on COM8; it does not yet prove packet loss, latency, or real simultaneous Meshtastic/MeshCore traffic impact.
 
 ### 2026-06-14 COM8 Smoke Attempt
 

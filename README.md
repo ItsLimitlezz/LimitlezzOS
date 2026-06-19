@@ -292,6 +292,24 @@ bundled `esptool.py` is absent), and `pyserial` for the post-flash serial smoke.
 For release PRs, `python scripts/release_evidence.py --artifact-dir .pio/ci-artifacts/tdeck --port COM8`
 prints the required local, Actions, artifact, and COM8 evidence checklist.
 
+For Phase 3 split-airtime checks on a MeshCore-enabled build, run the dedicated
+serial TDM probe after flashing. The default `tdeck` firmware stays conservative;
+CI also uploads an opt-in `tdeck-meshcore` flash bundle for this validation path:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+python scripts/tdm_airtime_smoke.py --port COM8
+
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore
+python scripts/tdeck_smoke.py --port /dev/ttyACM0 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+python scripts/tdm_airtime_smoke.py --port /dev/ttyACM0
+```
+
+It drives `net`, `airtime`, and `rf`, asserts the 60/40, 50/50, and 40/60 dwell
+splits, checks that the TDM switch counter advances, and fails clearly if the
+flashed firmware still has MeshCore gated.
+
 CI runs the native simulator build, native codec selftest, deterministic simulator
 scenario, screenshot generation, T-Deck firmware build, and T-Deck size report
 in `.github/workflows/firmware.yml`. The codec selftest includes Meshtastic
@@ -300,6 +318,13 @@ enforces the current T-Deck budget gate (2,200,000 bytes for `firmware.bin`,
 307,200 bytes static RAM), writes the result into `FLASH_MANIFEST.txt`, then
 uploads the firmware artifacts from `.pio/build/tdeck` plus the generated
 simulator screenshots.
+scenario, screenshot generation, the default T-Deck firmware build, the opt-in
+MeshCore-enabled TDM validation build, and size reports for both firmware
+artifacts in `.github/workflows/firmware.yml`. It also enforces the current
+T-Deck budget gate (2,200,000 bytes for `firmware.bin`, 307,200 bytes static
+RAM), writes each result into its own `FLASH_MANIFEST.txt`, then uploads the
+`tdeck-firmware-<sha>` and `tdeck-meshcore-firmware-<sha>` bundles plus the
+generated simulator screenshots.
 
 Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RAM
 (82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
