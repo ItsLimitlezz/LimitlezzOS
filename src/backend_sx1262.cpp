@@ -308,10 +308,10 @@ static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)
     if(g_rxlog) Serial.printf("[ni] from=!%08x name='%s' short='%s' hw=%d pubkey=%s (userlen=%d)\n",
                               (unsigned)from, longn, shortn, hw, pubkey ? "YES" : "no", len);
     lz_core_on_nodeinfo(from, id[0] ? id : NULL, longn[0] ? longn : NULL,
-                        shortn[0] ? shortn : NULL, 0, NULL, snr);
+                        shortn[0] ? shortn : NULL, -1,
+                        hw > 0 ? lz_svc_mt_hw_label(hw) : NULL, snr);
     if(pubkey) { lz_core_on_pubkey(from, pubkey);   /* remember key for PKI DMs */
                  flush_pending_dm(from); }           /* send DMs that were waiting on it */
-    (void)hw;
 }
 
 /* ---- transmit one assembled frame, with a light CSMA gate ---- */

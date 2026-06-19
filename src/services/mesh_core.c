@@ -445,7 +445,53 @@ bool lz_node_messageable(const lz_node_rt *n)
     if(!LZ_MESHCORE_ENABLED && n->net == LZ_NET_MC) return false;
     /* infrastructure is not a person: Meshtastic Router/Repeater, MeshCore
      * Repeater/Sensor/Room are observable but never DM targets */
-    return strcmp(n->role, "Client") == 0 || strcmp(n->role, "Chat") == 0;
+    return strcmp(n->role, "Client") == 0 ||
+           strcmp(n->role, "ClientMute") == 0 ||
+           strcmp(n->role, "Tracker") == 0 ||
+           strcmp(n->role, "TAK") == 0 ||
+           strcmp(n->role, "Hidden") == 0 ||
+           strcmp(n->role, "LostFound") == 0 ||
+           strcmp(n->role, "TakTracker") == 0 ||
+           strcmp(n->role, "Chat") == 0;
+}
+
+const char *lz_svc_mt_role_label(int role)
+{
+    switch(role) {
+        case 0:  return "Client";
+        case 1:  return "ClientMute";
+        case 2:  return "Router";
+        case 3:  return "Router";
+        case 4:  return "Repeater";
+        case 5:  return "Tracker";
+        case 6:  return "Sensor";
+        case 7:  return "TAK";
+        case 8:  return "Hidden";
+        case 9:  return "LostFound";
+        case 10: return "TakTracker";
+        case 11: return "RouterLate";
+        default: return "Client";
+    }
+}
+
+const char *lz_svc_mt_hw_label(int hw)
+{
+    switch(hw) {
+        case 4:   return "T-Beam";
+        case 5:   return "Heltec V2";
+        case 7:   return "T-Echo";
+        case 9:   return "RAK4631";
+        case 10:  return "Heltec V2.1";
+        case 12:  return "T-Beam S3";
+        case 16:  return "T-LoRa T3S3";
+        case 43:  return "Heltec V3";
+        case 50:  return "T-Deck";
+        case 71:  return "T1000-E";
+        case 102: return "T-Deck Pro";
+        case 128: return "T1000-E Pro";
+        case 255: return "Private HW";
+        default:  return "Unknown";
+    }
 }
 
 /* ---------- node table ---------- */
@@ -1135,7 +1181,7 @@ void lz_core_on_nodeinfo(uint32_t from, const char *id, const char *long_name,
     if(long_name && long_name[0])  snprintf(n->name, sizeof n->name, "%s", long_name);
     if(short_name && short_name[0]) snprintf(n->shortcode, sizeof n->shortcode, "%s", short_name);
     if(hw && hw[0]) snprintf(n->hw, sizeof n->hw, "%s", hw);
-    if(role == 1 || role == 2) snprintf(n->role, sizeof n->role, "Router");
+    if(role >= 0) snprintf(n->role, sizeof n->role, "%s", lz_svc_mt_role_label(role));
     if(!isnan(snr)) n->snr = snr;
     n->last_heard = now_epoch();
     lz_store_save_nodes(g_nodes, g_node_count);
