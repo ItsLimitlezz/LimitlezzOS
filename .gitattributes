@@ -1,20 +1,11 @@
-# Append-only narrative docs: auto-union on merge so the 50 codex PRs that each
-# append a roadmap/inventory/changelog line don't each throw a manual conflict.
-docs/tdeck-firmware-roadmap.md      merge=union
-docs/tdeck-feature-inventory.md     merge=union
+# Union-merge ONLY genuinely append-safe files: narrative markdown docs and the
+# flat declarations/#defines header. The 50 codex PRs each append a line/block to
+# these, so union auto-resolves them. Do NOT add structured code with nested {}
+# blocks (main_sim.c, serial_cli.cpp, store.c, ...) here — line-based union splits
+# their brace structure and silently corrupts the file. Resolve those by hand.
+docs/tdeck-firmware-roadmap.md           merge=union
+docs/tdeck-feature-inventory.md          merge=union
 docs/tdeck-hardware-dogfood-checklist.md merge=union
-README.md                           merge=union
-
-# Additive scaffolding touched by many codex PRs (declarations, selftests, CLI
-# help/dispatch, sim, host scripts, CI) — union-merge to auto-resolve the
-# append conflicts. Real firmware-logic files (store.c, mesh_core.c,
-# backend_sx1262.cpp, scr_apps.c) are intentionally NOT here: resolve those by
-# hand. Build + full --selftest/--simtest run after each batch as the safety net.
-src/services/mesh.h               merge=union
-sim/main_sim.c                    merge=union
-sim/sim_radio.c                   merge=union
-src/serial_cli.cpp                merge=union
-scripts/tdeck_smoke.py            merge=union
-scripts/serial_harness.py         merge=union
-.github/workflows/firmware.yml    merge=union
-docs/tdeck-local-app-manifest.md  merge=union
+docs/tdeck-local-app-manifest.md         merge=union
+README.md                                merge=union
+src/services/mesh.h                      merge=union
