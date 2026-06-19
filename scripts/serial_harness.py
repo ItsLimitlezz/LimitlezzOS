@@ -19,7 +19,18 @@ except ImportError as exc:  # pragma: no cover - host setup guard
 
 
 PROMPT = b"lz> "
-DEFAULT_COMMANDS = ["id", "sys", "net", "rf", "stats", "wifi", "companion test"]
+DEFAULT_COMMANDS = [
+    "id",
+    "sys",
+    "net",
+    "rf",
+    "stats",
+    "wifi",
+    "dm status",
+    "nodes",
+    "companion test",
+    "companion ble",
+]
 DEFAULT_EXPECT = {
     "id": "identity:",
     "sys": "battery:",
@@ -27,7 +38,10 @@ DEFAULT_EXPECT = {
     "rf": "mode:",
     "stats": "radio:",
     "wifi": "wifi:",
+    "dm status": "delivery:",
+    "nodes": ("node(s):", "(no nodes heard yet)"),
     "companion test": "PASS",
+    "companion ble": "BLE companion:",
 }
 ROM_DOWNLOAD_MARKERS = ("waiting for download", "DOWNLOAD(USB/UART0)", "DOWNLOAD")
 
@@ -191,7 +205,11 @@ def main() -> int:
                     print(output.rstrip())
                     if not args.no_expect:
                         marker = DEFAULT_EXPECT.get(command)
-                        if marker and marker not in output:
+                        if isinstance(marker, tuple):
+                            matched = any(m in output for m in marker)
+                        else:
+                            matched = not marker or marker in output
+                        if not matched:
                             print(f"[serial] missing expected marker for '{command}': {marker}", file=sys.stderr)
                             return 2
 

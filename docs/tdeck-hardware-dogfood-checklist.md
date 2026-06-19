@@ -20,6 +20,9 @@ dogfood belong to the later roadmap phases.
   commit: `python scripts/fetch_tdeck_artifact.py`, then flash with
   `python scripts/tdeck_smoke.py --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck --port COM8`.
 - Record the firmware artifact path, size, and timestamp.
+- Keep the default smoke command set unless a test needs a narrower probe:
+  `id`, `sys`, `net`, `rf`, `stats`, `wifi`, `dm status`, `nodes`,
+  `companion test`, and `companion ble`.
 - Confirm a native simulator sanity pass:
   - Linux/macOS: `pio run -e native && .pio/build/native/program --selftest`
   - Windows: `pio run -e native; .pio\build\native\program.exe --selftest`
@@ -37,7 +40,10 @@ dogfood belong to the later roadmap phases.
 - Open the USB console at 115200 baud.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
-- Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`, and `companion ble`.
+- The default smoke now captures delivery state, heard nodes, USB companion
+  loopback, and BLE companion status. Run `help` afterward and confirm
+  diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`,
+  and `companion ble`.
 
 ## Hardware Evidence Log
 

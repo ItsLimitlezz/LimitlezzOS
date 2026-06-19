@@ -15,7 +15,18 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_COMMANDS = ["id", "sys", "net", "rf", "stats", "wifi", "companion test"]
+DEFAULT_COMMANDS = [
+    "id",
+    "sys",
+    "net",
+    "rf",
+    "stats",
+    "wifi",
+    "dm status",
+    "nodes",
+    "companion test",
+    "companion ble",
+]
 
 
 def default_port() -> str:
