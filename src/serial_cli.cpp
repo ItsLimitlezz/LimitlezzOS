@@ -69,6 +69,7 @@ static void cmd_help(void)
         "  nodes                list heard nodes\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
+        "  security [status|test|set <pin>|check <pin>|clear <pin>]\n"
         "  wifi [scan|on|off]   wifi status / control\n"
         "  sys                  battery, uptime, memory\n"
         "  id                   this node's identity\n"
@@ -366,6 +367,52 @@ static void cmd_stats(void)
                   (unsigned)st.tx_count, (unsigned)st.rx_count, st.util_pct);
 }
 
+static void cmd_security(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char b[120];
+        lz_svc_security_selftest(b, sizeof b);
+        Serial.println(b);
+        return;
+    }
+    if(args && strncmp(args, "set ", 4) == 0) {
+        char err[64] = {0};
+        if(lz_svc_security_set_pin(args + 4, err, sizeof err))
+            Serial.println("[ok] device PIN verifier set (data encryption not enabled yet)");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "PIN not set");
+        return;
+    }
+    if(args && strncmp(args, "check ", 6) == 0) {
+        Serial.println(lz_svc_security_check_pin(args + 6) ? "[ok] PIN accepted" : "[err] PIN rejected");
+        return;
+    }
+    if(args && strncmp(args, "clear ", 6) == 0) {
+        char err[64] = {0};
+        if(lz_svc_security_clear_pin(args + 6, err, sizeof err))
+            Serial.println("[ok] device PIN verifier cleared");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "PIN not cleared");
+        return;
+    }
+    if(args && args[0] && strcmp(args, "status") != 0) {
+        Serial.println("usage: security [status|test|set <pin>|check <pin>|clear <pin>]");
+        return;
+    }
+
+    lz_security_status_t st;
+    lz_svc_security_status(&st);
+    if(st.configured && st.valid) {
+        Serial.printf("security: PIN set rounds=%lu salt=%s encrypted-store=not-enabled\n",
+                      (unsigned long)st.rounds, st.salt);
+    } else if(st.configured && !st.valid) {
+        Serial.printf("security: invalid verifier error=\"%s\"\n", st.error);
+    } else {
+        Serial.printf("security: no device PIN set (%s); encrypted-store=not-enabled\n",
+                      st.error[0] ? st.error : "not configured");
+    }
+}
+
 static void print_wifi_text(const char *text)
 {
     if(!text || !text[0]) { Serial.print("(none)"); return; }
@@ -439,6 +486,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "nodes"))   cmd_nodes();
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();
+    else if(!strcmp(line, "security")) cmd_security(args);
     else if(!strcmp(line, "wifi"))    cmd_wifi(args);
     else if(!strcmp(line, "sys"))     cmd_sys();
     else if(!strcmp(line, "id"))      cmd_id();

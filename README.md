@@ -132,11 +132,12 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
-- **Security**: optional device **password/PIN**, and **encrypt the data files**
-  (messages, identity, keys) when a password is set.
-- **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
-  (`/limitlezz/wifi.cfg`) — move to NVS or encrypt (covered by the above when a
-  password is set).
+- **Device security** - optional device PIN verifier with serial
+  `security status`, `security set`, `security check`, `security clear`, and
+  `security test`; this is setup groundwork and does not encrypt local data yet.
+- **Security still ahead**: use the PIN/password secret to encrypt message
+  history, identity, keys, and app data, with honest recovery wording when a PIN
+  is forgotten.
 
 ## Audit and completion plan
 
@@ -144,6 +145,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
+- [`docs/tdeck-device-security.md`](docs/tdeck-device-security.md) - device PIN verifier contract and remaining encrypted-store work.
 
 ![screens](docs/screens.png)
 

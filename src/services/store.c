@@ -17,11 +17,16 @@
  * everything RAM-only.
  */
 #include "mesh.h"
+#include "mc_crypto.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <sys/stat.h>
+#ifdef LZ_TARGET_TDECK
+#include "esp_system.h"
+#endif
 #ifdef _WIN32
 #include <direct.h>
 #else
@@ -1188,6 +1193,263 @@ static void remove_legacy_wifi_file(void)
     char path[128];
     path_for(path, sizeof path, "wifi.cfg");
     remove(path);
+}
+
+/* ---- device PIN verifier ----
+ *
+ * First Phase 12 security increment. This stores only a salted, iterated
+ * verifier for an optional device PIN. It does not encrypt user data yet.
+ */
+
+static bool is_hex_n(const char *s, int n)
+{
+    if(!s) return false;
+    for(int i = 0; i < n; i++) {
+        char c = s[i];
+        bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                  (c >= 'A' && c <= 'F');
+        if(!ok) return false;
+    }
+    return s[n] == 0;
+}
+
+static void hex32(char out[65], const uint8_t in[32])
+{
+    static const char *h = "0123456789abcdef";
+    for(int i = 0; i < 32; i++) {
+        out[i * 2] = h[in[i] >> 4];
+        out[i * 2 + 1] = h[in[i] & 15];
+    }
+    out[64] = 0;
+}
+
+static void set_security_err(char *err, int cap, const char *msg)
+{
+    if(err && cap > 0) snprintf(err, (size_t)cap, "%s", msg ? msg : "security error");
+}
+
+static bool valid_pin(const char *pin, char *err, int cap)
+{
+    if(!pin) {
+        set_security_err(err, cap, "missing PIN");
+        return false;
+    }
+    int n = (int)strlen(pin);
+    if(n < LZ_SECURITY_PIN_MIN || n > LZ_SECURITY_PIN_MAX) {
+        set_security_err(err, cap, "PIN length must be 4-12 digits");
+        return false;
+    }
+    for(int i = 0; i < n; i++) {
+        if(pin[i] < '0' || pin[i] > '9') {
+            set_security_err(err, cap, "PIN must use digits only");
+            return false;
+        }
+    }
+    set_security_err(err, cap, "");
+    return true;
+}
+
+static uint32_t security_random32(void)
+{
+#ifdef LZ_TARGET_TDECK
+    return esp_random();
+#else
+    static uint32_t ctr = 0x6c7a5049u;
+    uintptr_t mix = (uintptr_t)&ctr ^ (uintptr_t)g_dir;
+    uint32_t t = (uint32_t)time(NULL);
+    ctr = ctr * 1664525u + 1013904223u + t + (uint32_t)mix;
+    return ctr ^ (uint32_t)(mix >> 16);
+#endif
+}
+
+static void security_make_salt(char out[17])
+{
+    uint8_t raw[8];
+    uint32_t a = security_random32();
+    uint32_t b = security_random32();
+    memcpy(raw, &a, 4);
+    memcpy(raw + 4, &b, 4);
+    static const char *h = "0123456789abcdef";
+    for(int i = 0; i < 8; i++) {
+        out[i * 2] = h[raw[i] >> 4];
+        out[i * 2 + 1] = h[raw[i] & 15];
+    }
+    out[16] = 0;
+}
+
+static void security_pin_kdf(const char *pin, const char *salt, uint32_t rounds, char out_hex[65])
+{
+    uint8_t digest[32];
+    lz_sha256_ctx c;
+    lz_sha256_init(&c);
+    lz_sha256_update(&c, (const uint8_t *)"limitlezz.pin.v1", 16);
+    lz_sha256_update(&c, (const uint8_t *)salt, strlen(salt));
+    lz_sha256_update(&c, (const uint8_t *)pin, strlen(pin));
+    lz_sha256_final(&c, digest);
+
+    if(rounds < 1) rounds = 1;
+    for(uint32_t i = 1; i < rounds; i++) {
+        uint8_t ctr[4];
+        ctr[0] = (uint8_t)(i & 0xFF);
+        ctr[1] = (uint8_t)((i >> 8) & 0xFF);
+        ctr[2] = (uint8_t)((i >> 16) & 0xFF);
+        ctr[3] = (uint8_t)((i >> 24) & 0xFF);
+        lz_sha256_init(&c);
+        lz_sha256_update(&c, digest, sizeof digest);
+        lz_sha256_update(&c, (const uint8_t *)salt, strlen(salt));
+        lz_sha256_update(&c, ctr, sizeof ctr);
+        lz_sha256_final(&c, digest);
+    }
+    hex32(out_hex, digest);
+}
+
+static bool security_load(char salt[17], char verifier[65], uint32_t *rounds,
+                          lz_security_status_t *status)
+{
+    if(status) {
+        memset(status, 0, sizeof *status);
+        status->valid = true;
+        snprintf(status->error, sizeof status->error, "not configured");
+    }
+    if(!g_persist) {
+        if(status) snprintf(status->error, sizeof status->error, "storage unavailable");
+        return false;
+    }
+
+    char path[128];
+    path_for(path, sizeof path, "security.cfg");
+    FILE *f = fopen(path, "r");
+    if(!f) return false;
+    char line[180];
+    bool have_line = fgets(line, sizeof line, f) != NULL;
+    fclose(f);
+    if(!have_line) {
+        if(status) {
+            status->configured = true;
+            status->valid = false;
+            snprintf(status->error, sizeof status->error, "empty verifier");
+        }
+        return false;
+    }
+    line[strcspn(line, "\r\n")] = 0;
+    char *cur = line;
+    char *ver = field(&cur), *kind = field(&cur), *roundf = field(&cur),
+         *saltf = field(&cur), *hashf = cur;
+    char *rend = NULL;
+    unsigned long r = roundf ? strtoul(roundf, &rend, 10) : 0;
+    bool ok = ver && strcmp(ver, "1") == 0 &&
+              kind && strcmp(kind, "pin-sha256") == 0 &&
+              roundf && saltf && hashf &&
+              is_hex_n(saltf, 16) && is_hex_n(hashf, 64) &&
+              rend && *rend == 0 &&
+              r >= 1 && r <= 65536u;
+    if(!ok) {
+        if(status) {
+            status->configured = true;
+            status->valid = false;
+            snprintf(status->error, sizeof status->error, "corrupt verifier");
+        }
+        return false;
+    }
+    if(salt) snprintf(salt, 17, "%s", saltf);
+    if(verifier) snprintf(verifier, 65, "%s", hashf);
+    if(rounds) *rounds = (uint32_t)r;
+    if(status) {
+        status->configured = true;
+        status->valid = true;
+        status->rounds = (uint32_t)r;
+        snprintf(status->salt, sizeof status->salt, "%s", saltf);
+        snprintf(status->error, sizeof status->error, "ok");
+    }
+    return true;
+}
+
+bool lz_store_security_status(lz_security_status_t *out)
+{
+    return security_load(NULL, NULL, NULL, out);
+}
+
+bool lz_store_security_set_pin(const char *pin, char *err, int err_cap)
+{
+    if(!valid_pin(pin, err, err_cap)) return false;
+    if(!g_persist) {
+        set_security_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    char salt[17], verifier[65];
+    security_make_salt(salt);
+    security_pin_kdf(pin, salt, LZ_SECURITY_KDF_ROUNDS, verifier);
+
+    char path[128], tmp[132];
+    path_for(path, sizeof path, "security.cfg");
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if(!f) {
+        set_security_err(err, err_cap, "verifier write failed");
+        return false;
+    }
+    fprintf(f, "1|pin-sha256|%u|%s|%s\n",
+            (unsigned)LZ_SECURITY_KDF_ROUNDS, salt, verifier);
+    fclose(f);
+    remove(path);
+    if(rename(tmp, path) != 0) {
+        remove(tmp);
+        set_security_err(err, err_cap, "verifier save failed");
+        return false;
+    }
+    set_security_err(err, err_cap, "ok");
+    return true;
+}
+
+bool lz_store_security_check_pin(const char *pin)
+{
+    if(!valid_pin(pin, NULL, 0)) return false;
+    char salt[17], verifier[65], probe[65];
+    uint32_t rounds = 0;
+    if(!security_load(salt, verifier, &rounds, NULL)) return false;
+    security_pin_kdf(pin, salt, rounds, probe);
+    unsigned diff = 0;
+    for(int i = 0; i < 64; i++) diff |= (unsigned char)(probe[i] ^ verifier[i]);
+    return diff == 0;
+}
+
+bool lz_store_security_clear_pin(const char *pin, char *err, int err_cap)
+{
+    lz_security_status_t st;
+    bool configured = security_load(NULL, NULL, NULL, &st);
+    if(st.configured && !st.valid) {
+        set_security_err(err, err_cap, st.error);
+        return false;
+    }
+    if(!configured) {
+        set_security_err(err, err_cap, "not configured");
+        return true;
+    }
+    if(!lz_store_security_check_pin(pin)) {
+        set_security_err(err, err_cap, "PIN rejected");
+        return false;
+    }
+    char path[128];
+    path_for(path, sizeof path, "security.cfg");
+    remove(path);
+    set_security_err(err, err_cap, "ok");
+    return true;
+}
+
+int lz_store_security_selftest(char *buf, int n)
+{
+    if(!buf || n <= 0) return 0;
+    char err[64] = {0};
+    char a[65], b[65], c[65];
+    security_pin_kdf("123456", "0011223344556677", 32, a);
+    security_pin_kdf("123456", "0011223344556677", 32, b);
+    security_pin_kdf("123457", "0011223344556677", 32, c);
+    bool pass = valid_pin("1234", err, sizeof err) &&
+                !valid_pin("12ab", err, sizeof err) &&
+                strcmp(a, b) == 0 && strcmp(a, c) != 0 && is_hex_n(a, 64);
+    return snprintf(buf, (size_t)n, "PIN verifier selftest: %s min=%d max=%d rounds=%u",
+                    pass ? "PASS" : "FAIL", LZ_SECURITY_PIN_MIN,
+                    LZ_SECURITY_PIN_MAX, (unsigned)LZ_SECURITY_KDF_ROUNDS);
 }
 
 int lz_store_load_threads(lz_thread_rt *out, int cap)

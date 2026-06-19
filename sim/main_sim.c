@@ -718,7 +718,47 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
-    /* 10. local app scanner: valid manifests become local apps; broken packages
+    /* 10. Device PIN verifier: stores only a bounded salted verifier for the
+     *     first Phase 12 setup gate; encryption lands in later slices. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern bool lz_store_security_status(lz_security_status_t *out);
+        extern bool lz_store_security_set_pin(const char *pin, char *err, int err_cap);
+        extern bool lz_store_security_check_pin(const char *pin);
+        extern bool lz_store_security_clear_pin(const char *pin, char *err, int err_cap);
+        extern int  lz_store_security_selftest(char *buf, int n);
+        sim_reset_dir("lzdata_security");
+        lz_store_init("lzdata_security");
+        lz_security_status_t sec;
+        CHECK(!lz_store_security_status(&sec) && !sec.configured && sec.valid,
+              "security status starts with no PIN");
+        char err[64] = {0};
+        CHECK(!lz_store_security_set_pin("12ab", err, sizeof err) &&
+              strcmp(err, "PIN must use digits only") == 0,
+              "security PIN rejects non-digits");
+        CHECK(lz_store_security_set_pin("123456", err, sizeof err),
+              "security PIN verifier stores");
+        CHECK(lz_store_security_status(&sec) && sec.configured && sec.valid &&
+              sec.rounds == LZ_SECURITY_KDF_ROUNDS,
+              "security status reports configured verifier");
+        CHECK(lz_store_security_check_pin("123456"), "security PIN accepts correct value");
+        CHECK(!lz_store_security_check_pin("000000"), "security PIN rejects wrong value");
+        CHECK(!lz_store_security_clear_pin("000000", err, sizeof err) &&
+              strcmp(err, "PIN rejected") == 0,
+              "security clear requires correct PIN");
+        CHECK(lz_store_security_clear_pin("123456", err, sizeof err),
+              "security PIN verifier clears");
+        CHECK(!lz_store_security_status(&sec) && !sec.configured,
+              "security status returns to no PIN");
+        char diag[120];
+        lz_store_security_selftest(diag, sizeof diag);
+        CHECK(strstr(diag, "PASS") != NULL && strstr(diag, "rounds=") != NULL,
+              "security PIN selftest reports parser/KDF pass");
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_security");
+    }
+
+    /* 11. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);
@@ -946,7 +986,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appscan");
     }
 
-    /* 10. service-level SDK token injection: dynamic read-only values are
+    /* 12. service-level SDK token injection: dynamic read-only values are
      *     expanded only when the matching permissions are declared. */
     {
         extern void lz_store_init(const char *datadir);
@@ -1018,7 +1058,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_apptokens");
     }
 
-    /* 11. appfs root support: apps can be discovered from appfs even when
+    /* 13. appfs root support: apps can be discovered from appfs even when
      *     SD-backed persistence is absent, and Files can expose both roots. */
     {
         extern void lz_store_init(const char *datadir);
@@ -1048,7 +1088,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appfsroot");
     }
 
-    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 14. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -1082,7 +1122,7 @@ static int codec_selftest(void)
               strcmp(rm.text, "hi there") == 0, "MeshCore GRP_TXT round-trip fields");
     }
 
-    /* 13. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
+    /* 15. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
      *     full encode->parse->decode round-trip + ACK match + MAC tamper check. */
     {
         uint8_t seedA[32], pubA[32], pubB[32], ref[32];

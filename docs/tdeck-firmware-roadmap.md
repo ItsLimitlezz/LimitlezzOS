@@ -389,9 +389,16 @@ Exit criteria:
 
 Goal: protect the user's local data without making setup hard.
 
+**Status:** partial. Implemented: a bounded optional device PIN verifier stored
+as salted, iterated SHA-256; serial `security status`, `security set`,
+`security check`, `security clear`, and `security test`; native selftest
+coverage. Local data encryption, migration, UI, and recovery wording remain
+TODO.
+
 Deliverables:
 
-- Add optional device PIN/password.
+- Add optional device PIN/password. Implemented as the first PIN verifier
+  groundwork in `docs/tdeck-device-security.md`; UI and unlock flow remain TODO.
 - Use the secret to encrypt:
   - message history
   - identity
