@@ -34,6 +34,10 @@ dogfood belong to the later roadmap phases.
   or the same command with the Linux serial device path.
 - For serial CLI smoke without flashing, run `python scripts/tdeck_smoke.py --skip-upload --port COM8`
   on the Windows rig or pass the Linux/macOS device path such as `/dev/ttyACM0`.
+- The standard read-only smoke command set retries one no-reset serial reattach
+  automatically after a timeout, which covers the COM8 post-flash USB handoff
+  case without reflashing. For custom command lists, pass `--reattach-retries N`
+  only when repeating the command sequence is safe.
 - Open the USB console at 115200 baud.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.

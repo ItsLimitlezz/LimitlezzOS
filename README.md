@@ -254,6 +254,9 @@ On the Windows COM8 T-Deck, the ROM stub upload path can be flaky. Use
 through PlatformIO's packaged `esptool.py --no-stub`, and run the serial CLI
 smoke in one pass. PowerShell users can run the same flow with
 `powershell -ExecutionPolicy Bypass -File scripts\tdeck_smoke.ps1 -Port COM8 -NoStubUpload`.
+For the standard read-only smoke commands, `tdeck_smoke.py` now automatically
+tries one no-reset serial reattach if the first post-flash console attach times
+out; custom command lists do not retry unless `--reattach-retries` is provided.
 
 **GitHub Actions artifact → local T-Deck** (fast remote build, local hardware proof):
 
