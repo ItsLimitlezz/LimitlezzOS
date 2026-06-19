@@ -150,6 +150,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-troubleshooting.md`](docs/tdeck-troubleshooting.md) - build, flash, boot, radio, storage, Wi-Fi, and companion troubleshooting.
 - [`docs/tdeck-user-guide.md`](docs/tdeck-user-guide.md) - practical on-device user guide.
 - [`docs/tdeck-app-developer-guide.md`](docs/tdeck-app-developer-guide.md) - SDK 0.1 local app developer guide.
+- [`docs/tdeck-hardware-test-matrix.md`](docs/tdeck-hardware-test-matrix.md) - release-candidate hardware validation matrix.
 
 ![screens](docs/screens.png)
 

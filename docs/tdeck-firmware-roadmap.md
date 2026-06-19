@@ -430,7 +430,7 @@ Deliverables:
   - screenshot generation where host supports SDL2
   - size budget
   - protocol unit tests/test vectors
-- Hardware test matrix:
+- Hardware test matrix. Initial release validation matrix is implemented in `docs/tdeck-hardware-test-matrix.md`:
   - T-Deck and T-Deck Plus
   - SD present/absent
   - Wi-Fi present/absent
