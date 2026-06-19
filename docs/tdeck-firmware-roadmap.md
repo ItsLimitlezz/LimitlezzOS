@@ -323,7 +323,9 @@ Goal: let users install and update apps from a repository.
 Deliverables:
 
 - Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired.
-- Fetch catalog over Wi-Fi.
+- Fetch catalog over Wi-Fi. Initial implementation: bounded T-Deck HTTP/HTTPS
+  catalog fetch transport gated on connected Wi-Fi, with native simulator stub
+  coverage for URL/buffer errors.
 - Cache catalog for offline browsing.
 - Download app zip/package.
 - Verify SHA256 before install.

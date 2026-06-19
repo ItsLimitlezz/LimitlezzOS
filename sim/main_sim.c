@@ -31,6 +31,7 @@
 #include "lvgl.h"
 #include "ui/ui.h"
 #include "services/mesh.h"
+#include "services/app_catalog_fetch.h"
 #include "services/mtproto.h"
 #include "services/mcproto.h"
 #include "services/mc_x25519.h"
@@ -718,7 +719,29 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
-    /* 10. local app scanner: valid manifests become local apps; broken packages
+    /* 10. app catalog fetch transport: native keeps this as a deterministic
+     *     no-network stub; T-Deck provides the Wi-Fi HTTP implementation. */
+    {
+        char body[96];
+        char err[48];
+        int body_len = 7;
+        CHECK(!lz_app_catalog_fetch("ftp://example.invalid/index.json", body, sizeof body,
+                                    &body_len, err, sizeof err) &&
+                  body_len == 0 && strcmp(err, "bad url") == 0,
+              "app catalog fetch rejects unsupported URL schemes");
+        body_len = 7;
+        CHECK(!lz_app_catalog_fetch("https://example.invalid/index.json", body, 1,
+                                    &body_len, err, sizeof err) &&
+                  body_len == 0 && strcmp(err, "catalog buffer small") == 0,
+              "app catalog fetch rejects tiny output buffer");
+        body_len = 7;
+        CHECK(!lz_app_catalog_fetch("https://example.invalid/index.json", body, sizeof body,
+                                    &body_len, err, sizeof err) &&
+                  body_len == 0 && strcmp(err, "fetch unavailable") == 0,
+              "app catalog fetch native stub is explicit");
+    }
+
+    /* 11. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);
