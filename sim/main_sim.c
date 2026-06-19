@@ -946,7 +946,63 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appscan");
     }
 
-    /* 10. service-level SDK token injection: dynamic read-only values are
+    /* 11. network app catalog schema: validate bounded future install indexes
+     *     before fetch/download/install code trusts them. */
+    {
+        static const char valid_catalog[] =
+            "{\"schema\":\"limitlezz.app_catalog.v1\",\"updated\":\"2026-06-18T00:00:00Z\","
+            "\"apps\":["
+            "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
+            "\"author\":\"Limitless\",\"description\":\"Local weather reports\","
+            "\"icon\":\"weather\",\"hue\":48,\"api_version\":\"0.1\","
+            "\"compatibility\":\"tdeck\",\"permissions\":[\"display\",\"network_wifi\"],"
+            "\"download_url\":\"https://apps.example.invalid/weather.mesh.zip\","
+            "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+            "\"size\":32768,\"screenshots\":[\"https://apps.example.invalid/weather.bmp\"]},"
+            "{\"id\":\"notes.local\",\"name\":\"Field Notes\",\"version\":\"0.1.0\","
+            "\"author\":\"Limitless\",\"description\":\"Simple local notes\","
+            "\"icon\":\"notes\",\"api_version\":\"0.1\",\"compatibility\":\"tdeck\","
+            "\"permissions\":[\"display\",\"input\",\"storage\"],"
+            "\"download_url\":\"https://apps.example.invalid/notes.local.zip\","
+            "\"sha256\":\"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd\","
+            "\"size\":49152}]}";
+        static const char bad_catalog[] =
+            "{\"schema\":\"limitlezz.app_catalog.v1\",\"apps\":["
+            "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
+            "\"author\":\"Limitless\",\"description\":\"Bad catalog\",\"icon\":\"weather\","
+            "\"api_version\":\"0.1\",\"compatibility\":\"tdeck\","
+            "\"permissions\":[\"display\",\"raw_radio\"],"
+            "\"download_url\":\"file:///sd/apps/weather.zip\","
+            "\"sha256\":\"bad\",\"size\":0}]}";
+
+        lz_app_catalog_report_t report;
+        CHECK(lz_svc_validate_app_catalog_json(valid_catalog, &report) &&
+              report.ok && report.app_count == 2 && report.rejected_count == 0,
+              "app catalog schema accepts valid bounded index");
+        CHECK(!lz_svc_validate_app_catalog_json(bad_catalog, &report) &&
+              !report.ok && report.rejected_count == 1 &&
+              strcmp(report.first_error, "bad download_url") == 0,
+              "app catalog schema rejects unsafe download URL");
+        char self[160];
+        lz_svc_app_catalog_selftest(self, sizeof self);
+        CHECK(strstr(self, "PASS") != NULL,
+              "app catalog selftest covers valid and invalid indexes");
+
+        extern void lz_store_init(const char *datadir);
+        sim_reset_dir("lzdata_catalog");
+        sim_mkdirs("lzdata_catalog/catalog");
+        FILE *cf = fopen("lzdata_catalog/catalog/index.json", "wb");
+        if(cf) { fputs(valid_catalog, cf); fclose(cf); }
+        lz_store_init("lzdata_catalog");
+        char diag[160];
+        lz_svc_app_catalog_diag(diag, sizeof diag);
+        CHECK(strstr(diag, "ready apps=2") != NULL,
+              "app catalog diagnostics report cached index");
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_catalog");
+    }
+
+    /* 12. service-level SDK token injection: dynamic read-only values are
      *     expanded only when the matching permissions are declared. */
     {
         extern void lz_store_init(const char *datadir);
@@ -1018,7 +1074,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_apptokens");
     }
 
-    /* 11. appfs root support: apps can be discovered from appfs even when
+    /* 13. appfs root support: apps can be discovered from appfs even when
      *     SD-backed persistence is absent, and Files can expose both roots. */
     {
         extern void lz_store_init(const char *datadir);
@@ -1048,7 +1104,7 @@ static int codec_selftest(void)
         sim_reset_dir("lzdata_appfsroot");
     }
 
-    /* 11. MeshCore Public-channel GRP_TXT: decode a known reference vector,
+    /* 14. MeshCore Public-channel GRP_TXT: decode a known reference vector,
      *    reject a wrong key (MAC), and round-trip an encode. Vector generated
      *    against the documented scheme (AES-128-ECB + HMAC-SHA256 trunc-2). */
     {
@@ -1082,7 +1138,7 @@ static int codec_selftest(void)
               strcmp(rm.text, "hi there") == 0, "MeshCore GRP_TXT round-trip fields");
     }
 
-    /* 13. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
+    /* 15. MeshCore DM (TXT_MSG): ECDH derive (vs orlp/standard reference) then a
      *     full encode->parse->decode round-trip + ACK match + MAC tamper check. */
     {
         uint8_t seedA[32], pubA[32], pubB[32], ref[32];

@@ -322,7 +322,7 @@ Goal: let users install and update apps from a repository.
 
 Deliverables:
 
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired.
+- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired. Implemented: a bounded `limitlezz.app_catalog.v1` validator rejects unsafe IDs, unsupported permissions/SDK versions, non-HTTP package URLs, bad SHA256 values, oversize packages, and malformed optional screenshots; serial `app catalog status|test` exposes the result without requiring Wi-Fi.
 - Fetch catalog over Wi-Fi.
 - Cache catalog for offline browsing.
 - Download app zip/package.

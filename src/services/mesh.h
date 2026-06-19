@@ -34,6 +34,8 @@ extern "C" {
 #define LZ_LOCAL_APP_ACTION_MAX 2
 #define LZ_LOCAL_APP_ACTION_EFFECT_MAX 32
 #define LZ_LOCAL_APP_ACTION_BODY_MAX 192
+#define LZ_APP_CATALOG_JSON_MAX 4096u
+#define LZ_APP_CATALOG_MAX_APPS 24
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -196,6 +198,14 @@ typedef struct {
 } lz_local_app_issue_t;
 
 typedef struct {
+    bool ok;
+    int  app_count;
+    int  rejected_count;
+    char first_id[24];
+    char first_error[64];
+} lz_app_catalog_report_t;
+
+typedef struct {
     char label[24];              /* app-provided foreground control label */
     char status[48];             /* bounded status shown after activation */
     char effect[LZ_LOCAL_APP_ACTION_EFFECT_MAX]; /* optional safe SDK effect */
@@ -234,6 +244,9 @@ bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *
 bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
+bool lz_svc_validate_app_catalog_json(const char *json, lz_app_catalog_report_t *out);
+int  lz_svc_app_catalog_diag(char *buf, int n);
+int  lz_svc_app_catalog_selftest(char *buf, int n);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

@@ -127,8 +127,10 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   parsed fail-closed, with rejected package diagnostics visible in Developer
   Mode. Apps that request `storage` get a scoped package `data/` directory
   prepared with a 64 KB launch-time quota guard, and the App Store detail screen
-  can clear only that app's scoped data. Script execution, richer API injection,
-  downloads, and updates are still TODO.
+  can clear only that app's scoped data. The future network catalog now has a
+  bounded `index.json` schema validator and serial `app catalog status|test`
+  diagnostics. Script execution, richer API injection, catalog fetch, downloads,
+  and updates are still TODO.
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
@@ -144,6 +146,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
+- [`docs/tdeck-app-catalog-schema.md`](docs/tdeck-app-catalog-schema.md) - first Network App Store catalog schema.
 
 ![screens](docs/screens.png)
 
@@ -300,8 +303,9 @@ for local apps and read-only inspection when present.
   clears scoped app data on request, opens a manifest detail shell, and launches
   local apps into the SDK 0.1 foreground shell with bounded app-provided actions
   and scoped storage counters plus read-only `{time}` / `{battery}` tokens;
-  unsupported action effects launch-block instead of being ignored; the static
-  catalog remains a prototype (GET -> "..." -> OPEN).
+  unsupported action effects launch-block instead of being ignored; network
+  catalog schema validation exists, while fetch/download/install remains ahead;
+  the static catalog remains a prototype (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

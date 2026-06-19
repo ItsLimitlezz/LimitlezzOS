@@ -63,6 +63,7 @@ static void cmd_help(void)
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
         "  companion test       loopback-verify the companion protocol\n"
+        "  app catalog status|test  app catalog schema diagnostics\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
@@ -323,6 +324,24 @@ static void cmd_companion(char *args)
     if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
+static void cmd_app(char *args)
+{
+    if(args && strcmp(args, "catalog test") == 0) {
+        char b[180];
+        lz_svc_app_catalog_selftest(b, sizeof b);
+        Serial.print(b);
+        return;
+    }
+    if(!args || !args[0] || strcmp(args, "catalog") == 0 ||
+       strcmp(args, "catalog status") == 0) {
+        char b[180];
+        lz_svc_app_catalog_diag(b, sizeof b);
+        Serial.print(b);
+        return;
+    }
+    Serial.println("usage: app catalog status | app catalog test");
+}
+
 static void cmd_nodes(void)
 {
     const lz_node_rt *nodes;
@@ -429,6 +448,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "rf"))      cmd_rf(args);
     else if(!strcmp(line, "mc"))      cmd_mc(args);
     else if(!strcmp(line, "companion")) cmd_companion(args);
+    else if(!strcmp(line, "app"))     cmd_app(args);
     else if(!strcmp(line, "touch"))   cmd_touch(args);
     else if(!strcmp(line, "dm"))      cmd_dm(args);
     else if(!strcmp(line, "rxlog")) {
