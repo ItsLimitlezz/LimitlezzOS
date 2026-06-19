@@ -365,6 +365,11 @@ Goal: make physical feedback coherent and safety-oriented.
 Deliverables:
 
 - Implement Feedback Manager as the only owner of LED, buzzer, keyboard backlight notification pulses, and screen wake feedback.
+- Centralize DND/priority policy before hardware ownership. Initial foundation
+  implemented in `src/services/feedback.*`: normal messages, direct messages,
+  app notifications, system critical, OTA progress/failure, and emergency now
+  share one policy matrix with selftest coverage and a `feedback` serial
+  diagnostic.
 - Add DND modes and priority queue:
   - normal messages
   - direct messages

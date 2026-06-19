@@ -31,6 +31,7 @@
 #include "lvgl.h"
 #include "ui/ui.h"
 #include "services/mesh.h"
+#include "services/feedback.h"
 #include "services/mtproto.h"
 #include "services/mcproto.h"
 #include "services/mc_x25519.h"
@@ -663,7 +664,43 @@ static int codec_selftest(void)
         CHECK(!mt_telemetry_decode(bad, sizeof bad, &tb), "TELEMETRY oversized submsg rejected");
     }
 
-    /* 8. store delivery-metadata round-trip: updating a DM that is NOT the first
+    /* 8. feedback DND/priority policy: normal events can be queued silently,
+     *    while critical and emergency events break through as designed. */
+    {
+        lz_feedback_decision_t d;
+        CHECK(lz_feedback_dnd_clamp(99) == LZ_FEEDBACK_DND_OFF,
+              "feedback DND mode clamps to off");
+        CHECK(lz_feedback_event_clamp(99) == LZ_FEEDBACK_EVENT_MESSAGE,
+              "feedback event clamps to message");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_OFF, LZ_FEEDBACK_EVENT_MESSAGE);
+        CHECK(d.queue && d.present && d.wake_screen && !d.buzz,
+              "feedback normal message wakes silently when DND is off");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_PRIORITY, LZ_FEEDBACK_EVENT_MESSAGE);
+        CHECK(d.queue && !d.present && !d.wake_screen,
+              "feedback priority DND queues normal messages");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_PRIORITY, LZ_FEEDBACK_EVENT_DIRECT);
+        CHECK(d.present && d.wake_screen && !d.bypass_dnd,
+              "feedback priority DND allows direct messages");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_SILENT, LZ_FEEDBACK_EVENT_DIRECT);
+        CHECK(d.queue && !d.present,
+              "feedback silent DND queues direct messages");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_SILENT, LZ_FEEDBACK_EVENT_SYSTEM);
+        CHECK(d.present && d.bypass_dnd && !d.buzz,
+              "feedback silent DND lets critical system events through quietly");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_EMERGENCY, LZ_FEEDBACK_EVENT_OTA_FAILURE);
+        CHECK(d.queue && !d.present,
+              "feedback emergency DND queues OTA failures");
+        d = lz_feedback_decide(LZ_FEEDBACK_DND_EMERGENCY, LZ_FEEDBACK_EVENT_EMERGENCY);
+        CHECK(d.present && d.bypass_dnd && d.buzz,
+              "feedback emergency bypasses DND with buzzer intent");
+        char diag[700];
+        int dn = lz_feedback_policy_diag(diag, sizeof diag);
+        CHECK(dn > 0 && strstr(diag, "silent: message=queued") != NULL &&
+              strstr(diag, "emergency=show+buzz+bypass") != NULL,
+              "feedback policy diagnostic summarizes DND matrix");
+    }
+
+    /* 9. store delivery-metadata round-trip: updating a DM that is NOT the first
      *    self-record must not desync the scan over the preceding v3 meta record. */
     {
         extern void lz_store_init(const char *datadir);

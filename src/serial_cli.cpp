@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include "services/mesh.h"
+#include "services/feedback.h"
 #include "services/wifi.h"
 #include "ui/ui.h"
 
@@ -64,6 +65,7 @@ static void cmd_help(void)
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
+        "  feedback             show DND/priority feedback policy\n"
         "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
         "  nodes                list heard nodes\n"
@@ -268,6 +270,13 @@ static void cmd_dm(char *args)
     Serial.println("usage: dm status | dm test | dm req <shortcode> | dm send <shortcode> <text>");
 }
 
+static void cmd_feedback(void)
+{
+    char b[760];
+    lz_feedback_policy_diag(b, sizeof b);
+    Serial.print(b);
+}
+
 static void cmd_touch(char *args)
 {
     if(args && strcmp(args, "cal") == 0) {
@@ -430,6 +439,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "mc"))      cmd_mc(args);
     else if(!strcmp(line, "companion")) cmd_companion(args);
     else if(!strcmp(line, "touch"))   cmd_touch(args);
+    else if(!strcmp(line, "feedback")) cmd_feedback();
     else if(!strcmp(line, "dm"))      cmd_dm(args);
     else if(!strcmp(line, "rxlog")) {
         bool on = !(args && strcmp(args, "off") == 0);
