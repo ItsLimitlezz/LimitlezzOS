@@ -703,7 +703,11 @@ static int codec_selftest(void)
         extern void lz_store_init(const char *datadir);
         extern void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect);
         extern bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect);
+        extern void lz_store_save_nodes(const lz_node_rt *nodes, int n);
+        extern int  lz_store_load_nodes(lz_node_rt *out, int cap);
+        extern bool lz_store_nodes_selftest(char *err, int err_cap);
         remove("./wifi.cfg");
+        remove("./nodes.db");
         lz_store_init(".");
         lz_store_save_wifi("TrailNet", "ridge-pass", 0);
         char ssid[33] = {0}, pass[64] = {0}; int ac = 1;
@@ -714,7 +718,45 @@ static int codec_selftest(void)
         lz_store_save_wifi("", "", 1);
         CHECK(!lz_store_load_wifi(ssid, sizeof ssid, pass, sizeof pass, &ac),
               "store: Wi-Fi forget clears saved network");
+        char node_err[64];
+        CHECK(lz_store_nodes_selftest(node_err, sizeof node_err),
+              "store: node DB schema migration selftest");
+        lz_node_rt saved_node;
+        memset(&saved_node, 0, sizeof saved_node);
+        saved_node.num = 0x7c3af1d0u;
+        snprintf(saved_node.id, sizeof saved_node.id, "!7c3af1d0");
+        snprintf(saved_node.name, sizeof saved_node.name, "Trail Relay");
+        snprintf(saved_node.shortcode, sizeof saved_node.shortcode, "TRLY");
+        saved_node.net = LZ_NET_MT;
+        snprintf(saved_node.role, sizeof saved_node.role, "Router");
+        saved_node.snr = -5.5f;
+        saved_node.batt = 92;
+        saved_node.contact = true;
+        saved_node.last_heard = 1700000123u;
+        saved_node.pos_flags = LZ_NODE_POS_VALID | LZ_NODE_POS_ALT;
+        saved_node.lat_i = 451234567;
+        saved_node.lon_i = -751234567;
+        saved_node.alt_m = 321;
+        saved_node.telem_flags = LZ_NODE_TEL_VOLT | LZ_NODE_TEL_UPTIME;
+        saved_node.voltage_mv = 4010;
+        saved_node.uptime_s = 1200;
+        lz_store_save_nodes(&saved_node, 1);
+        FILE *nf = fopen("./nodes.db", "r");
+        char hdr[32] = {0};
+        bool header_ok = nf && fgets(hdr, sizeof hdr, nf) &&
+                         strstr(hdr, "# lz_nodes 2") != NULL;
+        if(nf) fclose(nf);
+        CHECK(header_ok, "store: node DB writes schema header");
+        lz_node_rt loaded_node[2];
+        memset(loaded_node, 0, sizeof loaded_node);
+        int loaded_n = lz_store_load_nodes(loaded_node, 2);
+        CHECK(loaded_n == 1 && loaded_node[0].num == saved_node.num &&
+                  loaded_node[0].contact && loaded_node[0].pos_flags == saved_node.pos_flags &&
+                  loaded_node[0].telem_flags == saved_node.telem_flags &&
+                  loaded_node[0].voltage_mv == 4010 && loaded_node[0].uptime_s == 1200,
+              "store: node DB v2 round-trip");
         remove("./wifi.cfg");
+        remove("./nodes.db");
         lz_store_init(NULL);
     }
 

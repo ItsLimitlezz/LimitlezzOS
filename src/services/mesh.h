@@ -109,6 +109,7 @@ typedef struct {
 #define LZ_NODE_TEL_HUM     0x04u
 #define LZ_NODE_TEL_PRESS   0x08u
 #define LZ_NODE_TEL_UPTIME  0x10u
+#define LZ_NODE_DB_SCHEMA_VERSION 2u
 
 typedef struct {
     uint32_t num;                /* node number (low 32 of MAC on Meshtastic) */
@@ -291,6 +292,7 @@ typedef struct {
 
 void lz_store_save_settings(const lz_user_settings_t *s);
 bool lz_store_load_settings(lz_user_settings_t *s);
+bool lz_store_nodes_selftest(char *err, int err_cap);
 
 /* ---- time ---- */
 void lz_svc_set_time(uint32_t epoch);                     /* set UTC (e.g. NTP) */
