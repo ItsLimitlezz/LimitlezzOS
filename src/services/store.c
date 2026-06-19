@@ -1467,6 +1467,8 @@ bool lz_store_load_touch(int *swap, int *invx, int *invy)
 
 /* ---- node db ---- */
 
+#define LZ_NODE_DB_SCHEMA "v2"
+
 void lz_store_save_nodes(const lz_node_rt *nodes, int n)
 {
     if(!g_persist) return;
@@ -1479,8 +1481,8 @@ void lz_store_save_nodes(const lz_node_rt *nodes, int n)
         char pk[66];                         /* X25519 pubkey hex, or "-" */
         if(nodes[i].has_key) { for(int j = 0; j < 32; j++) sprintf(pk + j * 2, "%02x", nodes[i].pubkey[j]); }
         else { pk[0] = '-'; pk[1] = 0; }
-        fprintf(f, "%u|%s|%d|%s|%s|%d|%d|%u|%.1f|%s|%s|%s|%s|%u|%ld|%ld|%ld|%u|%u|%u|%u|%d|%u|%u|%u\n",
-                (unsigned)nodes[i].num, nodes[i].id, (int)nodes[i].net,
+        fprintf(f, "%s|%u|%s|%d|%s|%s|%d|%d|%u|%.1f|%s|%s|%s|%s|%u|%ld|%ld|%ld|%u|%u|%u|%u|%d|%u|%u|%u\n",
+                LZ_NODE_DB_SCHEMA, (unsigned)nodes[i].num, nodes[i].id, (int)nodes[i].net,
                 nodes[i].role, nodes[i].hw, nodes[i].batt,
                 nodes[i].contact ? 1 : 0, (unsigned)nodes[i].last_heard,
                 (double)nodes[i].snr, nodes[i].dist,
@@ -1509,7 +1511,12 @@ int lz_store_load_nodes(lz_node_rt *out, int cap)
     while(n < cap && fgets(line, sizeof line, f)) {
         line[strcspn(line, "\r\n")] = 0;
         char *cur = line;
-        char *num = field(&cur), *id = field(&cur), *net = field(&cur),
+        char *first = field(&cur);
+        if(first && strcmp(first, LZ_NODE_DB_SCHEMA) == 0) first = field(&cur);
+        else if(first && first[0] == 'v') {
+            continue;   /* unknown future schema tag */
+        }
+        char *num = first, *id = field(&cur), *net = field(&cur),
              *role = field(&cur), *hw = field(&cur), *batt = field(&cur),
              *contact = field(&cur), *heard = field(&cur), *snr = field(&cur),
              *dist = field(&cur), *sc = field(&cur), *name = field(&cur),
