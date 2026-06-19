@@ -52,7 +52,7 @@ Deliverables:
 
 - Confirm and encode the correct LilyGO T-Deck board profile: 16 MB flash, PSRAM, upload flash size, partition compatibility, and memory type.
 - Add CI for `pio run -e tdeck` with firmware size reporting. Implemented in `.github/workflows/firmware.yml`; CI builds the T-Deck target, captures `pio run -t size`, and uploads firmware artifacts.
-- Make CI artifacts usable for local hardware smoke on slow hosts. Implemented: Firmware CI now uploads a flash bundle with bootloader, partitions, boot app, firmware, ELF/map, and manifest; `scripts/fetch_tdeck_artifact.py` downloads the exact-commit artifact for local `scripts/tdeck_smoke.py --skip-build` flashing.
+- Make CI artifacts usable for local hardware smoke on slow hosts. Implemented: Firmware CI now uploads a flash bundle with bootloader, partitions, boot app, firmware, ELF/map, and manifest; `scripts/fetch_tdeck_artifact.py` downloads the exact-commit artifact for local `scripts/tdeck_smoke.py --skip-build` flashing; the standard read-only smoke command set automatically retries one no-reset serial reattach after transient post-flash console timeouts.
 - Add a simulator CI path or clear host-specific setup docs for SDL2. Implemented in `.github/workflows/firmware.yml`; Ubuntu CI installs SDL2, Windows can install the local SDL2 bundle with `scripts/ensure_sdl2_windows.ps1`, and `pio run -e native` runs through `scripts/pio_native_sdl2.py`.
 - Make `pio run -e native` fail clearly when SDL2 is absent. Implemented by `scripts/pio_native_sdl2.py`; Linux/macOS use `sdl2-config` or `pkg-config`, while Windows uses `SDL2_DIR` or the local `.deps` bundle.
 - Add a release checklist covering build, flash, boot log, display, touch, keyboard, trackball, SD, radio, Wi-Fi, companion, and sleep.
