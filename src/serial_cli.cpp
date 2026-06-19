@@ -70,6 +70,7 @@ static void cmd_help(void)
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
         "  wifi [scan|on|off]   wifi status / control\n"
+        "  settings [test]      persisted settings schema diagnostics\n"
         "  sys                  battery, uptime, memory\n"
         "  id                   this node's identity\n"
         "  reboot               restart the device"));
@@ -395,6 +396,30 @@ static void cmd_wifi(char *args)
     Serial.println(nn);
 }
 
+static void cmd_settings(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char err[64];
+        bool ok = lz_store_settings_selftest(err, sizeof err);
+        Serial.printf("Settings schema selftest: %s version=%d",
+                      ok ? "PASS" : "FAIL", LZ_SETTINGS_SCHEMA_VERSION);
+        if(err[0]) Serial.printf(" %s", err);
+        Serial.println();
+        return;
+    }
+    Serial.printf("settings: schema=%d mt=%s mc=%s airtime=%s bright=%d timeout=%d kb=%d tz=%s clock=%s developer=%s\n",
+                  LZ_SETTINGS_SCHEMA_VERSION,
+                  S.net_mt ? "on" : "off",
+                  S.net_mc ? "on" : "off",
+                  lz_airtime_mode_label(S.settings.airtime),
+                  S.settings.bright,
+                  S.settings.timeout,
+                  S.settings.kb_light,
+                  lz_svc_tz_abbrev(),
+                  S.settings.clock24 ? "24h" : "12h",
+                  S.settings.developer ? "on" : "off");
+}
+
 static void cmd_sys(void)
 {
     lz_sysinfo_t si;
@@ -440,6 +465,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();
     else if(!strcmp(line, "wifi"))    cmd_wifi(args);
+    else if(!strcmp(line, "settings")) cmd_settings(args);
     else if(!strcmp(line, "sys"))     cmd_sys();
     else if(!strcmp(line, "id"))      cmd_id();
     else if(!strcmp(line, "reboot"))  { Serial.println("[ok] rebooting"); delay(50); ESP.restart(); }

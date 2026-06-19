@@ -275,6 +275,8 @@ void lz_svc_set_identity(const char *long_name, const char *short_name);
 void lz_svc_set_node_num(uint32_t num);                   /* real node id (from MAC); call before init */
 
 /* ---- persisted user settings ---- */
+#define LZ_SETTINGS_SCHEMA_VERSION 3
+
 typedef struct {
     bool net_mt, net_mc;
     int  airtime;
@@ -291,6 +293,7 @@ typedef struct {
 
 void lz_store_save_settings(const lz_user_settings_t *s);
 bool lz_store_load_settings(lz_user_settings_t *s);
+bool lz_store_settings_selftest(char *err, int err_cap);
 
 /* ---- time ---- */
 void lz_svc_set_time(uint32_t epoch);                     /* set UTC (e.g. NTP) */

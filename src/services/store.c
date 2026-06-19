@@ -1270,7 +1270,8 @@ void lz_store_save_settings(const lz_user_settings_t *s)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if(!f) return;
-    fprintf(f, "3 %d %d %d %d %d %d %d %d %d %d %d %d\n",
+    fprintf(f, "%d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+            LZ_SETTINGS_SCHEMA_VERSION,
             s->net_mt ? 1 : 0, s->net_mc ? 1 : 0, lz_airtime_mode_clamp(s->airtime),
             s->tx, s->gps ? 1 : 0,
             s->bright, s->timeout, s->kb_light, s->tz_idx,
@@ -1280,21 +1281,13 @@ void lz_store_save_settings(const lz_user_settings_t *s)
     rename(tmp, path);
 }
 
-bool lz_store_load_settings(lz_user_settings_t *s)
+static bool settings_parse_line(const char *line, lz_user_settings_t *s)
 {
-    if(!g_persist || !s) return false;
-    char path[128];
-    path_for(path, sizeof path, "settings.cfg");
-    FILE *f = fopen(path, "r");
-    if(!f) return false;
-    char line[160];
-    bool have_line = fgets(line, sizeof line, f) != NULL;
-    fclose(f);
-    if(!have_line) return false;
+    if(!line || !s) return false;
     int ver = 0;
     if(sscanf(line, "%d", &ver) != 1) return false;
     int mt, mc, airtime = LZ_AIRTIME_DEFAULT, tx, gps, bright, timeout, kb, tz, clock24, save, developer = 0;
-    if(ver == 3) {
+    if(ver == LZ_SETTINGS_SCHEMA_VERSION) {
         int got = sscanf(line, "%d %d %d %d %d %d %d %d %d %d %d %d %d",
                          &ver, &mt, &mc, &airtime, &tx, &gps, &bright, &timeout, &kb, &tz,
                          &clock24, &save, &developer);
@@ -1319,6 +1312,73 @@ bool lz_store_load_settings(lz_user_settings_t *s)
     s->clock24 = clock24 != 0;
     s->save = save != 0;
     s->developer = ver >= 2 && developer != 0;
+    return true;
+}
+
+bool lz_store_load_settings(lz_user_settings_t *s)
+{
+    if(!g_persist || !s) return false;
+    char path[128];
+    path_for(path, sizeof path, "settings.cfg");
+    FILE *f = fopen(path, "r");
+    if(!f) return false;
+    char line[160];
+    bool have_line = fgets(line, sizeof line, f) != NULL;
+    fclose(f);
+    if(!have_line) return false;
+    return settings_parse_line(line, s);
+}
+
+static bool settings_test_check(bool ok, char *err, int err_cap, const char *msg)
+{
+    if(ok) return true;
+    if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "%s", msg);
+    return false;
+}
+
+bool lz_store_settings_selftest(char *err, int err_cap)
+{
+    if(err && err_cap > 0) err[0] = 0;
+    lz_user_settings_t s;
+    memset(&s, 0, sizeof s);
+    if(!settings_test_check(settings_parse_line("1 1 1 2 1 74 3 2 4 1 1", &s) &&
+                            s.net_mt && s.net_mc &&
+                            s.airtime == LZ_AIRTIME_DEFAULT &&
+                            s.tx == 2 && s.gps && s.bright == 74 &&
+                            s.timeout == 3 && s.kb_light == 2 &&
+                            s.tz_idx == 4 && s.clock24 && s.save &&
+                            !s.developer,
+                            err, err_cap, "v1 migration failed"))
+        return false;
+
+    memset(&s, 0, sizeof s);
+    if(!settings_test_check(settings_parse_line("2 1 0 3 0 88 4 1 7 0 1 1", &s) &&
+                            s.net_mt && !s.net_mc &&
+                            s.airtime == LZ_AIRTIME_DEFAULT &&
+                            s.tx == 3 && !s.gps && s.bright == 88 &&
+                            s.timeout == 4 && s.kb_light == 1 &&
+                            s.tz_idx == 7 && !s.clock24 && s.save &&
+                            s.developer,
+                            err, err_cap, "v2 migration failed"))
+        return false;
+
+    memset(&s, 0, sizeof s);
+    if(!settings_test_check(settings_parse_line("3 0 1 2 1 1 42 0 2 9 1 0 1", &s) &&
+                            !s.net_mt && s.net_mc &&
+                            s.airtime == lz_airtime_mode_clamp(2) &&
+                            s.tx == 1 && s.gps && s.bright == 42 &&
+                            s.timeout == 0 && s.kb_light == 2 &&
+                            s.tz_idx == 9 && s.clock24 && !s.save &&
+                            s.developer,
+                            err, err_cap, "v3 parse failed"))
+        return false;
+
+    if(!settings_test_check(!settings_parse_line("4 1 1 0 3 0 74 1 0 0 0 0 0", &s),
+                            err, err_cap, "future version accepted"))
+        return false;
+    if(!settings_test_check(!settings_parse_line("3 1 1", &s),
+                            err, err_cap, "truncated settings accepted"))
+        return false;
     return true;
 }
 

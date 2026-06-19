@@ -703,7 +703,9 @@ static int codec_selftest(void)
         extern void lz_store_init(const char *datadir);
         extern void lz_store_save_wifi(const char *ssid, const char *pass, int autoconnect);
         extern bool lz_store_load_wifi(char *ssid, int sn, char *pass, int pn, int *autoconnect);
+        extern bool lz_store_settings_selftest(char *err, int err_cap);
         remove("./wifi.cfg");
+        remove("./settings.cfg");
         lz_store_init(".");
         lz_store_save_wifi("TrailNet", "ridge-pass", 0);
         char ssid[33] = {0}, pass[64] = {0}; int ac = 1;
@@ -714,7 +716,26 @@ static int codec_selftest(void)
         lz_store_save_wifi("", "", 1);
         CHECK(!lz_store_load_wifi(ssid, sizeof ssid, pass, sizeof pass, &ac),
               "store: Wi-Fi forget clears saved network");
+        char settings_err[64];
+        CHECK(lz_store_settings_selftest(settings_err, sizeof settings_err),
+              "store: settings schema migration selftest");
+        lz_user_settings_t saved = {
+            true, false, LZ_AIRTIME_MC_FIRST, 1, true, 63, 3, 2, 6,
+            true, true, true,
+        };
+        lz_store_save_settings(&saved);
+        lz_user_settings_t loaded;
+        memset(&loaded, 0, sizeof loaded);
+        CHECK(lz_store_load_settings(&loaded) &&
+                  loaded.net_mt && !loaded.net_mc &&
+                  loaded.airtime == LZ_AIRTIME_MC_FIRST &&
+                  loaded.tx == 1 && loaded.gps && loaded.bright == 63 &&
+                  loaded.timeout == 3 && loaded.kb_light == 2 &&
+                  loaded.tz_idx == 6 && loaded.clock24 && loaded.save &&
+                  loaded.developer,
+              "store: settings v3 round-trip");
         remove("./wifi.cfg");
+        remove("./settings.cfg");
         lz_store_init(NULL);
     }
 
