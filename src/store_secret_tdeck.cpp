@@ -11,8 +11,16 @@ extern "C" bool lz_store_secret_save_wifi(const char *ssid, const char *pass, in
     bool ok = true;
     if(ssid && ssid[0]) {
         ok = prefs.putString("ssid", ssid) > 0;
-        ok = prefs.putString("pass", pass ? pass : "") > 0 && ok;
+        /* Preferences::putString returns the byte count written, which is 0 for an
+         * empty (open-network) password even on a fully successful write — so never
+         * gate success on it. Store a real password; for an open network drop the
+         * key entirely (the loader treats an absent password as empty). */
+        if(pass && pass[0]) ok = prefs.putString("pass", pass) > 0 && ok;
+        else                prefs.remove("pass");
         ok = prefs.putBool("auto", autoconnect != 0) > 0 && ok;
+        /* Don't leave a half-written record: it would "win" over the file fallback
+         * on next boot and connect with stale/missing creds. Roll back on failure. */
+        if(!ok) prefs.clear();
     } else {
         prefs.remove("ssid");
         prefs.remove("pass");

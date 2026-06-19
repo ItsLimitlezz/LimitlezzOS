@@ -44,7 +44,7 @@ static void fmt_telemetry(const lz_node_rt *n, char *out, size_t cap)
 
 /* ===== App Store ===== */
 
-#define STORE_LOCAL_MAX 4
+#define STORE_LOCAL_MAX LZ_MAX_LOCAL_APPS   /* match Home; was 4 — hid local apps 5..12 */
 #define STORE_ISSUE_MAX LZ_MAX_LOCAL_APP_ISSUES
 
 static int store_local_n;

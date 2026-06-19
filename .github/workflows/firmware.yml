@@ -69,7 +69,7 @@ jobs:
           cp tdeck-build.txt .pio/build/tdeck/tdeck-build.txt
           cp tdeck-size.txt .pio/build/tdeck/tdeck-size.txt
           python scripts/check_tdeck_budget.py \
-            --size-report tdeck-build.txt \
+            --size-report tdeck-size.txt \
             --json-out .pio/build/tdeck/size-budget.json \
             --markdown-out .pio/build/tdeck/SIZE_BUDGET.md \
             --manifest-out .pio/build/tdeck/SIZE_BUDGET.txt
