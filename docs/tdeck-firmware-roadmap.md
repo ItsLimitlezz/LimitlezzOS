@@ -441,7 +441,7 @@ Deliverables:
   - sleep/wake while receiving
   - OTA rollback
 - Release gates:
-  - no known P0/P1 bugs
+  - no known P0/P1 bugs. Initial release bug severity gate is implemented in `docs/tdeck-release-bug-gate.md`.
   - README status matches code and test evidence
   - binaries attached to release
   - upgrade path documented. Initial USB artifact upgrade and rollback guide is implemented in `docs/tdeck-upgrade-path.md`.
