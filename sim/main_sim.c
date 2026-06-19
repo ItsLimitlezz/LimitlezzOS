@@ -718,7 +718,44 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
-    /* 10. local app scanner: valid manifests become local apps; broken packages
+    /* 10. app package hash verification foundation for future install/update
+     *     flows before staging promotion. */
+    {
+        extern bool lz_store_file_sha256(const char *path, char *out_hex, int out_cap,
+                                         char *err, int err_cap);
+        extern bool lz_store_verify_file_sha256(const char *path, const char *expected_hex,
+                                                char *err, int err_cap);
+        const char *abc_sha =
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        const char *zero_sha =
+            "0000000000000000000000000000000000000000000000000000000000000000";
+        remove("./pkg_hash.bin");
+        FILE *hf = fopen("./pkg_hash.bin", "wb");
+        if(hf) {
+            fputs("abc", hf);
+            fclose(hf);
+        }
+        char hash[65] = {0};
+        char err[48] = {0};
+        bool hash_ok = lz_store_file_sha256("./pkg_hash.bin", hash, sizeof hash,
+                                            err, sizeof err);
+        CHECK(hash_ok && strcmp(hash, abc_sha) == 0,
+              "app package SHA256 file hash matches vector");
+        CHECK(lz_store_verify_file_sha256(
+                  "./pkg_hash.bin",
+                  "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD",
+                  err, sizeof err),
+              "app package SHA256 verifier accepts expected hash");
+        CHECK(!lz_store_verify_file_sha256("./pkg_hash.bin", zero_sha, err, sizeof err) &&
+                  strcmp(err, "sha mismatch") == 0,
+              "app package SHA256 verifier rejects mismatched hash");
+        CHECK(!lz_store_verify_file_sha256("./pkg_hash.bin", "not-a-sha", err, sizeof err) &&
+                  strcmp(err, "bad sha256") == 0,
+              "app package SHA256 verifier rejects malformed hash");
+        remove("./pkg_hash.bin");
+    }
+
+    /* 11. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);
