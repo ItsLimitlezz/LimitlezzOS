@@ -777,6 +777,16 @@ int sim_scenario_run(void)
         for(int i = tn - 1; i >= 0; i--)
             if(tail[i].self && tail[i].status == LZ_MSG_DELIVERED) { delivered = true; break; }
         ST_CHECK(delivered, "SEND: sent DM marked DELIVERED via ROUTING ACK");
+        char diag[256];
+        lz_svc_delivery_diag(diag, sizeof diag);
+        ST_CHECK(strstr(diag, "no pending sent DMs") != NULL,
+                 "ACK: delivery diagnostics clear pending after ACK");
+        ST_CHECK(strstr(diag, "open thread failures") == NULL,
+                 "ACK: delivered DM does not appear as a failure");
+        lz_core_on_ack(0x0badcafe);       /* unrelated late ACK must be ignored */
+        lz_svc_delivery_diag(diag, sizeof diag);
+        ST_CHECK(strstr(diag, "no pending sent DMs") != NULL,
+                 "ACK: unrelated ACK leaves diagnostics unchanged");
     }
 
     /* 11. TDM gate: with MeshCore tuned OUT, a MeshCore event is NOT delivered */
