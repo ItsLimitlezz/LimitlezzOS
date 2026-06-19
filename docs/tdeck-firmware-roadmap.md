@@ -343,9 +343,16 @@ Exit criteria:
 
 Goal: update the OS without USB flashing.
 
+**Status:** partial. Implemented: a bounded `limitlezz.ota_manifest.v1`
+validator, cached manifest discovery from SD/appfs, serial `ota status`, serial
+`ota test`, and native selftest coverage. Fetch/download, binary hash verify,
+inactive-slot write, boot-partition switch, rollback, UI, and feedback routing
+remain TODO.
+
 Deliverables:
 
-- Implement firmware update manifest alongside the app catalog.
+- Implement firmware update manifest alongside the app catalog. Implemented:
+  `docs/tdeck-ota-manifest.md` plus cached manifest diagnostics.
 - Download firmware binary over Wi-Fi.
 - Verify SHA256 before writing.
 - Write to inactive OTA partition.

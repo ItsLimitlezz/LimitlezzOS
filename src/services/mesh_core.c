@@ -25,6 +25,8 @@ bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t
 bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
 bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
+bool lz_store_ota_manifest_status(lz_ota_manifest_t *out);
+int  lz_store_ota_manifest_selftest(char *buf, int n);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
 bool lz_store_find_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out);
@@ -400,6 +402,16 @@ bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx)
 {
     if(!lz_store_local_app_action(session, idx)) return false;
     return local_app_expand_session(session);
+}
+
+bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out)
+{
+    return lz_store_ota_manifest_status(out);
+}
+
+int lz_svc_ota_manifest_selftest(char *buf, int n)
+{
+    return lz_store_ota_manifest_selftest(buf, n);
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

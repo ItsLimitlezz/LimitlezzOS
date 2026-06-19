@@ -132,6 +132,10 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
+- **OTA manifest diagnostics** - validate cached `limitlezz.ota_manifest.v1`
+  metadata from `/sd/limitlezz/ota`, `/sd/ota`, or `/appfs/ota`; serial
+  `ota status` and `ota test` prove the parser before Wi-Fi download,
+  inactive-slot write, and rollback are implemented.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
 - **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
@@ -144,6 +148,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
+- [`docs/tdeck-ota-manifest.md`](docs/tdeck-ota-manifest.md) - cached OTA firmware manifest schema and serial diagnostics.
 
 ![screens](docs/screens.png)
 

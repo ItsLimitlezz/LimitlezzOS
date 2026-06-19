@@ -303,6 +303,20 @@ static bool json_get_int(const char *json, const char *key, int *out)
     return true;
 }
 
+static bool json_get_u32(const char *json, const char *key, uint32_t *out)
+{
+    const char *p = json_value_for(json, key);
+    if(!p) return false;
+    char *end = NULL;
+    unsigned long v = strtoul(p, &end, 10);
+    if(end == p) return false;
+    while(*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') end++;
+    if(*end && *end != ',' && *end != '}') return false;
+    if(v > UINT32_MAX) return false;
+    *out = (uint32_t)v;
+    return true;
+}
+
 static uint16_t app_permission_bit(const char *name)
 {
     if(strcmp(name, "display") == 0) return LZ_APP_PERM_DISPLAY;
@@ -726,6 +740,184 @@ int lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap)
     }
 
     return count;
+}
+
+/* ---- OTA firmware manifest diagnostics ---- */
+
+static bool ota_fail(lz_ota_manifest_t *out, const char *msg)
+{
+    if(out) {
+        out->valid = false;
+        snprintf(out->error, sizeof out->error, "%s", msg ? msg : "invalid manifest");
+    }
+    return false;
+}
+
+static bool safe_ota_token(const char *s)
+{
+    if(!s || !s[0]) return false;
+    for(int i = 0; s[i]; i++) {
+        char c = s[i];
+        bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
+        if(!ok) return false;
+    }
+    return true;
+}
+
+static bool safe_http_url(const char *s)
+{
+    if(!s || !s[0]) return false;
+    bool ok_scheme = strncmp(s, "https://", 8) == 0 || strncmp(s, "http://", 7) == 0;
+    if(!ok_scheme) return false;
+    for(int i = 0; s[i]; i++)
+        if((unsigned char)s[i] <= 32 || s[i] == '"' || s[i] == '\\') return false;
+    return true;
+}
+
+static bool hex64(const char *s)
+{
+    if(!s) return false;
+    for(int i = 0; i < 64; i++) {
+        char c = s[i];
+        bool ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                  (c >= 'A' && c <= 'F');
+        if(!ok) return false;
+    }
+    return s[64] == 0;
+}
+
+static bool parse_ota_manifest_json(const char *json, lz_ota_manifest_t *out)
+{
+    char schema[36];
+    if(!json || !out) return false;
+    out->found = true;
+    out->valid = false;
+    out->error[0] = 0;
+
+    if(!json_get_string(json, "schema", schema, sizeof schema))
+        return ota_fail(out, "missing schema");
+    if(strcmp(schema, LZ_OTA_MANIFEST_SCHEMA) != 0)
+        return ota_fail(out, "unsupported schema");
+    if(!json_get_string(json, "version", out->version, sizeof out->version))
+        return ota_fail(out, "missing version");
+    if(!json_get_string(json, "channel", out->channel, sizeof out->channel))
+        return ota_fail(out, "missing channel");
+    if(!json_get_string(json, "board", out->board, sizeof out->board))
+        return ota_fail(out, "missing board");
+    if(!json_get_string(json, "firmware_url", out->firmware_url, sizeof out->firmware_url))
+        return ota_fail(out, "missing firmware_url");
+    if(!json_get_string(json, "sha256", out->sha256, sizeof out->sha256))
+        return ota_fail(out, "missing sha256");
+    if(!json_get_u32(json, "size", &out->size_bytes))
+        return ota_fail(out, "missing size");
+
+    json_get_string(json, "min_version", out->min_version, sizeof out->min_version);
+    json_get_string(json, "notes_url", out->notes_url, sizeof out->notes_url);
+
+    if(!safe_ota_token(out->version)) return ota_fail(out, "bad version");
+    if(!safe_ota_token(out->channel)) return ota_fail(out, "bad channel");
+    if(strcmp(out->board, LZ_OTA_BOARD_TDECK) != 0) return ota_fail(out, "unsupported board");
+    if(!safe_http_url(out->firmware_url)) return ota_fail(out, "bad firmware_url");
+    if(!hex64(out->sha256)) return ota_fail(out, "bad sha256");
+    if(out->size_bytes == 0 || out->size_bytes > LZ_OTA_SLOT_MAX_BYTES)
+        return ota_fail(out, "bad size");
+    if(out->min_version[0] && !safe_ota_token(out->min_version))
+        return ota_fail(out, "bad min_version");
+    if(out->notes_url[0] && !safe_http_url(out->notes_url))
+        return ota_fail(out, "bad notes_url");
+
+    out->valid = true;
+    return true;
+}
+
+static bool load_ota_manifest_path(const char *path, lz_ota_manifest_t *out)
+{
+    if(!path || !out || !path_is_file(path)) return false;
+    memset(out, 0, sizeof *out);
+    out->found = true;
+    snprintf(out->source, sizeof out->source, "%s", path);
+
+    FILE *f = fopen(path, "rb");
+    if(!f) return ota_fail(out, "manifest unreadable");
+    char json[2049];
+    size_t n = fread(json, 1, sizeof json - 1, f);
+    fclose(f);
+    json[n] = 0;
+    if(n == 0) return ota_fail(out, "empty manifest");
+    if(n >= sizeof json - 1) return ota_fail(out, "manifest too large");
+
+    parse_ota_manifest_json(json, out);
+    return true;
+}
+
+bool lz_store_ota_manifest_status(lz_ota_manifest_t *out)
+{
+    if(!out) return false;
+    memset(out, 0, sizeof *out);
+
+    char path[160];
+    if(g_persist) {
+        path_join(path, sizeof path, g_dir, "ota/manifest.json");
+        if(load_ota_manifest_path(path, out)) return out->valid;
+
+        const char *root = lz_store_file_root();
+        if(root && strcmp(root, g_dir) != 0) {
+            path_join(path, sizeof path, root, "ota/manifest.json");
+            if(load_ota_manifest_path(path, out)) return out->valid;
+        }
+    }
+
+    if(g_appfs_dir[0]) {
+        path_join(path, sizeof path, g_appfs_dir, "ota/manifest.json");
+        if(load_ota_manifest_path(path, out)) return out->valid;
+    }
+
+    snprintf(out->error, sizeof out->error, "no cached manifest");
+    return false;
+}
+
+int lz_store_ota_manifest_selftest(char *buf, int n)
+{
+    if(!buf || n <= 0) return 0;
+    static const char *good =
+        "{\"schema\":\"limitlezz.ota_manifest.v1\",\"version\":\"0.97.0\","
+        "\"channel\":\"beta\",\"board\":\"tdeck\","
+        "\"firmware_url\":\"https://updates.limitlezz.example/tdeck/0.97.0/firmware.bin\","
+        "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+        "\"size\":1539920,\"min_version\":\"0.96.0\","
+        "\"notes_url\":\"https://updates.limitlezz.example/tdeck/0.97.0/notes\"}";
+    static const char *bad_sha =
+        "{\"schema\":\"limitlezz.ota_manifest.v1\",\"version\":\"0.97.0\","
+        "\"channel\":\"beta\",\"board\":\"tdeck\","
+        "\"firmware_url\":\"https://updates.limitlezz.example/tdeck/0.97.0/firmware.bin\","
+        "\"sha256\":\"bad\",\"size\":1539920}";
+    static const char *bad_size =
+        "{\"schema\":\"limitlezz.ota_manifest.v1\",\"version\":\"0.97.0\","
+        "\"channel\":\"beta\",\"board\":\"tdeck\","
+        "\"firmware_url\":\"https://updates.limitlezz.example/tdeck/0.97.0/firmware.bin\","
+        "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+        "\"size\":5242881}";
+
+    lz_ota_manifest_t m;
+    memset(&m, 0, sizeof m);
+    bool ok_valid = parse_ota_manifest_json(good, &m) && m.valid &&
+                    m.size_bytes == 1539920u && strcmp(m.board, LZ_OTA_BOARD_TDECK) == 0;
+
+    memset(&m, 0, sizeof m);
+    bool ok_sha = !parse_ota_manifest_json(bad_sha, &m) &&
+                  strcmp(m.error, "bad sha256") == 0;
+    char sha_error[48];
+    snprintf(sha_error, sizeof sha_error, "%s", m.error);
+
+    memset(&m, 0, sizeof m);
+    bool ok_size = !parse_ota_manifest_json(bad_size, &m) &&
+                   strcmp(m.error, "bad size") == 0;
+
+    bool pass = ok_valid && ok_sha && ok_size;
+    return snprintf(buf, (size_t)n, "OTA manifest selftest: %s valid=%d invalid_error=\"%s\"",
+                    pass ? "PASS" : "FAIL", ok_valid ? 1 : 0,
+                    sha_error[0] ? sha_error : "-");
 }
 
 bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
