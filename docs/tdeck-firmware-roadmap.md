@@ -417,6 +417,8 @@ Deliverables:
 - Full docs:
   - user guide. Initial T-Deck user guide is implemented in `docs/tdeck-user-guide.md`.
   - app developer guide
+  - user guide
+  - app developer guide. Initial SDK 0.1 local app developer guide is implemented in `docs/tdeck-app-developer-guide.md`.
   - hardware flashing/recovery guide
   - release checklist. Initial T-Deck release evidence checklist is implemented in `docs/tdeck-release-checklist.md`; broader user/recovery docs remain.
   - hardware flashing/recovery guide. Initial T-Deck Actions-artifact flashing and recovery guide is implemented in `docs/tdeck-flashing-recovery.md`.
