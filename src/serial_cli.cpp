@@ -66,7 +66,7 @@ static void cmd_help(void)
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
-        "  nodes                list heard nodes\n"
+        "  nodes [test]         list heard nodes / test node DB schema\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
         "  wifi [scan|on|off]   wifi status / control\n"
@@ -324,8 +324,17 @@ static void cmd_companion(char *args)
     if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
-static void cmd_nodes(void)
+static void cmd_nodes(char *args)
 {
+    if(args && strcmp(args, "test") == 0) {
+        char err[64];
+        bool ok = lz_store_nodes_selftest(err, sizeof err);
+        Serial.printf("Node DB schema selftest: %s version=%u",
+                      ok ? "PASS" : "FAIL", (unsigned)LZ_NODE_DB_SCHEMA_VERSION);
+        if(err[0]) Serial.printf(" %s", err);
+        Serial.println();
+        return;
+    }
     const lz_node_rt *nodes;
     int n = lz_svc_nodes(&nodes);
     if(n == 0) { Serial.println("(no nodes heard yet)"); return; }
@@ -461,7 +470,7 @@ static void dispatch(char *line)
         if(lz_backend_set_rxlog) lz_backend_set_rxlog(on);
         Serial.printf("[ok] rx logging %s\n", on ? "on" : "off");
     }
-    else if(!strcmp(line, "nodes"))   cmd_nodes();
+    else if(!strcmp(line, "nodes"))   cmd_nodes(args);
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();
     else if(!strcmp(line, "wifi"))    cmd_wifi(args);

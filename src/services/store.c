@@ -1535,6 +1535,7 @@ void lz_store_save_nodes(const lz_node_rt *nodes, int n)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if(!f) return;
+    fprintf(f, "# lz_nodes %u\n", (unsigned)LZ_NODE_DB_SCHEMA_VERSION);
     for(int i = 0; i < n; i++) {
         char pk[66];                         /* X25519 pubkey hex, or "-" */
         if(nodes[i].has_key) { for(int j = 0; j < 32; j++) sprintf(pk + j * 2, "%02x", nodes[i].pubkey[j]); }
@@ -1557,6 +1558,59 @@ void lz_store_save_nodes(const lz_node_rt *nodes, int n)
     rename(tmp, path);
 }
 
+static bool node_parse_line(char *line, lz_node_rt *nd)
+{
+    if(!line || !nd || line[0] == '#') return false;
+    char *cur = line;
+    char *num = field(&cur), *id = field(&cur), *net = field(&cur),
+         *role = field(&cur), *hw = field(&cur), *batt = field(&cur),
+         *contact = field(&cur), *heard = field(&cur), *snr = field(&cur),
+         *dist = field(&cur), *sc = field(&cur), *name = field(&cur),
+         *pk = field(&cur), *posf = field(&cur), *lat = field(&cur),
+         *lon = field(&cur), *alt = field(&cur), *post = field(&cur),
+         *prec = field(&cur), *telf = field(&cur), *vmv = field(&cur),
+         *tc10 = field(&cur), *hum10 = field(&cur), *press10 = field(&cur),
+         *uptime = cur;   /* trailing optional fields may be absent */
+    if(!num || !id || !net || !role || !hw || !batt || !contact || !heard ||
+       !snr || !dist || !sc || !name)
+        return false;
+    memset(nd, 0, sizeof *nd);
+    nd->num = (uint32_t)strtoul(num, NULL, 10);
+    snprintf(nd->id, sizeof nd->id, "%s", id);
+    nd->net = atoi(net) == 1 ? LZ_NET_MC : LZ_NET_MT;
+    snprintf(nd->role, sizeof nd->role, "%s", role);
+    snprintf(nd->hw, sizeof nd->hw, "%s", hw);
+    nd->batt = atoi(batt);
+    nd->contact = atoi(contact) != 0;
+    nd->last_heard = (uint32_t)strtoul(heard, NULL, 10);
+    nd->snr = (float)atof(snr);
+    snprintf(nd->dist, sizeof nd->dist, "%s", dist);
+    snprintf(nd->shortcode, sizeof nd->shortcode, "%s", sc);
+    snprintf(nd->name, sizeof nd->name, "%s", name);
+    if(pk && pk[0] && pk[0] != '-' && strlen(pk) >= 64) {   /* restore X25519 key */
+        bool ok = true;
+        for(int j = 0; j < 32; j++) {
+            unsigned b;
+            if(sscanf(pk + j * 2, "%02x", &b) != 1) { ok = false; break; }
+            nd->pubkey[j] = (uint8_t)b;
+        }
+        nd->has_key = ok;
+    }
+    if(posf) nd->pos_flags = (uint8_t)strtoul(posf, NULL, 10);
+    if(lat)  nd->lat_i = (int32_t)strtol(lat, NULL, 10);
+    if(lon)  nd->lon_i = (int32_t)strtol(lon, NULL, 10);
+    if(alt)  nd->alt_m = (int32_t)strtol(alt, NULL, 10);
+    if(post) nd->pos_time = (uint32_t)strtoul(post, NULL, 10);
+    if(prec) nd->precision_bits = (uint8_t)strtoul(prec, NULL, 10);
+    if(telf) nd->telem_flags = (uint8_t)strtoul(telf, NULL, 10);
+    if(vmv)  nd->voltage_mv = (uint16_t)strtoul(vmv, NULL, 10);
+    if(tc10) nd->temp_c10 = (int16_t)strtol(tc10, NULL, 10);
+    if(hum10) nd->humidity10 = (uint16_t)strtoul(hum10, NULL, 10);
+    if(press10) nd->pressure10 = (uint16_t)strtoul(press10, NULL, 10);
+    if(uptime) nd->uptime_s = (uint32_t)strtoul(uptime, NULL, 10);
+    return true;
+}
+
 int lz_store_load_nodes(lz_node_rt *out, int cap)
 {
     if(!g_persist) return 0;
@@ -1568,55 +1622,52 @@ int lz_store_load_nodes(lz_node_rt *out, int cap)
     int n = 0;
     while(n < cap && fgets(line, sizeof line, f)) {
         line[strcspn(line, "\r\n")] = 0;
-        char *cur = line;
-        char *num = field(&cur), *id = field(&cur), *net = field(&cur),
-             *role = field(&cur), *hw = field(&cur), *batt = field(&cur),
-             *contact = field(&cur), *heard = field(&cur), *snr = field(&cur),
-             *dist = field(&cur), *sc = field(&cur), *name = field(&cur),
-             *pk = field(&cur), *posf = field(&cur), *lat = field(&cur),
-             *lon = field(&cur), *alt = field(&cur), *post = field(&cur),
-             *prec = field(&cur), *telf = field(&cur), *vmv = field(&cur),
-             *tc10 = field(&cur), *hum10 = field(&cur), *press10 = field(&cur),
-             *uptime = cur;   /* trailing optional fields may be absent */
-        if(!num || !id || !net || !role || !hw || !batt || !contact || !heard ||
-           !snr || !dist || !sc || !name)
-            continue;
-        lz_node_rt *nd = &out[n++];
-        memset(nd, 0, sizeof *nd);
-        nd->num = (uint32_t)strtoul(num, NULL, 10);
-        snprintf(nd->id, sizeof nd->id, "%s", id);
-        nd->net = atoi(net) == 1 ? LZ_NET_MC : LZ_NET_MT;
-        snprintf(nd->role, sizeof nd->role, "%s", role);
-        snprintf(nd->hw, sizeof nd->hw, "%s", hw);
-        nd->batt = atoi(batt);
-        nd->contact = atoi(contact) != 0;
-        nd->last_heard = (uint32_t)strtoul(heard, NULL, 10);
-        nd->snr = (float)atof(snr);
-        snprintf(nd->dist, sizeof nd->dist, "%s", dist);
-        snprintf(nd->shortcode, sizeof nd->shortcode, "%s", sc);
-        snprintf(nd->name, sizeof nd->name, "%s", name);
-        if(pk && pk[0] && pk[0] != '-' && strlen(pk) >= 64) {   /* restore X25519 key */
-            bool ok = true;
-            for(int j = 0; j < 32; j++) {
-                unsigned b;
-                if(sscanf(pk + j * 2, "%02x", &b) != 1) { ok = false; break; }
-                nd->pubkey[j] = (uint8_t)b;
-            }
-            nd->has_key = ok;
-        }
-        if(posf) nd->pos_flags = (uint8_t)strtoul(posf, NULL, 10);
-        if(lat)  nd->lat_i = (int32_t)strtol(lat, NULL, 10);
-        if(lon)  nd->lon_i = (int32_t)strtol(lon, NULL, 10);
-        if(alt)  nd->alt_m = (int32_t)strtol(alt, NULL, 10);
-        if(post) nd->pos_time = (uint32_t)strtoul(post, NULL, 10);
-        if(prec) nd->precision_bits = (uint8_t)strtoul(prec, NULL, 10);
-        if(telf) nd->telem_flags = (uint8_t)strtoul(telf, NULL, 10);
-        if(vmv)  nd->voltage_mv = (uint16_t)strtoul(vmv, NULL, 10);
-        if(tc10) nd->temp_c10 = (int16_t)strtol(tc10, NULL, 10);
-        if(hum10) nd->humidity10 = (uint16_t)strtoul(hum10, NULL, 10);
-        if(press10) nd->pressure10 = (uint16_t)strtoul(press10, NULL, 10);
-        if(uptime) nd->uptime_s = (uint32_t)strtoul(uptime, NULL, 10);
+        if(node_parse_line(line, &out[n])) n++;
     }
     fclose(f);
     return n;
+}
+
+static bool node_test_check(bool ok, char *err, int err_cap, const char *msg)
+{
+    if(ok) return true;
+    if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "%s", msg);
+    return false;
+}
+
+bool lz_store_nodes_selftest(char *err, int err_cap)
+{
+    if(err && err_cap > 0) err[0] = 0;
+    lz_node_rt n;
+    char legacy[] = "123456|!0001e240|0|Client|TDeck|87|1|1700000000|-8.5|direct|BASE|Base-01";
+    if(!node_test_check(node_parse_line(legacy, &n) &&
+                        n.num == 123456u && strcmp(n.id, "!0001e240") == 0 &&
+                        n.net == LZ_NET_MT && strcmp(n.role, "Client") == 0 &&
+                        n.batt == 87 && n.contact && n.last_heard == 1700000000u &&
+                        n.snr < -8.4f && n.snr > -8.6f &&
+                        strcmp(n.shortcode, "BASE") == 0 &&
+                        strcmp(n.name, "Base-01") == 0 &&
+                        !n.has_key && n.pos_flags == 0 && n.telem_flags == 0,
+                        err, err_cap, "legacy node row failed"))
+        return false;
+
+    char v2[] = "305419896|MC-0001|1|Chat|MeshCore|66|0|1700000100|-4.0|2 hops|0001|Limitlezz|000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f|7|451234567|-751234567|123|1700000001|28|31|3940|215|612|10132|4567";
+    if(!node_test_check(node_parse_line(v2, &n) &&
+                        n.num == 305419896u && n.net == LZ_NET_MC &&
+                        strcmp(n.id, "MC-0001") == 0 &&
+                        n.has_key && n.pubkey[0] == 0 && n.pubkey[31] == 31 &&
+                        n.pos_flags == 7 && n.lat_i == 451234567 &&
+                        n.lon_i == -751234567 && n.alt_m == 123 &&
+                        n.pos_time == 1700000001u && n.precision_bits == 28 &&
+                        n.telem_flags == 31 && n.voltage_mv == 3940 &&
+                        n.temp_c10 == 215 && n.humidity10 == 612 &&
+                        n.pressure10 == 10132 && n.uptime_s == 4567u,
+                        err, err_cap, "v2 node row failed"))
+        return false;
+
+    char header[] = "# lz_nodes 2";
+    if(!node_test_check(!node_parse_line(header, &n),
+                        err, err_cap, "schema header parsed as node"))
+        return false;
+    return true;
 }
