@@ -43,6 +43,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install platformio
 
+      - name: Validate app catalog schema
+        run: python scripts/validate_app_catalog.py docs/examples/app-catalog-index.json
+
       - name: Build native simulator
         run: pio run -e native
 

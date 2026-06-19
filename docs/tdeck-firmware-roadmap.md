@@ -322,7 +322,7 @@ Goal: let users install and update apps from a repository.
 
 Deliverables:
 
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired.
+- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired. Implemented in `docs/tdeck-network-app-catalog.md` with `docs/examples/app-catalog-index.json`, `scripts/validate_app_catalog.py`, and a Firmware CI validation step.
 - Fetch catalog over Wi-Fi.
 - Cache catalog for offline browsing.
 - Download app zip/package.

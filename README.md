@@ -144,6 +144,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
+- [`docs/tdeck-network-app-catalog.md`](docs/tdeck-network-app-catalog.md) - network App Store catalog schema.
 
 ![screens](docs/screens.png)
 
@@ -300,8 +301,9 @@ for local apps and read-only inspection when present.
   clears scoped app data on request, opens a manifest detail shell, and launches
   local apps into the SDK 0.1 foreground shell with bounded app-provided actions
   and scoped storage counters plus read-only `{time}` / `{battery}` tokens;
-  unsupported action effects launch-block instead of being ignored; the static
-  catalog remains a prototype (GET -> "..." -> OPEN).
+  unsupported action effects launch-block instead of being ignored; the network
+  catalog has a CI-validated `index.json` schema, while fetch/download/install
+  are still prototype/future work (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the
