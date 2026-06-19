@@ -61,7 +61,9 @@ dogfood belong to the later roadmap phases.
 - Receive a LongFast text from Peer A on the T-Deck.
 - Send a LongFast text from the T-Deck and confirm Peer A receives it.
 - Repeat while Peer B is present and confirm no duplicate spam appears after managed flood/dedup.
-- Turn `rxlog on`, repeat one receive, and capture decoded packet evidence.
+- Run `rxlog` to record the current logging state, then turn `rxlog on`,
+  repeat one receive, and capture decoded packet evidence. Turn `rxlog off`
+  after the capture.
 - Reboot the T-Deck and confirm channel history remains visible when the SD card is present.
 
 ## Encrypted DM And Delivery State
