@@ -2,6 +2,10 @@
 
 Audit date: 2026-06-13
 
+Refresh note: Wi-Fi credential rows were updated on 2026-06-19 from current
+code evidence; full hardware smoke remains subject to the release evidence
+workflow.
+
 Status labels:
 
 - Functional: implementation exists and is wired into the firmware path.
@@ -80,7 +84,7 @@ Status labels:
 | MeshCore manager | Prototype/Partial | "Coming soon" unless gate is flipped; deeper screen exists behind gate | Do not enable until MeshCore message path works. |
 | Contacts/detail | Functional/Partial | virtualized contacts list, add contact, messageable role check | Trace action is a no-op; MeshCore contacts locked; hardware long-list scroll needs validation. |
 | Settings | Functional/Partial | network toggles, Wi-Fi, in-place brightness slider updates, time, system, touch calibration, Developer Mode, `settings.cfg` persistence | Add migration/versioning if the settings schema grows; hardware latency pass still needed. |
-| Wi-Fi setup | Functional, needs validation | async scan/connect, saved SSID/password, auto-connect | Credentials are plaintext on SD; only one saved network. |
+| Wi-Fi setup | Functional for T-Deck, simulator file-backed, needs validation | async scan/connect, saved SSID/password, auto-connect; T-Deck credential backend reports `nvs` and legacy `wifi.cfg` migrates/removes after NVS save | Only one saved network; hardware validation should confirm NVS persistence, forget, and legacy migration on a real T-Deck. |
 | System/battery page | Functional/Partial | live stats and battery arc | Hardware values need calibration/validation. |
 | App Store | Prototype/Partial | `LZ_STORE` static catalog remains; local manifests from SD/appfs are scanned, listed as installed local apps, open a manifest detail shell, show storage quota usage, clear scoped app data on request, launch into the SDK 0.1 foreground shell, expose bounded foreground actions with scoped storage counters plus read-only `{time}`/`{battery}` tokens, reject unsupported action effects, and show rejected package diagnostics in Developer Mode | Network catalog, download, install/update, script execution/richer API injection, and runtime crash capture are still missing. |
 | Terminal | Functional/Partial | interactive UI terminal behind Developer Mode; serial CLI always available over USB | Expand diagnostics once Developer Mode grows into a full power-user surface. |
