@@ -490,7 +490,7 @@ static void shots(const char *dir)
     /* regression: focus moving below the fold must autoscroll (settings
      * rows are nested in group cards -> needs recursive scroll-to-view) */
     S.view = LZ_V_SETTINGS; S.focus = 0; lz_rebuild();
-    for(int i = 0; i < 8 && S.focus != 6; i++) lz_ui_key(LZ_K_DOWN, 0);   /* down to Brightness */
+    for(int i = 0; i < 9 && S.focus != 7; i++) lz_ui_key(LZ_K_DOWN, 0);   /* down to Brightness */
     pump(60);
     snprintf(path, sizeof path, "%s/25-settings-autoscroll.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
@@ -1033,6 +1033,45 @@ static int codec_selftest(void)
     }
 
     /* 11. local app scanner: valid manifests become local apps; broken packages
+    /* 9b. User settings include the app catalog source selector while still
+     *      loading older settings.cfg files with the beginner-safe default. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_save_settings(const lz_user_settings_t *s);
+        extern bool lz_store_load_settings(lz_user_settings_t *s);
+        remove("./settings.cfg");
+        lz_store_init(".");
+        lz_user_settings_t saved;
+        memset(&saved, 0, sizeof saved);
+        saved.net_mt = true;
+        saved.airtime = LZ_AIRTIME_BALANCED;
+        saved.tx = 2;
+        saved.bright = 80;
+        saved.timeout = 2;
+        saved.tz_idx = 1;
+        saved.clock24 = true;
+        saved.app_source = LZ_APP_SOURCE_COMMUNITY;
+        lz_store_save_settings(&saved);
+        lz_user_settings_t loaded;
+        memset(&loaded, 0, sizeof loaded);
+        CHECK(lz_store_load_settings(&loaded), "store: settings reload");
+        CHECK(loaded.app_source == LZ_APP_SOURCE_COMMUNITY &&
+              loaded.airtime == LZ_AIRTIME_BALANCED && loaded.clock24,
+              "store: app source setting round-trip");
+        FILE *legacy = fopen("./settings.cfg", "wb");
+        if(legacy) {
+            fputs("3 1 0 0 3 0 74 1 0 0 0 0 0\n", legacy);
+            fclose(legacy);
+        }
+        memset(&loaded, 0, sizeof loaded);
+        CHECK(lz_store_load_settings(&loaded) &&
+              loaded.app_source == LZ_APP_SOURCE_OFFICIAL,
+              "store: legacy settings default to official app source");
+        remove("./settings.cfg");
+        lz_store_init(NULL);
+    }
+
+    /* 10. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
         extern void lz_store_init(const char *datadir);

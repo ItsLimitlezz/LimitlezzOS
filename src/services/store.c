@@ -2161,12 +2161,13 @@ void lz_store_save_settings(const lz_user_settings_t *s)
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "w");
     if(!f) return;
-    fprintf(f, "%d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+    fprintf(f, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
             LZ_SETTINGS_SCHEMA_VERSION,
             s->net_mt ? 1 : 0, s->net_mc ? 1 : 0, lz_airtime_mode_clamp(s->airtime),
             s->tx, s->gps ? 1 : 0,
             s->bright, s->timeout, s->kb_light, s->tz_idx,
-            s->clock24 ? 1 : 0, s->save ? 1 : 0, s->developer ? 1 : 0);
+            s->clock24 ? 1 : 0, s->save ? 1 : 0, s->developer ? 1 : 0,
+            lz_app_source_clamp(s->app_source));
     fclose(f);
     remove(path);
     rename(tmp, path);
@@ -2177,8 +2178,14 @@ static bool settings_parse_line(const char *line, lz_user_settings_t *s)
     if(!line || !s) return false;
     int ver = 0;
     if(sscanf(line, "%d", &ver) != 1) return false;
-    int mt, mc, airtime = LZ_AIRTIME_DEFAULT, tx, gps, bright, timeout, kb, tz, clock24, save, developer = 0;
+    int mt, mc, airtime = LZ_AIRTIME_DEFAULT, tx, gps, bright, timeout, kb, tz, clock24, save;
+    int developer = 0, app_source = LZ_APP_SOURCE_OFFICIAL;
     if(ver == LZ_SETTINGS_SCHEMA_VERSION) {
+        int got = sscanf(line, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d",
+                         &ver, &mt, &mc, &airtime, &tx, &gps, &bright, &timeout, &kb, &tz,
+                         &clock24, &save, &developer, &app_source);
+        if(got != 14) return false;
+    } else if(ver == 3) {
         int got = sscanf(line, "%d %d %d %d %d %d %d %d %d %d %d %d %d",
                          &ver, &mt, &mc, &airtime, &tx, &gps, &bright, &timeout, &kb, &tz,
                          &clock24, &save, &developer);
@@ -2203,6 +2210,7 @@ static bool settings_parse_line(const char *line, lz_user_settings_t *s)
     s->clock24 = clock24 != 0;
     s->save = save != 0;
     s->developer = ver >= 2 && developer != 0;
+    s->app_source = lz_app_source_clamp(app_source);
     return true;
 }
 
@@ -2264,7 +2272,16 @@ bool lz_store_settings_selftest(char *err, int err_cap)
                             err, err_cap, "v3 parse failed"))
         return false;
 
-    if(!settings_test_check(!settings_parse_line("4 1 1 0 3 0 74 1 0 0 0 0 0", &s),
+    memset(&s, 0, sizeof s);
+    if(!settings_test_check(settings_parse_line("4 1 0 2 1 1 42 0 2 9 1 0 1 1", &s) &&
+                            s.net_mt && !s.net_mc &&
+                            s.airtime == lz_airtime_mode_clamp(2) &&
+                            s.tz_idx == 9 && s.developer &&
+                            s.app_source == LZ_APP_SOURCE_COMMUNITY,
+                            err, err_cap, "v4 parse failed"))
+        return false;
+
+    if(!settings_test_check(!settings_parse_line("5 1 1 0 3 0 74 1 0 0 0 0 0 0", &s),
                             err, err_cap, "future version accepted"))
         return false;
     if(!settings_test_check(!settings_parse_line("3 1 1", &s),

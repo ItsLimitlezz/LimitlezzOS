@@ -127,6 +127,7 @@ static void settings_defaults(void)
     S.settings.tz_idx = 0;    /* Eastern (EST/EDT, DST-aware) by default */
     S.settings.clock24 = false;
     S.settings.developer = false;
+    S.settings.app_source = LZ_APP_SOURCE_OFFICIAL;
 }
 
 static void settings_sanitize(void)
@@ -138,6 +139,7 @@ static void settings_sanitize(void)
     S.settings.timeout = clamp_i(S.settings.timeout, 0, 4);
     S.settings.kb_light = clamp_i(S.settings.kb_light, 0, 2);
     S.settings.tz_idx = clamp_i(S.settings.tz_idx, 0, lz_tz_count() - 1);
+    S.settings.app_source = lz_app_source_clamp(S.settings.app_source);
 }
 
 static void settings_load(void)
@@ -156,6 +158,7 @@ static void settings_load(void)
     S.settings.clock24 = p.clock24;
     S.settings.save = p.save;
     S.settings.developer = p.developer;
+    S.settings.app_source = p.app_source;
     settings_sanitize();
 }
 
@@ -166,7 +169,7 @@ void lz_settings_save(void)
         S.net_mt, S.net_mc, S.settings.airtime, S.settings.tx, S.settings.gps,
         S.settings.bright, S.settings.timeout, S.settings.kb_light,
         S.settings.tz_idx, S.settings.clock24, S.settings.save,
-        S.settings.developer,
+        S.settings.developer, S.settings.app_source,
     };
     lz_store_save_settings(&p);
     g_bright_dirty = false;      /* any full save also commits brightness */
@@ -844,8 +847,8 @@ void lz_onboard_advance(void)
 
 bool lz_settings_slider_focused(void)
 {
-    /* settings focus order: 0 Meshtastic, 1 MeshCore, then rows; brightness is focus 6 */
-    return S.focus == 6;
+    /* settings focus order: 0 Meshtastic, 1 MeshCore, then rows; brightness is focus 7 */
+    return S.focus == 7;
 }
 
 void lz_settings_bright_adjust(int delta)
