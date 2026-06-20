@@ -1171,6 +1171,8 @@ static int codec_selftest(void)
                                                       lz_ota_candidate_t *out,
                                                       char *err, int err_cap);
         extern bool lz_store_clear_ota_candidate(char *err, int err_cap);
+        extern bool lz_svc_ota_write_candidate(lz_ota_install_t *out, char *err, int err_cap);
+        extern bool lz_svc_ota_write_selftest(lz_ota_install_t *out, char *err, int err_cap);
         extern int  lz_store_ota_manifest_selftest(char *buf, int n);
         sim_reset_dir("lzdata_ota");
         sim_mkdirs("lzdata_ota/ota");
@@ -1208,6 +1210,16 @@ static int codec_selftest(void)
         CHECK(lz_store_ota_candidate_status(&cand) && cand.valid &&
                   strstr(cand.path, "ota/firmware.bin") != NULL,
               "OTA candidate status reloads verified cache");
+        lz_ota_install_t inst;
+        CHECK(lz_svc_ota_write_candidate(&inst, ota_err, sizeof ota_err) &&
+                  inst.ok && inst.candidate_valid && !inst.boot_partition_set &&
+                  inst.bytes_written == 27u &&
+                  strcmp(inst.partition_label, "sim_ota_1") == 0,
+              "OTA candidate writer targets inactive slot without switching boot");
+        CHECK(lz_svc_ota_write_selftest(&inst, ota_err, sizeof ota_err) &&
+                  inst.ok && inst.copied_running_image &&
+                  !inst.boot_partition_set && inst.bytes_written > 0,
+              "OTA inactive-slot write selftest keeps boot unchanged");
         cf = fopen("lzdata_ota/bad-candidate.bin", "wb");
         if(cf) {
             fputs("bad firmware body\n", cf);

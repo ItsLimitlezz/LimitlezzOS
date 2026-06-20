@@ -4,8 +4,8 @@ This guide documents the upgrade path that is available today. LimitlezzOS has
 an OTA-capable partition layout, but over-the-air firmware updates are still
 roadmap work. Current releases upgrade through a USB flash of an exact release
 or GitHub Actions artifact. The firmware can now verify and cache an OTA
-candidate binary, but it does not yet write that candidate to an inactive boot
-slot.
+candidate binary and write it to the inactive OTA slot from serial diagnostics,
+but it does not yet select that slot for boot or mark the new firmware healthy.
 
 ## Current Support
 
@@ -16,12 +16,13 @@ Supported today:
 - same-version reflash for recovery or validation
 - rollback by reflashing a previously saved known-good artifact
 - OTA manifest diagnostics plus verified candidate download/staging cache
+- serial inactive-slot write diagnostics that leave boot unchanged
 - persistent SD-backed user data when the SD card and store remain intact
 - persistent NVS-backed Wi-Fi credentials on T-Deck hardware
 
 Not supported yet:
 
-- writing a candidate to the inactive OTA slot from the device UI
+- selecting an OTA candidate for boot from the device UI
 - automatic rollback based on a firmware health marker
 - signed OTA manifests or release-channel selection
 
@@ -151,23 +152,28 @@ If Windows loses `COM8` during the USB boot handoff, wait for the T-Deck to
 re-enumerate or reset/replug the device. Do not retarget the smoke test to
 another COM port unless that device's ownership has been confirmed.
 
-## OTA Candidate Cache
+## OTA Candidate Cache And Slot Write
 
-This is a pre-install diagnostic path, not an upgrade path yet. With a cached
+This is a pre-boot diagnostic path, not a full upgrade path yet. With a cached
 manifest at `/sd/limitlezz/ota/manifest.json`, the device can download or stage
 a candidate firmware image, verify its exact byte count and SHA-256, and keep it
-at `/sd/limitlezz/ota/firmware.bin` for the future inactive-slot writer.
+at `/sd/limitlezz/ota/firmware.bin`. The serial writer can then copy that
+verified candidate into the inactive OTA slot, or copy the currently running
+image into the inactive slot for a hardware smoke test. Both paths leave the
+boot partition unchanged.
 
 ```sh
 ota status
 ota fetch
 ota stage /sd/limitlezz/ota/downloads/firmware.bin
+ota write
+ota write-test
 ota clear
 ```
 
 Do not claim an OTA upgrade from this evidence alone. A release still upgrades
-only after the candidate is written to an inactive OTA slot, selected for boot,
-confirmed healthy after reboot, and covered by rollback behavior.
+only after the candidate is selected for boot, confirmed healthy after reboot,
+and covered by rollback behavior.
 
 ## Rollback
 

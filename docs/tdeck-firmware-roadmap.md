@@ -412,10 +412,11 @@ Goal: update the OS without USB flashing.
 
 **Status:** partial. Implemented: a bounded `limitlezz.ota_manifest.v1`
 validator, cached manifest discovery from SD/appfs, serial `ota status`, serial
-`ota fetch`, `ota stage`, `ota clear`, `ota test`, verified candidate
-firmware cache with exact size/SHA-256 checks, and native selftest coverage.
-Manifest fetch, inactive-slot write, boot-partition switch, rollback UI, update
-screen, and feedback routing remain TODO.
+`ota fetch`, `ota stage`, `ota clear`, `ota write`, `ota write-test`, `ota test`,
+verified candidate firmware cache with exact size/SHA-256 checks, inactive-slot
+write without boot selection, and native selftest coverage. Manifest fetch,
+boot-partition switch, rollback UI, update screen, and feedback routing remain
+TODO.
 
 Deliverables:
 
@@ -427,7 +428,10 @@ Deliverables:
 - Verify SHA256 before writing. Implemented for the candidate cache:
   `ota fetch` and `ota stage <path>` both verify against the cached manifest,
   preserving any prior verified candidate after failure.
-- Write to inactive OTA partition.
+- Write to inactive OTA partition. Implemented as a guarded serial path:
+  `ota write` writes a verified cached candidate and `ota write-test` copies
+  the running image for COM8 hardware smoke proof. Both leave boot selection
+  unchanged.
 - Set OTA boot partition and reboot.
 - Support rollback if new firmware fails to mark itself healthy. Initial
   implementation: a native-tested OTA boot policy chooses clean, pending

@@ -4,6 +4,7 @@
  * real SX1262 driver both call the lz_core_on_* hooks below.
  */
 #include "mesh.h"
+#include "ota_install.h"
 #include "ota_fetch.h"
 #include <string.h>
 #include <stdio.h>
@@ -559,6 +560,30 @@ bool lz_svc_ota_fetch_candidate(lz_ota_candidate_t *out, char *err, int err_cap)
 bool lz_svc_clear_ota_candidate(char *err, int err_cap)
 {
     return lz_store_clear_ota_candidate(err, err_cap);
+}
+
+bool lz_svc_ota_write_candidate(lz_ota_install_t *out, char *err, int err_cap)
+{
+    if(err && err_cap > 0) err[0] = 0;
+    if(out) memset(out, 0, sizeof *out);
+
+    lz_ota_candidate_t c;
+    if(!lz_store_ota_candidate_status(&c) || !c.valid) {
+        const char *msg = c.error[0] ? c.error : "no verified candidate";
+        if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "%s", msg);
+        if(out) {
+            out->candidate_valid = false;
+            snprintf(out->error, sizeof out->error, "%s", msg);
+        }
+        return false;
+    }
+
+    return lz_ota_install_file_to_inactive(c.path, c.size_bytes, out, err, err_cap);
+}
+
+bool lz_svc_ota_write_selftest(lz_ota_install_t *out, char *err, int err_cap)
+{
+    return lz_ota_install_running_copy_test(out, err, err_cap);
 }
 
 bool lz_svc_security_status(lz_security_status_t *out)

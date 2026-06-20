@@ -1,9 +1,9 @@
 # T-Deck OTA Firmware Manifest
 
-This Phase 10 OTA slice defines a bounded manifest contract plus a verified
-candidate firmware cache. It validates update metadata and candidate binaries
-before any inactive-slot writer, boot-partition switch, or rollback flow trusts
-them.
+This Phase 10 OTA slice defines a bounded manifest contract, a verified
+candidate firmware cache, and an inactive-slot writer. It validates update
+metadata and candidate binaries before any boot-partition switch or rollback
+flow trusts them.
 
 Implemented:
 
@@ -14,16 +14,21 @@ Implemented:
 - `ota stage <path>` over the USB serial console. This verifies a local
   candidate file against the cached manifest and promotes it to the same cache.
 - `ota clear` over the USB serial console.
+- `ota write` over the USB serial console. This writes the verified candidate
+  cache into the inactive OTA slot and leaves the boot partition unchanged.
+- `ota write-test` over the USB serial console. This copies the currently
+  running valid firmware image into the inactive OTA slot as a hardware smoke
+  path, also leaving the boot partition unchanged.
 - `ota test` over the USB serial console.
 - Native simulator selftest coverage for valid/invalid manifests, candidate
-  staging, size mismatch rejection, prior-candidate preservation, and clearing.
+  staging, inactive-slot writer dispatch, size mismatch rejection,
+  prior-candidate preservation, and clearing.
 - Cached manifest discovery from SD/local storage and the `appfs` partition.
 
 Still TODO:
 
 - fetch the manifest over Wi-Fi
-- write to the inactive OTA slot
-- set the OTA boot partition and mark the new firmware healthy
+- set the OTA boot partition, reboot, and mark the new firmware healthy
 - rollback UX and failure recovery
 - user-facing update screen and Feedback Manager progress routing
 
@@ -132,6 +137,22 @@ Stage and verify a local file:
 lz> ota stage /sd/limitlezz/ota/downloads/firmware.bin
 [ok] OTA candidate staged and verified
 ota candidate: ready version=0.97.0 channel=beta size=1539920 path=/sd/limitlezz/ota/firmware.bin sha=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+Write the verified candidate to the inactive OTA slot without changing boot:
+
+```text
+lz> ota write
+[ok] OTA candidate written to inactive slot; boot unchanged
+ota write: ok source=candidate running=ota_0 inactive=ota_1 addr=0x00510000 size=5242880 bytes=1539920 boot-set=no
+```
+
+Hardware smoke the same inactive-slot writer without preparing an SD candidate:
+
+```text
+lz> ota write-test
+[ok] OTA inactive-slot write selftest passed; boot unchanged
+ota write: ok source=running-copy running=ota_0 inactive=ota_1 addr=0x00510000 size=5242880 bytes=1539920 boot-set=no
 ```
 
 Clear the candidate cache:
