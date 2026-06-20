@@ -273,6 +273,7 @@ static void flush_pending_dm(uint32_t to);                    /* fwd decl */
 static struct { lz_mt_packet_t pkt; uint32_t req_ms; uint8_t tries; bool used; } g_pend[LZ_PEND_N];
 static volatile bool g_rxlog;     /* serial: log inbound MT packet metadata + decode */
 extern "C" void lz_backend_set_rxlog(bool on) { g_rxlog = on; }
+extern "C" bool lz_backend_rxlog_enabled(void) { return g_rxlog; }
 
 /* ---- minimal Meshtastic User decode (NodeInfo payload) ---- */
 static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)

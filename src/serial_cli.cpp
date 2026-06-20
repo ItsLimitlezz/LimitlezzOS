@@ -38,6 +38,7 @@ extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
 extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
 extern "C" int  lz_mtpki_selftest(char *buf, int n)       __attribute__((weak));
 extern "C" void lz_backend_set_rxlog(bool on)             __attribute__((weak));
+extern "C" bool lz_backend_rxlog_enabled(void)            __attribute__((weak));
 
 static char    g_line[160];
 static uint8_t g_len;
@@ -81,6 +82,7 @@ static void cmd_help(void)
         "  emergency [arm|confirm|cancel]  diagnostic emergency trigger guard\n"
         "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
+        "  rxlog [on|off]       show/toggle inbound radio decode logging\n"
         "  nodes [test]         list heard nodes / test node DB schema\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
@@ -755,9 +757,18 @@ static void dispatch(char *line)
     else if(!strcmp(line, "emergency")) cmd_emergency(args);
     else if(!strcmp(line, "dm"))      cmd_dm(args);
     else if(!strcmp(line, "rxlog")) {
-        bool on = !(args && strcmp(args, "off") == 0);
-        if(lz_backend_set_rxlog) lz_backend_set_rxlog(on);
-        Serial.printf("[ok] rx logging %s\n", on ? "on" : "off");
+        if(!args || !args[0]) {
+            if(lz_backend_rxlog_enabled)
+                Serial.printf("rx logging: %s\n", lz_backend_rxlog_enabled() ? "on" : "off");
+            else
+                Serial.println("rx logging: unavailable");
+        } else if(!strcmp(args, "on") || !strcmp(args, "off")) {
+            bool on = !strcmp(args, "on");
+            if(lz_backend_set_rxlog) lz_backend_set_rxlog(on);
+            Serial.printf("[ok] rx logging %s\n", on ? "on" : "off");
+        } else {
+            Serial.println("usage: rxlog [on|off]");
+        }
     }
     else if(!strcmp(line, "nodes"))   cmd_nodes(args);
     else if(!strcmp(line, "send"))    cmd_send(args);
