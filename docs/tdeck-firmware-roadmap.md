@@ -374,12 +374,19 @@ Deliverables:
   catalog fetch transport gated on connected Wi-Fi, with native simulator stub
   coverage for URL/buffer errors.
 - Cache catalog for offline browsing.
-- Download app zip/package.
+- Download app zip/package. Initial package transaction: firmware can install a
+  package file that is already present on SD/appfs; catalog-driven Wi-Fi
+  download and App Store button wiring remain TODO.
 - Verify SHA256 before install. Initial foundation: reusable package-file SHA256
   hashing and expected-hash verification helpers with native simulator coverage.
+  Package install now requires exact expected hash and byte count before any
+  extraction.
 - Extract to app staging directory, then atomically promote to installed directory.
   Initial foundation: hidden staging directories, manifest-id validation, live
-  app backup/rollback promotion, and staging discard helpers.
+  app backup/rollback promotion, and staging discard helpers. Package install
+  now extracts stored-only ZIP entries into staging, rejects unsafe paths and
+  unsupported compression, validates the embedded manifest before promotion, and
+  selftests rollback/update behavior through serial `app package test`.
 - Show update badges on installed apps.
 - Show update badges on installed apps. Initial implementation: local App Store
   rows compare manifest versions with catalog metadata and display update chips

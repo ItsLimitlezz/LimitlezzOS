@@ -77,12 +77,20 @@ field, but when present it must be a compact version string such as `0.95.0`.
 
 ## Package Rules
 
-The package URL must be HTTPS. The future installer should download to a staging
-directory, verify `package_sha256` and `package_bytes`, extract the package,
-validate its embedded `manifest.json` with the local manifest rules, and then
-atomically promote the staged package into the app directory. Any failed
-download, hash mismatch, manifest rejection, or extraction error must leave the
-previous installed package intact.
+The package URL must be HTTPS. The lower-level firmware installer accepts a
+package file that has already been downloaded or copied to SD/appfs, verifies
+`package_sha256` and `package_bytes`, extracts a stored-only `.zip` package into
+a hidden staging directory, validates its embedded `manifest.json` with the
+local manifest rules, and then atomically promotes the staged package into the
+app directory. Any hash mismatch, manifest rejection, unsupported compression,
+unsafe path, or extraction error leaves the previous installed package intact.
+
+The first firmware package subset deliberately avoids a decompressor: ZIP
+method `0` is accepted, and compressed ZIP entries are rejected until flash/RAM
+budget work says otherwise. Packages may contain up to 24 files, each file may
+be up to 256 KB, and the complete archive must fit in the catalog's 2 MB
+package limit. Packages must not ship a top-level `data/` tree; runtime data is
+prepared by the OS for apps that request the `storage` permission.
 
 ## Validation
 

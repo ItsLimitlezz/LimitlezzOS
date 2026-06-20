@@ -125,6 +125,7 @@ Status labels:
 | Network app catalog | Partial | `docs/tdeck-network-app-catalog.md`, `docs/examples/app-catalog-index.json`, and `scripts/validate_app_catalog.py` define and CI-validate the first HTTPS `index.json` contract with SDK compatibility, permissions, package hash/size, and screenshots | Fetch `index.json` over Wi-Fi, verify TLS/metadata on-device, and cache results. |
 | App download/install/update | Planned | App Store prototype only | SHA256 verify, extract, version updates, rollback failed installs. |
 | App download/install/update | Planned/Partial | App Store prototype plus bounded package-file SHA256 helper | Wire the verifier into download/staging, then extract, version updates, and rollback failed installs. |
+| App download/install/update | Partial | Stored-only ZIP package installer verifies exact SHA256/byte count, extracts into hidden staging, validates embedded manifest id, promotes atomically, and exposes serial `app package test` / `app package install`; native selftest covers rollback for hash mismatch, id mismatch, unsafe path, unsupported compression, and update | Wire catalog download/cache entries and App Store GET/UPDATE actions to the package installer. |
 | Optional map app | Planned | Store data includes maps; maintainer notes prefer maps as optional | Keep maps out of the base firmware. |
 | APRS/weather/BBS/scope/game apps | Planned/Prototype catalog entries | Static `LZ_STORE` rows | Implement as sandboxed apps once runtime exists. |
 
