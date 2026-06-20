@@ -1,0 +1,55 @@
+{
+  "schema": "limitlezz.app.catalog.v1",
+  "generated_at": "2026-06-19T00:00:00Z",
+  "apps": [
+    {
+      "id": "weather.mesh",
+      "name": "Weather Mesh",
+      "version": "0.1.0",
+      "author": "Limitless",
+      "summary": "Local weather dashboard",
+      "description": "Shows a compact local weather panel and can later relay mesh weather notes through the app SDK.",
+      "api_version": "0.1",
+      "permissions": ["display", "input", "storage", "mesh_read", "system_time", "battery"],
+      "icon": "weather",
+      "hue": 48,
+      "package_url": "https://example.invalid/limitlezz/apps/weather.mesh-0.1.0.zip",
+      "package_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "package_bytes": 4096,
+      "compatibility": {
+        "min_os": "0.95.0",
+        "api_versions": ["0.1"],
+        "targets": ["tdeck", "sim"]
+      },
+      "screenshots": [
+        {
+          "url": "https://example.invalid/limitlezz/apps/weather.mesh/screenshot-320x240.bmp",
+          "width": 320,
+          "height": 240,
+          "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        }
+      ]
+    },
+    {
+      "id": "notes.local",
+      "name": "Trail Notes",
+      "version": "0.1.0",
+      "author": "Limitless",
+      "summary": "Small offline note pad",
+      "description": "A minimal foreground app example that stores a scoped counter or local state without touching mesh APIs.",
+      "api_version": "0.1",
+      "permissions": ["display", "input", "storage"],
+      "icon": "note",
+      "hue": 206,
+      "package_url": "https://example.invalid/limitlezz/apps/notes.local-0.1.0.zip",
+      "package_sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "package_bytes": 3072,
+      "compatibility": {
+        "min_os": "0.95.0",
+        "api_versions": ["0.1"],
+        "targets": ["tdeck", "sim"]
+      },
+      "screenshots": []
+    }
+  ]
+}

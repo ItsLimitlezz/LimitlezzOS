@@ -198,6 +198,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-app-catalog-schema.md`](docs/tdeck-app-catalog-schema.md) - first Network App Store catalog schema.
 - [`docs/tdeck-ota-manifest.md`](docs/tdeck-ota-manifest.md) - cached OTA firmware manifest schema and serial diagnostics.
 - [`docs/tdeck-device-security.md`](docs/tdeck-device-security.md) - device PIN verifier contract and remaining encrypted-store work.
+- [`docs/tdeck-network-app-catalog.md`](docs/tdeck-network-app-catalog.md) - network App Store catalog schema.
 
 ![screens](docs/screens.png)
 
@@ -412,6 +413,9 @@ for local apps and read-only inspection when present.
   unsupported action effects launch-block instead of being ignored; network
   catalog schema validation exists, while fetch/download/install remains ahead;
   the static catalog remains a prototype (GET -> "..." -> OPEN).
+  unsupported action effects launch-block instead of being ignored; the network
+  catalog has a CI-validated `index.json` schema, while fetch/download/install
+  are still prototype/future work (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

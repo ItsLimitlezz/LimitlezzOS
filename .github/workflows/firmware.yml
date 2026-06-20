@@ -51,6 +51,8 @@ jobs:
         run: |
           python -m py_compile scripts/validate_local_app_samples.py
           python scripts/validate_local_app_samples.py
+      - name: Validate app catalog schema
+        run: python scripts/validate_app_catalog.py docs/examples/app-catalog-index.json
 
       - name: Build native simulator
         run: pio run -e native
