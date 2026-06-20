@@ -1161,11 +1161,11 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
                               0, LZ_FAIL_NONE);
     touch_thread_meta(t, text, ts, false);
 
+    if(track) delivery_track(t->addr, pid, 0);
     bool sent = send_text_packet(t, text, pid);
     if(track) {
-        if(sent) {
-            delivery_track(t->addr, pid, 0);
-        } else {
+        if(!sent) {
+            delivery_forget(pid);
             lz_store_update_delivery(t->addr, pid, pid, LZ_MSG_FAILED,
                                      0, LZ_FAIL_RADIO_SEND);
             if(g_open == t) tail_mark_delivery(pid, pid, LZ_MSG_FAILED,
@@ -1200,18 +1200,22 @@ bool lz_svc_resend(int tail_idx)
     m->pkt_id = pid; m->sent_ms = lz_tick_ms(); m->status = LZ_MSG_SENDING;
     m->retries = retries; m->fail_reason = LZ_FAIL_NONE;
 
+    if(old_pid) {
+        lz_store_update_delivery(g_open->addr, old_pid, pid,
+                                 LZ_MSG_SENDING, retries, LZ_FAIL_NONE);
+        delivery_forget(old_pid);
+    }
+    delivery_track(g_open->addr, pid, retries);
     bool sent = send_text_packet(g_open, m->text, pid);
-    if(old_pid) lz_store_update_delivery(g_open->addr, old_pid, pid,
-                                         sent ? LZ_MSG_SENDING : LZ_MSG_FAILED,
-                                         retries,
-                                         sent ? LZ_FAIL_NONE : LZ_FAIL_RADIO_SEND);
-    if(sent) {
-        if(old_pid) delivery_forget(old_pid);
-        delivery_track(g_open->addr, pid, retries);
-    } else {
+    if(!sent) {
+        delivery_forget(pid);
         m->status = LZ_MSG_FAILED;
         m->sent_ms = 0;
         m->fail_reason = LZ_FAIL_RADIO_SEND;
+        if(old_pid)
+            lz_store_update_delivery(g_open->addr, pid, pid,
+                                     LZ_MSG_FAILED, retries,
+                                     LZ_FAIL_RADIO_SEND);
     }
     mark_dirty();
     return true;
