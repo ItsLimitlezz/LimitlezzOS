@@ -35,6 +35,11 @@ int  lz_store_app_catalog_diag(char *buf, int n);
 int  lz_store_app_catalog_selftest(char *buf, int n);
 bool lz_store_ota_manifest_status(lz_ota_manifest_t *out);
 int  lz_store_ota_manifest_selftest(char *buf, int n);
+bool lz_store_security_status(lz_security_status_t *out);
+bool lz_store_security_set_pin(const char *pin, char *err, int err_cap);
+bool lz_store_security_check_pin(const char *pin);
+bool lz_store_security_clear_pin(const char *pin, char *err, int err_cap);
+int  lz_store_security_selftest(char *buf, int n);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
 bool lz_store_find_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out);
@@ -470,6 +475,31 @@ bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out)
 int lz_svc_ota_manifest_selftest(char *buf, int n)
 {
     return lz_store_ota_manifest_selftest(buf, n);
+}
+
+bool lz_svc_security_status(lz_security_status_t *out)
+{
+    return lz_store_security_status(out);
+}
+
+bool lz_svc_security_set_pin(const char *pin, char *err, int err_cap)
+{
+    return lz_store_security_set_pin(pin, err, err_cap);
+}
+
+bool lz_svc_security_check_pin(const char *pin)
+{
+    return lz_store_security_check_pin(pin);
+}
+
+bool lz_svc_security_clear_pin(const char *pin, char *err, int err_cap)
+{
+    return lz_store_security_clear_pin(pin, err, err_cap);
+}
+
+int lz_svc_security_selftest(char *buf, int n)
+{
+    return lz_store_security_selftest(buf, n);
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

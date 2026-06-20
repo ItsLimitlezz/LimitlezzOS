@@ -117,8 +117,8 @@ Status labels:
 
 | Feature | Status | Evidence | Gap / Next Action |
 | --- | --- | --- | --- |
-| Device PIN/password | Planned | README later/security section | Needed before encrypted local data UX. |
-| Encrypted local store | Planned | README hardening section | Encrypt messages, keys, identity, and app data when password is set. |
+| Device PIN/password | Partial | `docs/tdeck-device-security.md`; serial `security status`, `security set`, `security check`, `security clear`, and `security test`; `security.cfg` stores a salted, iterated SHA-256 verifier instead of plaintext PINs | Add Settings/lock-screen UI, unlock state, forgotten-PIN recovery language, and encrypted-store integration. |
+| Encrypted local store | Planned | README Device security note; Phase 12 roadmap | Encrypt messages, keys, identity, and app data when password is set; migrate existing plaintext stores. |
 | Wi-Fi credential hardening | Functional for T-Deck, sim file-backed | T-Deck `lz_store_save_wifi/load_wifi` use ESP32 NVS with legacy `wifi.cfg` migration/removal; serial `wifi` reports `cred=nvs` without printing the password | Native simulator intentionally keeps file-backed credentials for repeatable desktop tests; broaden later if encrypted whole-store support lands. |
 | OTA firmware update | Planned | Partition table and design spec | Implement download, hash verify, inactive-slot write, rollback UX. |
 | Feedback Manager | Partial | A minimal service boundary records app notification requests and exposes serial `feedback status|test` plus `app notify test` diagnostics | Centralize LED, buzzer, keyboard/display feedback, DND, priority queues, and emergency behavior. |

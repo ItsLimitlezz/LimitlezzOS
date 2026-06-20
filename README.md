@@ -173,6 +173,12 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   legacy `/limitlezz/wifi.cfg` credentials are migrated and removed after a
   successful NVS write. Remaining security work is the optional device
   password/PIN and encrypted local data files above.
+- **Device security** - optional device PIN verifier with serial
+  `security status`, `security set`, `security check`, `security clear`, and
+  `security test`; this is setup groundwork and does not encrypt local data yet.
+- **Security still ahead**: use the PIN/password secret to encrypt message
+  history, identity, keys, and app data, with honest recovery wording when a PIN
+  is forgotten.
 
 ## Audit and completion plan
 
@@ -191,6 +197,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-release-bug-gate.md`](docs/tdeck-release-bug-gate.md) - release P0/P1 bug gate.
 - [`docs/tdeck-app-catalog-schema.md`](docs/tdeck-app-catalog-schema.md) - first Network App Store catalog schema.
 - [`docs/tdeck-ota-manifest.md`](docs/tdeck-ota-manifest.md) - cached OTA firmware manifest schema and serial diagnostics.
+- [`docs/tdeck-device-security.md`](docs/tdeck-device-security.md) - device PIN verifier contract and remaining encrypted-store work.
 
 ![screens](docs/screens.png)
 

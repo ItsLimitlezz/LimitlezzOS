@@ -43,6 +43,9 @@ extern "C" {
 #define LZ_OTA_MANIFEST_SCHEMA "limitlezz.ota_manifest.v1"
 #define LZ_OTA_BOARD_TDECK "tdeck"
 #define LZ_OTA_SLOT_MAX_BYTES 0x500000u
+#define LZ_SECURITY_PIN_MIN 4
+#define LZ_SECURITY_PIN_MAX 12
+#define LZ_SECURITY_KDF_ROUNDS 2048u
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -254,6 +257,14 @@ typedef struct {
     char notes_url[96];
 } lz_ota_manifest_t;
 
+typedef struct {
+    bool configured;             /* a device PIN verifier exists */
+    bool valid;                  /* false = security.cfg is corrupt/unsupported */
+    uint32_t rounds;             /* verifier KDF work factor */
+    char salt[17];               /* hex salt, diagnostics only */
+    char error[48];              /* unset / corrupt reason */
+} lz_security_status_t;
+
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
@@ -295,6 +306,11 @@ int  lz_svc_app_catalog_diag(char *buf, int n);
 int  lz_svc_app_catalog_selftest(char *buf, int n);
 bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out);
 int  lz_svc_ota_manifest_selftest(char *buf, int n);
+bool lz_svc_security_status(lz_security_status_t *out);
+bool lz_svc_security_set_pin(const char *pin, char *err, int err_cap);
+bool lz_svc_security_check_pin(const char *pin);
+bool lz_svc_security_clear_pin(const char *pin, char *err, int err_cap);
+int  lz_svc_security_selftest(char *buf, int n);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */
