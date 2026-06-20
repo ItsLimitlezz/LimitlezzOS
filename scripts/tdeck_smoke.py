@@ -15,7 +15,18 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_COMMANDS = ["id", "sys", "net", "rf", "stats", "wifi", "companion test"]
+DEFAULT_COMMANDS = [
+    "id",
+    "sys",
+    "net",
+    "rf",
+    "stats",
+    "wifi",
+    "dm status",
+    "nodes",
+    "companion test",
+    "companion ble",
+]
 
 
 def default_port() -> str:
@@ -30,6 +41,11 @@ def run(cmd: list[str], cwd: Path) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
+def run_status(cmd: list[str], cwd: Path) -> int:
+    print("[smoke] " + " ".join(cmd), flush=True)
+    return subprocess.run(cmd, cwd=cwd, check=False).returncode
+
+
 def platformio_core_dir() -> Path:
     override = os.environ.get("PLATFORMIO_CORE_DIR")
     if override:
@@ -37,15 +53,25 @@ def platformio_core_dir() -> Path:
     return Path.home() / ".platformio"
 
 
-def find_esptool() -> Path:
+def find_esptool_cmd() -> list[str]:
     root = platformio_core_dir() / "packages" / "tool-esptoolpy"
     candidates = list(root.rglob("esptool.py")) if root.exists() else []
-    if not candidates:
-        raise FileNotFoundError(
-            "Could not find PlatformIO's esptool.py. Run `pio run -e tdeck` once "
-            "or install the espressif32 platform."
-        )
-    return candidates[0]
+    if candidates:
+        return [sys.executable, str(candidates[0])]
+
+    probe = subprocess.run(
+        [sys.executable, "-m", "esptool", "version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if probe.returncode == 0:
+        return [sys.executable, "-m", "esptool"]
+
+    raise FileNotFoundError(
+        "Could not find PlatformIO's esptool.py or the Python esptool module. "
+        "Run `pio run -e tdeck` once, install the espressif32 platform, or "
+        "install esptool with `python -m pip install esptool`."
+    )
 
 
 def find_boot_app0(artifact_dir: Path | None = None) -> Path:
@@ -78,11 +104,10 @@ def require_artifacts(project_dir: Path, env_name: str, artifact_dir: Path | Non
 
 def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifact_dir: Path | None) -> None:
     bootloader, partitions, boot_app0, firmware = require_artifacts(project_dir, env_name, artifact_dir)
-    esptool = find_esptool()
+    esptool_cmd = find_esptool_cmd()
     run(
         [
-            sys.executable,
-            str(esptool),
+            *esptool_cmd,
             "--chip",
             "esp32s3",
             "--port",
@@ -90,16 +115,16 @@ def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifa
             "--baud",
             str(baud),
             "--before",
-            "default_reset",
+            "default-reset",
             "--after",
-            "hard_reset",
+            "hard-reset",
             "--no-stub",
-            "write_flash",
-            "--flash_mode",
+            "write-flash",
+            "--flash-mode",
             "dio",
-            "--flash_freq",
+            "--flash-freq",
             "80m",
-            "--flash_size",
+            "--flash-size",
             "16MB",
             "0x0",
             str(bootloader),
@@ -130,6 +155,20 @@ def main() -> int:
     parser.add_argument("--open-timeout", type=float, default=60.0)
     parser.add_argument("--boot-timeout", type=float, default=45.0)
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--reattach-retries",
+        type=int,
+        help=(
+            "Retry the serial smoke by reopening the port without reflashing or resetting. "
+            "Defaults to 1 for the standard read-only smoke commands, 0 for custom commands."
+        ),
+    )
+    parser.add_argument(
+        "--reattach-timeout",
+        type=float,
+        default=90.0,
+        help="Command/boot timeout used by reattach retries.",
+    )
     parser.add_argument("--no-expect", action="store_true")
     parser.add_argument("--commands", nargs="*", default=DEFAULT_COMMANDS)
     args = parser.parse_args()
@@ -146,29 +185,54 @@ def main() -> int:
                 raise SystemExit("--skip-build/--artifact-dir require --no-stub-upload")
             run(["pio", "run", "-e", args.env, "-t", "upload", "--upload-port", args.port], cwd=project_dir)
 
+    reattach_retries = args.reattach_retries
+    if reattach_retries is None:
+        reattach_retries = 1 if args.commands == DEFAULT_COMMANDS else 0
+
     harness = project_dir / "scripts" / "serial_harness.py"
-    cmd = [
-        sys.executable,
-        str(harness),
-        "--port",
-        args.port,
-        "--baud",
-        str(args.baud),
-        "--open-timeout",
-        str(args.open_timeout),
-        "--boot-timeout",
-        str(args.boot_timeout),
-        "--timeout",
-        str(args.timeout),
-    ]
-    if args.no_expect:
-        cmd.append("--no-expect")
-    if args.reset or (not args.skip_upload and not args.no_reset_after_upload):
-        cmd.append("--reset")
-    cmd.append("--commands")
-    cmd.extend(args.commands)
-    run(cmd, cwd=project_dir)
-    return 0
+
+    def harness_cmd(timeout: float, boot_timeout: float, reset: bool) -> list[str]:
+        cmd = [
+            sys.executable,
+            str(harness),
+            "--port",
+            args.port,
+            "--baud",
+            str(args.baud),
+            "--open-timeout",
+            str(args.open_timeout),
+            "--boot-timeout",
+            str(boot_timeout),
+            "--timeout",
+            str(timeout),
+        ]
+        if args.no_expect:
+            cmd.append("--no-expect")
+        if reset:
+            cmd.append("--reset")
+        cmd.append("--commands")
+        cmd.extend(args.commands)
+        return cmd
+
+    reset_first = args.reset or (not args.skip_upload and not args.no_reset_after_upload)
+    first = harness_cmd(args.timeout, args.boot_timeout, reset_first)
+    rc = run_status(first, cwd=project_dir)
+    if rc == 0:
+        return 0
+
+    for attempt in range(1, max(0, reattach_retries) + 1):
+        print(
+            f"[smoke] serial smoke failed with exit {rc}; "
+            f"reattach retry {attempt}/{reattach_retries} without reflashing/reset",
+            flush=True,
+        )
+        retry_timeout = max(args.timeout, args.reattach_timeout)
+        retry_boot = max(args.boot_timeout, args.reattach_timeout)
+        rc = run_status(harness_cmd(retry_timeout, retry_boot, False), cwd=project_dir)
+        if rc == 0:
+            return 0
+
+    return rc
 
 
 if __name__ == "__main__":

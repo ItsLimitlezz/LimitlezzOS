@@ -20,6 +20,9 @@ dogfood belong to the later roadmap phases.
   commit: `python scripts/fetch_tdeck_artifact.py`, then flash with
   `python scripts/tdeck_smoke.py --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck --port COM8`.
 - Record the firmware artifact path, size, and timestamp.
+- Keep the default smoke command set unless a test needs a narrower probe:
+  `id`, `sys`, `net`, `rf`, `stats`, `wifi`, `dm status`, `nodes`,
+  `companion test`, and `companion ble`.
 - Confirm a native simulator sanity pass:
   - Linux/macOS: `pio run -e native && .pio/build/native/program --selftest`
   - Windows: `pio run -e native; .pio\build\native\program.exe --selftest`
@@ -34,12 +37,61 @@ dogfood belong to the later roadmap phases.
   or the same command with the Linux serial device path.
 - For serial CLI smoke without flashing, run `python scripts/tdeck_smoke.py --skip-upload --port COM8`
   on the Windows rig or pass the Linux/macOS device path such as `/dev/ttyACM0`.
+- The standard read-only smoke command set retries one no-reset serial reattach
+  automatically after a timeout, which covers the COM8 post-flash USB handoff
+  case without reflashing. For custom command lists, pass `--reattach-retries N`
+  only when repeating the command sequence is safe.
 - Open the USB console at 115200 baud.
 - Capture the boot banner and every `[ok]` or failure line.
 - Confirm display, touch, keyboard, trackball, SD, SX1262, Wi-Fi state, battery, and time source are reported.
 - Run `help` and confirm diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`, and `companion ble`.
+- For split-airtime runs, capture `rf` before and after traffic. The `timing:`
+  line reports delayed-switch count, average/max lateness, and whether expired
+  slots were held by in-flight RX or MeshCore ACK dwell; this proves scheduler
+  hold behavior but not packet-loss rate by itself.
+- For BLE companion phone-app drops, run `companion ble on`, attempt the official app connection, then run `companion` after the drop and capture the whole BLE line. The key fields are `c`/`d` (connect/disconnect counts), `r` (last GAP disconnect reason), `mtu`, `to` (ToRadio writes/last bytes), `fr` (FromRadio reads), and `fn` (FromNum reads/writes).
+- The default smoke now captures delivery state, heard nodes, USB companion
+  loopback, and BLE companion status. Run `help` afterward and confirm
+  diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`,
+  and `companion ble`.
 
 ## Hardware Evidence Log
+
+### 2026-06-18 COM8 TDM Timing Diagnostic Smoke
+
+- Firmware flashed: PR #12 `tdeck-firmware-7aecfc7aa47565a0228143befb63406abe223cf4` artifact from upstream Firmware CI run `27730027088`.
+- Artifact manifest recorded `budget_status=pass`, `firmware_bytes=1535408`, and `static_ram_bytes=274708`.
+- Port boundary: only `COM8` was opened/flashed/probed during this validation.
+- Direct ROM flashing with `python -m esptool --chip esp32s3 --port COM8 --baud 460800 --no-stub ... write-flash ...` succeeded; bootloader, partitions, `boot_app0.bin`, and firmware hashes all verified.
+- COM8 serial smoke passed with `python scripts/tdeck_smoke.py --skip-upload --port COM8 --open-timeout 60 --boot-timeout 60 --timeout 30 --commands id rf stats`.
+- `rf` reported the new timing diagnostic line on hardware: `timing: late 0 avg 0ms max 0ms | holds rx 0 ack 0`.
+- This run used the default Meshtastic-only image, so it proves the diagnostic is present and stable in serial output; split-airtime RX/ACK hold counts still need a MeshCore-enabled soak run after the TDM artifact branch lands.
+- For MeshCore-enabled Phase 3 builds, fetch and flash the opt-in CI artifact
+  with `python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore`, then
+  `python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore`.
+  Run the split-airtime probe after the basic serial smoke:
+  `python scripts/tdm_airtime_smoke.py --port COM8` on the Windows rig, or pass
+  the Linux/macOS serial path such as `/dev/ttyACM0`. This asserts the 60/40,
+  50/50, and 40/60 dwell presets, checks that `switches:` advances between `rf`
+  samples, and confirms `net mc off` returns the radio to `Meshtastic 100%`. If
+  the firmware still has MeshCore gated, the probe exits with a clear failure
+  instead of recording a false TDM pass.
+
+## Hardware Evidence Log
+
+### 2026-06-18 COM8 MeshCore TDM Smoke
+
+- Firmware flashed: opt-in `tdeck-meshcore` GitHub Actions artifact from `n30nex/LimitlezzOS` run `27728176574`, commit `1552fa8`.
+- Artifact manifest recorded `meshcore_enabled=1`, `budget_status=pass`, `firmware_bytes=1536832`, and `static_ram_bytes=274676`.
+- Port boundary: only `COM8` was opened/flashed/probed during this validation.
+- Direct ROM flashing with `python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore --upload-baud 460800` succeeded; bootloader, partitions, `boot_app0.bin`, and firmware hashes all verified.
+- Split-airtime smoke passed with `python scripts/tdm_airtime_smoke.py --port COM8 --open-timeout 60 --boot-timeout 60 --timeout 30`.
+- TDM evidence: `airtime mt` reported 60/40 with 300/200 ms dwell and `switches: 2`; `airtime balanced` reported 50/50 with 250/250 ms dwell and `switches: 3`; `airtime mc` reported 40/60 with 200/300 ms dwell and `switches: 4`.
+- Switch motion evidence: after returning to balanced mode, `rf` advanced from `switches: 5` to `switches: 10` during the settle window and the active side flipped from MeshCore to Meshtastic.
+- Restore evidence: `net mc off` returned `rf` to `mode: Meshtastic 100%` with no additional switch-count growth.
+- Follow-up serial smoke passed with `python scripts/tdeck_smoke.py --skip-upload --port COM8 --env tdeck-meshcore --open-timeout 60 --boot-timeout 60 --timeout 30`.
+- Serial smoke evidence: identity `!a20d1428` / `limitlessdeck`, battery 100% on USB, `net` reported Meshtastic on and MeshCore off after restore, `rf` reported `mode: Meshtastic 100%`, `stats` reported radio TX/RX counters, Wi-Fi reported `cred=nvs`, and `companion test` reported `63 frames ... -> PASS`.
+- Remaining gap: this proves the opt-in MeshCore TDM image reports correct dwell presets and live switch motion on COM8; it does not yet prove packet loss, latency, or real simultaneous Meshtastic/MeshCore traffic impact.
 
 ### 2026-06-14 COM8 Smoke Attempt
 
@@ -56,12 +108,23 @@ dogfood belong to the later roadmap phases.
 - The ROM saved PC `0x420c67ae` decoded against the flashed ELF to `esp_pm_impl_waiti`, which indicates the previous reset happened while the app was idle rather than at a decoded crash site.
 - Remaining gap: do not count stock Meshtastic peer dogfood as complete from this serial-only evidence.
 
+### 2026-06-17 COM8 Android BLE Companion Validation
+
+- Firmware artifact flashed before this validation: fork CI artifact for commit `33c8836` on branch `codex/ble-companion-disconnect-diagnostics`.
+- COM8 smoke passed after flashing with `scripts/tdeck_smoke.py --no-stub-upload --skip-build`; companion self-test reported Meshtastic-compatible metadata with `fw=2.7.15.567b8ea` and `min_app=30200`.
+- Official Android app connected over Bluetooth to `limitlessdeck` and showed firmware version `2.7.15.567b8ea`, clearing the previous "radio firmware is too old" block.
+- Android Nodes tab populated through the BLE companion session, showing 2 nodes of 55 total in the captured view.
+- Android LongFast chat sent `Test` and `Ping` through the connected T-Deck and received `Pong! --> limitlessdeck`, proving app-side LongFast send/receive over BLE on this firmware.
+- Remaining V0.5 soak gap: repeat reconnect, intentional disconnect, and coexistence testing while capturing the serial `companion` line fields (`c`, `d`, `r`, `mtu`, `to`, `fr`, `fn`).
+
 ## Meshtastic Channel Interop
 
 - Receive a LongFast text from Peer A on the T-Deck.
 - Send a LongFast text from the T-Deck and confirm Peer A receives it.
 - Repeat while Peer B is present and confirm no duplicate spam appears after managed flood/dedup.
-- Turn `rxlog on`, repeat one receive, and capture decoded packet evidence.
+- Run `rxlog` to record the current logging state, then turn `rxlog on`,
+  repeat one receive, and capture decoded packet evidence. Turn `rxlog off`
+  after the capture.
 - Reboot the T-Deck and confirm channel history remains visible when the SD card is present.
 
 ## Encrypted DM And Delivery State

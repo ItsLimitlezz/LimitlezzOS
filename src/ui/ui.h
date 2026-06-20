@@ -80,6 +80,7 @@ typedef struct {
         int tz_idx;                           /* timezone: offset hours = tz_idx - 12 */
         bool clock24;                         /* 24-hour vs 12-hour (AM/PM) */
         bool developer;                       /* show power-user tools on Home */
+        int app_source;                       /* LZ_APP_SOURCE_* */
     } settings;
 } lz_state_t;
 
@@ -130,6 +131,7 @@ void lz_scr_local_app(lv_obj_t *root);
 void lz_scr_local_app_run(lv_obj_t *root);
 void lz_open_local_app(const lz_local_app_t *app);
 void lz_start_local_app(void);
+void lz_stop_local_app(void);
 void lz_scr_contacts(lv_obj_t *root);
 void lz_scr_contact(lv_obj_t *root);
 void lz_scr_settings(lv_obj_t *root);

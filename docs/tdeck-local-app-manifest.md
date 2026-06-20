@@ -30,6 +30,8 @@ than fit on the first screen. The App Store also lists accepted local apps as
 installed local packages and opens the same manifest detail shell. Home launches
 the app into the SDK 0.1 foreground shell; the detail shell also has an `OPEN`
 action.
+Closing the app from the foreground shell, or navigating back with Esc, clears
+the active session while preserving the manifest selection for the detail view.
 
 When Developer Mode is enabled, the App Store also shows rejected local package
 folders with a short reason such as `missing manifest`, `unsafe id`, `bad
@@ -48,12 +50,15 @@ Each package directory must contain:
   exist
 
 The current SDK 0.1 foreground shell reads bounded display metadata and up to
-two bounded foreground actions from the entry file. The entry metadata budget is
+two bounded foreground actions from the entry file. The entry source budget is
 1 KB; larger entry files are shown as launch-blocked instead of being
-truncated. It accepts optional `title:`, `status:`, `body:`, `text:`, and
-`action:` lines, including Lua-comment style lines such as `-- body: Local
-dashboard`. Script execution and richer API injection are still later runtime
-work.
+truncated. The loaded entry source plus parsed foreground metadata are also
+charged against a 704-byte runtime budget covering the resident title, status,
+body, action labels, action text, effects, and storage path. Apps that exceed
+either budget are launch-blocked before future runtime code can run. It accepts
+optional `title:`, `status:`, `body:`, `text:`, and `action:` lines, including
+Lua-comment style lines such as `-- body: Local dashboard`. Script execution
+and richer API injection are still later runtime work.
 
 Action lines use pipe-separated fields:
 
@@ -63,17 +68,23 @@ Action lines use pipe-separated fields:
 
 The first field is the button label, the second replaces the foreground status
 after activation, and the third replaces the body text. The optional fourth
-field is a tiny SDK effect. The only supported effect is `counter:<safe-key>`,
-which increments `<app>/data/<safe-key>.count` and expands `{count}` in the
-status/body. Counter keys may contain up to 19 letters, numbers, `_`, and `-`
-characters only. Unknown effects and malformed counter keys are launch-blocked
-instead of being ignored.
+field is a tiny SDK effect. Supported effects are:
+
+- `counter:<safe-key>` increments `<app>/data/<safe-key>.count` and expands
+  `{count}` in the status/body. Counter keys may contain up to 19 letters,
+  numbers, `_`, and `-` characters only.
+- `notify:<message>` requests a user-visible app notification through the
+  firmware feedback service. This is a lightweight service boundary only; full
+  LED/buzzer/DND/emergency policy remains later Feedback Manager work.
+
+Unknown effects and malformed effect payloads are launch-blocked instead of
+being ignored.
 
 Actions require the `input` permission; display-only apps that declare actions
 are launch-blocked. Counter actions also require `storage` permission and stay
-inside the scoped app `data/` directory and the 64 KB quota. Actions do not
-execute arbitrary script and do not grant raw filesystem, radio, or hardware
-access.
+inside the scoped app `data/` directory and the 64 KB quota. Notification
+actions require `notifications`. Actions do not execute arbitrary script and do
+not grant raw filesystem, radio, or hardware access.
 
 The SDK 0.1 foreground shell also supports tiny read-only value tokens in
 `status:`, `body:`, `text:`, and action status/body fields:
@@ -126,15 +137,20 @@ Optional:
 
 Supported permission names:
 
-- `display`
-- `input`
-- `storage`
-- `mesh_read`
-- `mesh_send`
-- `system_time`
-- `battery`
-- `notifications`
-- `network_wifi`
+- `display`: show content on screen
+- `input`: use buttons, trackball, or keyboard while open
+- `storage`: read and write this app's own `data/` folder
+- `mesh_read`: read mesh messages routed to app APIs
+- `mesh_send`: send mesh messages through OS services
+- `system_time`: read the device clock
+- `battery`: read battery level
+- `notifications`: ask the OS to show notifications
+- `network_wifi`: use Wi-Fi through OS network services
+
+The App Store detail screen shows both the manifest permission IDs and a
+plain-language `Access` summary before opening the app. For example, an app
+that declares `display`, `input`, and `storage` is summarized as able to show
+content, use controls while open, and read/write only its own app data.
 
 ## Safety Rules
 
@@ -147,15 +163,22 @@ The scanner rejects packages when:
   missing on disk
 - `api_version` names an unsupported SDK version
 - `permissions` is not an array of supported namespace strings
+- the foreground entry exceeds the source budget or parsed runtime memory budget
 
 The current firmware scans local app manifests and can open them in a safe
 foreground shell with bounded foreground actions, including a storage-scoped
-counter effect and read-only `{time}` / `{battery}` value injection. Script
-execution, richer sandbox API injection, richer data APIs, and network catalog
-installs remain later app-platform work. Permission metadata is parsed and
-displayed now so packages can fail closed before richer runtime APIs are added,
-and apps that declare `storage` get a scoped `data/` directory prepared under
-their own package.
+counter effect, a permission-gated `notify:` feedback request, and read-only
+`{time}` / `{battery}` value injection. Script execution, richer sandbox API
+injection, richer data APIs, and network catalog installs remain later
+app-platform work. Permission metadata is parsed and displayed now so packages
+can fail closed before richer runtime APIs are added, and apps that declare
+`storage` get a scoped `data/` directory prepared under their own package.
+counter effect, bounded launch/action fault snapshots, and read-only `{time}` /
+`{battery}` value injection. Script execution, richer sandbox API injection,
+richer data APIs, and network catalog installs remain later app-platform work.
+Permission metadata is parsed and displayed now so packages can fail closed
+before richer runtime APIs are added, and apps that declare `storage` get a
+scoped `data/` directory prepared under their own package.
 
 Storage-enabled local apps have a 64 KB `data/` quota in this early shell. The
 App Store detail and foreground shell show current usage, and over-quota apps
@@ -163,3 +186,34 @@ are launch-blocked before any future runtime code can run. The App Store detail
 screen also provides `Clear local data` for storage-enabled apps; it removes
 only files and folders inside that app's scoped `data/` directory and then
 recreates the directory for later use.
+
+## Sample App Pack
+
+The repository includes copyable SDK 0.1 packages in `examples/local-apps/`:
+
+- Calculator
+- Field Notes
+- Offline Maps
+- Weather Mesh
+- Mesh BBS
+- Signal Scope
+- LoRa Chess
+- APRS Bridge
+
+Validate the pack before copying it to a simulator or card-style root:
+
+```sh
+python scripts/validate_local_app_samples.py
+```
+
+For local simulator/data-root testing, install the samples under an app root:
+
+```sh
+python scripts/validate_local_app_samples.py --install-root .pio/local-app-samples --clean
+```
+
+Then copy `.pio/local-app-samples/apps/<sample>` folders to `/sd/limitlezz/apps/`,
+`/sd/apps/`, or `/appfs/apps/` on hardware. The validator mirrors the firmware's
+SDK 0.1 limits for manifest size, string fields, safe entry paths, supported
+permissions, `{time}` / `{battery}` token permissions, foreground action count,
+and storage-scoped counter effects.

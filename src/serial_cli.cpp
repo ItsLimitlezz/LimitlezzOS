@@ -10,7 +10,11 @@
 #ifdef LZ_TARGET_TDECK
 
 #include <Arduino.h>
+#include "services/emergency_guard.h"
 #include "services/mesh.h"
+#include "services/feedback.h"
+#include "services/power_policy.h"
+#include "services/ota_boot.h"
 #include "services/wifi.h"
 #include "ui/ui.h"
 
@@ -34,9 +38,14 @@ extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
 extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
 extern "C" int  lz_mtpki_selftest(char *buf, int n)       __attribute__((weak));
 extern "C" void lz_backend_set_rxlog(bool on)             __attribute__((weak));
+extern "C" bool lz_backend_rxlog_enabled(void)            __attribute__((weak));
 
 static char    g_line[160];
 static uint8_t g_len;
+static lz_emergency_guard_t g_emergency_guard;
+
+static void cmd_feedback(char *args);   /* cmd_app's "notify test" echoes feedback status */
+static void ota_print_decision(const lz_ota_boot_signals_t *s);  /* defined below cmd_ota */
 
 static void prompt(void) { Serial.print("\nlz> "); }
 
@@ -62,15 +71,28 @@ static void cmd_help(void)
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
+        "  companion mc hello|status|nodes|threads|send|dm|test  MeshCore companion v0\n"
+        "  companion mc usb on|off|status|test  USB speaks MeshCore MC0\n"
         "  companion test       loopback-verify the companion protocol\n"
+        "  feedback status|test  feedback/app-notification diagnostics\n"
+        "  app notify test      request a test app notification\n"
+        "  app catalog status|test  app catalog schema diagnostics\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
+        "  feedback             show DND/priority feedback policy\n"
+        "  emergency [arm|confirm|cancel]  diagnostic emergency trigger guard\n"
         "  dm status            show pending sent-DM delivery state\n"
         "  dm test|req <sc>|send <sc> <text>   PKI DM: self-test / request a node's key / send a DM\n"
-        "  nodes                list heard nodes\n"
+        "  rxlog [on|off]       show/toggle inbound radio decode logging\n"
+        "  nodes [test]         list heard nodes / test node DB schema\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
+        "  ota [status|test]    cached OTA firmware manifest diagnostics\n"
+        "  security [status|test|set <pin>|check <pin>|clear <pin>]\n"
         "  wifi [scan|on|off]   wifi status / control\n"
+        "  settings [test]      persisted settings schema diagnostics\n"
+        "  ota boot-policy|boot-test  OTA rollback policy diagnostics\n"
         "  sys                  battery, uptime, memory\n"
+        "  power                battery warning policy and current action\n"
         "  id                   this node's identity\n"
         "  reboot               restart the device"));
 }
@@ -290,29 +312,134 @@ static void cmd_touch(char *args)
     else Serial.println("[--] touch not present");
 }
 
+static void cmd_emergency(char *args)
+{
+    uint32_t now = millis();
+    if(args && strcmp(args, "arm") == 0) {
+        if(lz_emergency_guard_arm(&g_emergency_guard, now, LZ_EMERGENCY_HOLD_MS))
+            Serial.println("[ok] emergency guard armed; run 'emergency confirm' within the window");
+        else
+            Serial.println("[err] emergency guard did not arm");
+    } else if(args && strcmp(args, "confirm") == 0) {
+        if(lz_emergency_guard_confirm(&g_emergency_guard, now))
+            Serial.println("[ok] emergency guard would trigger beacon; SOS TX is not wired yet");
+        else
+            Serial.println("[err] emergency guard not armed or expired");
+    } else if(args && strcmp(args, "cancel") == 0) {
+        lz_emergency_guard_reset(&g_emergency_guard);
+        Serial.println("[ok] emergency guard cancelled");
+    }
+    char b[220];
+    lz_emergency_guard_diag(&g_emergency_guard, now, b, sizeof b);
+    Serial.print(b);
+}
+
 static void cmd_companion(char *args)
 {
+    if(args && strncmp(args, "mc", 2) == 0 && (args[2] == 0 || args[2] == ' ')) {
+        char *sub = args + 2;
+        while(*sub == ' ') sub++;
+        if(strncmp(sub, "usb", 3) == 0 && (sub[3] == 0 || sub[3] == ' ')) {
+            char *state = sub + 3;
+            while(*state == ' ') state++;
+            if(!state[0] || strcmp(state, "status") == 0) {
+                char b[140]; lz_mcc_usb_status(b, sizeof b); Serial.println(b);
+                return;
+            }
+            if(strcmp(state, "test") == 0) {
+                char b[180]; lz_mcc_usb_selftest(b, sizeof b); Serial.println(b);
+                return;
+            }
+            if(strcmp(state, "on") == 0) {
+                lz_mcc_usb_set_active(true);
+                if(lz_mcc_usb_active()) {
+                    Serial.println("[ok] MeshCore MC0 USB companion mode ON");
+                    Serial.println("     send 'MC0 1 EXIT' to return to the text console");
+                } else {
+                    Serial.println("[err] MeshCore MC0 USB companion could not allocate line buffer");
+                }
+                return;
+            }
+            if(strcmp(state, "off") == 0) {
+                lz_mcc_usb_set_active(false);
+                Serial.println("[ok] MeshCore MC0 USB companion mode OFF");
+                return;
+            }
+            Serial.println("usage: companion mc usb on|off|status|test");
+            return;
+        }
+        if(!sub[0] || strcmp(sub, "status") == 0) {
+            char b[220]; lz_svc_mc_companion_status(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "hello") == 0) {
+            char b[220]; lz_svc_mc_companion_hello(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "nodes") == 0) {
+            char b[760]; lz_svc_mc_companion_nodes(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "threads") == 0) {
+            char b[760]; lz_svc_mc_companion_threads(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "test") == 0) {
+            char h[220], st[220], nodes[220];
+            char proto[120];
+            lz_svc_mc_companion_hello(h, sizeof h);
+            lz_svc_mc_companion_status(st, sizeof st);
+            lz_svc_mc_companion_nodes(nodes, sizeof nodes);
+            lz_svc_mc_companion_selftest(proto, sizeof proto);
+            bool ok = strstr(h, "mccomp: hello") && strstr(st, "mccomp: status") &&
+                      strstr(nodes, "mccomp-node:") && strstr(proto, "PASS");
+            Serial.printf("MeshCore companion v0 selftest: %s\n", ok ? "PASS" : "FAIL");
+            Serial.println(proto);
+            return;
+        }
+        if(strncmp(sub, "send ", 5) == 0) {
+            const char *text = sub + 5;
+            if(lz_svc_mc_companion_send_public(text))
+                Serial.println("[ok] mc companion public send queued");
+            else
+                Serial.println("[err] mc companion public send failed");
+            return;
+        }
+        if(strncmp(sub, "dm ", 3) == 0) {
+            char *p = sub + 3; char *sp = strchr(p, ' ');
+            if(!sp) { Serial.println("usage: companion mc dm <peer-name> <text>"); return; }
+            *sp = 0; const char *text = sp + 1;
+            if(lz_svc_mc_companion_send_dm(p, text))
+                Serial.printf("[ok] mc companion DM queued to %s\n", p);
+            else
+                Serial.println("[err] mc companion DM failed");
+            return;
+        }
+        Serial.println("usage: companion mc hello|status|nodes|threads|send <text>|dm <peer> <text>|test|usb on|off|status|test");
+        return;
+    }
     if(args && strncmp(args, "ble", 3) == 0) {
         char state[8] = {0};
         if(sscanf(args, "ble %7s", state) == 1) {
-            if(strcmp(state, "on") == 0)  lz_mtc_ble_set_enabled(true);
+            if(strcmp(state, "on") == 0)  { lz_mcc_usb_set_active(false); lz_mtc_ble_set_enabled(true); }
             if(strcmp(state, "off") == 0) lz_mtc_ble_set_enabled(false);
             if(strcmp(state, "test") == 0 && lz_mtc_ble_selftest) {
                 char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b);
             }
         }
-        if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+        if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
         else Serial.println("[--] BLE companion not present");
         return;
     }
     if(args && strcmp(args, "test") == 0) {
         if(lz_mtc_selftest) { char b[160]; lz_mtc_selftest(b, sizeof b); Serial.println(b); }
         if(lz_mtc_ble_selftest) { char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b); }
-        if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+        if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
         else Serial.println("[--] not present");
         return;
     }
     if(args && strcmp(args, "on") == 0) {
+        lz_mcc_usb_set_active(false);
         Serial.println("[ok] companion mode ON - USB now speaks the Meshtastic app protocol");
         Serial.println("     (text console returns after 'companion off' or reboot)");
         lz_mtc_set_active(true);
@@ -320,11 +447,44 @@ static void cmd_companion(char *args)
     }
     if(args && strcmp(args, "off") == 0) { lz_mtc_set_active(false); Serial.println("[ok] companion mode OFF"); return; }
     Serial.printf("USB companion mode: %s  (on|off|test)\n", lz_mtc_active() ? "ON" : "off");
-    if(lz_mtc_ble_status) { char b[180]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+    if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
-static void cmd_nodes(void)
+static void cmd_app(char *args)
 {
+    if(args && strcmp(args, "notify test") == 0) {
+        lz_svc_feedback_notify("serial-app", "App notification", "SDK notify smoke");
+        Serial.println("[ok] app notification requested");
+        cmd_feedback((char *)"status");
+        return;
+    }
+    if(args && strcmp(args, "catalog test") == 0) {
+        char b[180];
+        lz_svc_app_catalog_selftest(b, sizeof b);
+        Serial.print(b);
+        return;
+    }
+    if(!args || !args[0] || strcmp(args, "catalog") == 0 ||
+       strcmp(args, "catalog status") == 0) {
+        char b[180];
+        lz_svc_app_catalog_diag(b, sizeof b);
+        Serial.print(b);
+        return;
+    }
+    Serial.println("usage: app notify test | app catalog status | app catalog test");
+}
+
+static void cmd_nodes(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char err[64];
+        bool ok = lz_store_nodes_selftest(err, sizeof err);
+        Serial.printf("Node DB schema selftest: %s version=%u",
+                      ok ? "PASS" : "FAIL", (unsigned)LZ_NODE_DB_SCHEMA_VERSION);
+        if(err[0]) Serial.printf(" %s", err);
+        Serial.println();
+        return;
+    }
     const lz_node_rt *nodes;
     int n = lz_svc_nodes(&nodes);
     if(n == 0) { Serial.println("(no nodes heard yet)"); return; }
@@ -366,6 +526,108 @@ static void cmd_stats(void)
                   (unsigned)st.tx_count, (unsigned)st.rx_count, st.util_pct);
 }
 
+static void cmd_ota(char *args)
+{
+    if(args && strcmp(args, "boot-test") == 0) {
+        char err[64];
+        bool ok = lz_ota_boot_selftest(err, sizeof err);
+        Serial.printf("OTA boot policy selftest: %s", ok ? "PASS" : "FAIL");
+        if(err[0]) Serial.printf(" %s", err);
+        Serial.println();
+        return;
+    }
+    if(args && strncmp(args, "boot-policy", 11) == 0) {
+        char *mode = args + 11;
+        while(*mode == ' ') mode++;
+        lz_ota_boot_signals_t s = {0};
+        if(strcmp(mode, "pending") == 0) {
+            s.pending_verify = true;
+            s.boot_selftest_passed = true;
+        } else if(strcmp(mode, "confirmed") == 0) {
+            s.pending_verify = true;
+            s.boot_selftest_passed = true;
+            s.user_confirmed = true;
+        } else if(strcmp(mode, "fault") == 0) {
+            s.pending_verify = true;
+            s.boot_selftest_passed = true;
+            s.critical_fault = true;
+        } else if(strcmp(mode, "selftest-fail") == 0) {
+            s.pending_verify = true;
+        }
+        ota_print_decision(&s);
+        return;
+    }
+    if(args && strcmp(args, "test") == 0) {
+        char b[160];
+        lz_svc_ota_manifest_selftest(b, sizeof b);
+        Serial.println(b);
+        return;
+    }
+    if(args && args[0] && strcmp(args, "status") != 0) {
+        Serial.println("usage: ota [status|test|boot-policy ...|boot-test]");
+        return;
+    }
+
+    lz_ota_manifest_t m;
+    lz_svc_ota_manifest_status(&m);
+    if(!m.found) {
+        Serial.println("ota manifest: no cached manifest");
+    } else if(!m.valid) {
+        Serial.printf("ota manifest: invalid source=%s error=\"%s\"\n",
+                      m.source, m.error);
+    } else {
+        Serial.printf("ota manifest: valid version=%s channel=%s board=%s size=%lu source=%s\n",
+                      m.version, m.channel, m.board,
+                      (unsigned long)m.size_bytes, m.source);
+        Serial.printf("firmware: %s\n", m.firmware_url);
+    }
+    }
+static void cmd_security(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char b[120];
+        lz_svc_security_selftest(b, sizeof b);
+        Serial.println(b);
+        return;
+    }
+    if(args && strncmp(args, "set ", 4) == 0) {
+        char err[64] = {0};
+        if(lz_svc_security_set_pin(args + 4, err, sizeof err))
+            Serial.println("[ok] device PIN verifier set (data encryption not enabled yet)");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "PIN not set");
+        return;
+    }
+    if(args && strncmp(args, "check ", 6) == 0) {
+        Serial.println(lz_svc_security_check_pin(args + 6) ? "[ok] PIN accepted" : "[err] PIN rejected");
+        return;
+    }
+    if(args && strncmp(args, "clear ", 6) == 0) {
+        char err[64] = {0};
+        if(lz_svc_security_clear_pin(args + 6, err, sizeof err))
+            Serial.println("[ok] device PIN verifier cleared");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "PIN not cleared");
+        return;
+    }
+    if(args && args[0] && strcmp(args, "status") != 0) {
+        Serial.println("usage: security [status|test|set <pin>|check <pin>|clear <pin>]");
+        return;
+    }
+
+    lz_security_status_t st;
+    lz_svc_security_status(&st);
+    if(st.configured && st.valid) {
+        Serial.printf("security: PIN set rounds=%lu salt=%s encrypted-store=not-enabled\n",
+                      (unsigned long)st.rounds, st.salt);
+    } else if(st.configured && !st.valid) {
+        Serial.printf("security: invalid verifier error=\"%s\"\n", st.error);
+    } else {
+        Serial.printf("security: no device PIN set (%s); encrypted-store=not-enabled\n",
+                      st.error[0] ? st.error : "not configured");
+    }
+}
+
 static void print_wifi_text(const char *text)
 {
     if(!text || !text[0]) { Serial.print("(none)"); return; }
@@ -395,6 +657,46 @@ static void cmd_wifi(char *args)
     Serial.println(nn);
 }
 
+static void cmd_settings(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char err[64];
+        bool ok = lz_store_settings_selftest(err, sizeof err);
+        Serial.printf("Settings schema selftest: %s version=%d",
+                      ok ? "PASS" : "FAIL", LZ_SETTINGS_SCHEMA_VERSION);
+        if(err[0]) Serial.printf(" %s", err);
+        Serial.println();
+        return;
+    }
+    Serial.printf("settings: schema=%d mt=%s mc=%s airtime=%s bright=%d timeout=%d kb=%d tz=%s clock=%s developer=%s\n",
+                  LZ_SETTINGS_SCHEMA_VERSION,
+                  S.net_mt ? "on" : "off",
+                  S.net_mc ? "on" : "off",
+                  lz_airtime_mode_label(S.settings.airtime),
+                  S.settings.bright,
+                  S.settings.timeout,
+                  S.settings.kb_light,
+                  lz_svc_tz_abbrev(),
+                  S.settings.clock24 ? "24h" : "12h",
+                  S.settings.developer ? "on" : "off");
+}
+
+static void cmd_feedback(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char b[120];
+        lz_svc_feedback_selftest(b, sizeof b);
+        Serial.println(b);
+        return;
+    }
+    /* default/status: notification-service diag + the DND/priority policy matrix */
+    char b[760];
+    lz_svc_feedback_diag(b, sizeof b);
+    Serial.print(b);
+    lz_feedback_policy_diag(b, sizeof b);
+    Serial.print(b);
+}
+
 static void cmd_sys(void)
 {
     lz_sysinfo_t si;
@@ -403,6 +705,26 @@ static void cmd_sys(void)
                   si.battery_pct, si.battery_v,
                   si.usb ? (si.charging ? " charging" : " USB") : "",
                   si.cpu_mhz, si.ram_used_kb, si.ram_total_kb, (unsigned)si.uptime_s);
+}
+
+static void cmd_power(void)
+{
+    lz_sysinfo_t si;
+    lz_svc_sysinfo(&si);
+    int mv = si.battery_v > 0.0f ? (int)(si.battery_v * 1000.0f + 0.5f) : 0;
+    char b[360];
+    lz_power_policy_diag(b, sizeof b, si.battery_pct, mv, si.charging, si.usb);
+    Serial.print(b);
+    }
+static void ota_print_decision(const lz_ota_boot_signals_t *s)
+{
+    lz_ota_boot_decision_t d;
+    lz_ota_boot_decide(s, &d);
+    Serial.printf("ota boot policy: action=%s apps=%s updates=%s reason=\"%s\"\n",
+                  lz_ota_boot_action_name(d.action),
+                  d.allow_app_launch ? "allow" : "hold",
+                  d.allow_new_update ? "allow" : "hold",
+                  d.reason);
 }
 
 static void cmd_id(void)
@@ -429,18 +751,34 @@ static void dispatch(char *line)
     else if(!strcmp(line, "rf"))      cmd_rf(args);
     else if(!strcmp(line, "mc"))      cmd_mc(args);
     else if(!strcmp(line, "companion")) cmd_companion(args);
+    else if(!strcmp(line, "feedback")) cmd_feedback(args);
+    else if(!strcmp(line, "app"))     cmd_app(args);
     else if(!strcmp(line, "touch"))   cmd_touch(args);
+    else if(!strcmp(line, "emergency")) cmd_emergency(args);
     else if(!strcmp(line, "dm"))      cmd_dm(args);
     else if(!strcmp(line, "rxlog")) {
-        bool on = !(args && strcmp(args, "off") == 0);
-        if(lz_backend_set_rxlog) lz_backend_set_rxlog(on);
-        Serial.printf("[ok] rx logging %s\n", on ? "on" : "off");
+        if(!args || !args[0]) {
+            if(lz_backend_rxlog_enabled)
+                Serial.printf("rx logging: %s\n", lz_backend_rxlog_enabled() ? "on" : "off");
+            else
+                Serial.println("rx logging: unavailable");
+        } else if(!strcmp(args, "on") || !strcmp(args, "off")) {
+            bool on = !strcmp(args, "on");
+            if(lz_backend_set_rxlog) lz_backend_set_rxlog(on);
+            Serial.printf("[ok] rx logging %s\n", on ? "on" : "off");
+        } else {
+            Serial.println("usage: rxlog [on|off]");
+        }
     }
-    else if(!strcmp(line, "nodes"))   cmd_nodes();
+    else if(!strcmp(line, "nodes"))   cmd_nodes(args);
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();
+    else if(!strcmp(line, "ota"))     cmd_ota(args);
+    else if(!strcmp(line, "security")) cmd_security(args);
     else if(!strcmp(line, "wifi"))    cmd_wifi(args);
+    else if(!strcmp(line, "settings")) cmd_settings(args);
     else if(!strcmp(line, "sys"))     cmd_sys();
+    else if(!strcmp(line, "power"))   cmd_power();
     else if(!strcmp(line, "id"))      cmd_id();
     else if(!strcmp(line, "reboot"))  { Serial.println("[ok] rebooting"); delay(50); ESP.restart(); }
     else Serial.printf("[err] unknown command '%s' (try help)\n", line);

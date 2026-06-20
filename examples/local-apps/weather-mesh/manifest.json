@@ -1,0 +1,12 @@
+{
+  "id": "weather.mesh",
+  "name": "Weather Mesh",
+  "version": "0.1.0",
+  "author": "Limitless",
+  "summary": "Local weather dashboard",
+  "entry": "main.lua",
+  "api_version": "0.1",
+  "permissions": ["display", "input", "storage", "mesh_read", "system_time", "battery"],
+  "icon": "weather",
+  "hue": 48
+}

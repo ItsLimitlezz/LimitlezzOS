@@ -1,0 +1,12 @@
+{
+  "id": "scope.local",
+  "name": "Signal Scope",
+  "version": "0.1.0",
+  "author": "Limitless",
+  "summary": "Packet and RSSI viewer",
+  "entry": "main.lua",
+  "api_version": "0.1",
+  "permissions": ["display", "input", "mesh_read", "system_time", "battery"],
+  "icon": "terminal",
+  "hue": 210
+}

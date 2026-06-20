@@ -2,6 +2,7 @@
  * Terminal, Files */
 #include "../ui.h"
 #include "../vlist.h"
+#include "../../services/app_permissions.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -71,6 +72,53 @@ static const char *local_app_note_for(const lz_local_app_t *app)
     return local_app_note[0] ? local_app_note : NULL;
 }
 
+static int app_version_part(const char **p)
+{
+    int v = 0;
+    while(**p >= '0' && **p <= '9') {
+        if(v < 1000) v = v * 10 + (**p - '0');
+        (*p)++;
+    }
+    if(**p == '.') (*p)++;
+    return v;
+}
+
+static int app_version_cmp(const char *a, const char *b)
+{
+    if(!a) a = "";
+    if(!b) b = "";
+    const char *pa = a, *pb = b;
+    for(int i = 0; i < 3; i++) {
+        int av = app_version_part(&pa);
+        int bv = app_version_part(&pb);
+        if(av != bv) return av > bv ? 1 : -1;
+    }
+    return 0;
+}
+
+static bool catalog_matches_local(const lz_store_app_t *cat, const lz_local_app_t *app)
+{
+    if(!cat || !app || !cat->id || !app->id[0]) return false;
+    char local_id[24];
+    size_t n = 0;
+    while(app->id[n] && app->id[n] != '.' && n + 1 < sizeof local_id) {
+        local_id[n] = app->id[n];
+        n++;
+    }
+    local_id[n] = 0;
+    return local_id[0] && strcmp(cat->id, local_id) == 0;
+}
+
+static const lz_store_app_t *local_app_update_for(const lz_local_app_t *app)
+{
+    for(int i = 0; i < 8; i++) {
+        if(catalog_matches_local(&LZ_STORE[i], app) &&
+           app_version_cmp(LZ_STORE[i].version, app->version) > 0)
+            return &LZ_STORE[i];
+    }
+    return NULL;
+}
+
 static void store_timer_cb(lv_timer_t *tm)
 {
     int idx = (int)(intptr_t)tm->user_data;
@@ -81,6 +129,7 @@ static void store_timer_cb(lv_timer_t *tm)
 static void store_activate(int idx)
 {
     if(idx < 0) return;
+    bool show_catalog = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY;
     if(idx < store_local_n) {
         lz_local_app_t local[STORE_LOCAL_MAX];
         int n = lz_svc_scan_apps(local, STORE_LOCAL_MAX);
@@ -92,6 +141,7 @@ static void store_activate(int idx)
         return;
     }
     idx -= store_local_n;
+    if(!show_catalog) return;
     if(idx >= 8) return;
     if(LZ_STORE[idx].state == LZ_ST_OPEN || LZ_STORE[idx].state == LZ_ST_INSTALLING) return;
     LZ_STORE[idx].state = LZ_ST_INSTALLING;
@@ -119,40 +169,49 @@ void lz_scr_appstore(lv_obj_t *root)
     lv_obj_set_style_pad_row(body, 3, 0);
     lz_nav_set_scroll(body);
 
-    /* featured card (flattened to solid fill per rendering constraints) */
-    lv_obj_t *feat = lz_box(body);
-    lv_obj_set_width(feat, lv_pct(100));
-    lv_obj_set_height(feat, LV_SIZE_CONTENT);
-    lv_obj_set_style_radius(feat, 13, 0);
-    lv_obj_set_style_bg_color(feat, LZ_FEATURED, 0);
-    lv_obj_set_style_bg_opa(feat, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(feat, 11, 0);
-    lv_obj_set_flex_flow(feat, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(feat, 7, 0);
-    lz_text(feat, "FEATURED", LZ_F_SMALL, lv_color_hex(0xC9CBE8));
-    lv_obj_t *frow = lz_box(feat);
-    lv_obj_set_width(frow, lv_pct(100));
-    lv_obj_set_height(frow, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(frow, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(frow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(frow, 10, 0);
-    lv_obj_t *ftile = lz_box(frow);
-    lv_obj_set_size(ftile, 42, 42);
-    lv_obj_set_style_radius(ftile, 11, 0);
-    lv_obj_set_style_bg_color(ftile, lz_tile_color(150), 0);
-    lv_obj_set_style_bg_opa(ftile, LV_OPA_COVER, 0);
-    lv_obj_t *fic = lz_icon(ftile, LZ_I_MAP, &lz_icons_24, lv_color_white());
-    lv_obj_center(fic);
-    lv_obj_t *fcol = lz_box(frow);
-    lv_obj_set_flex_grow(fcol, 1);
-    lv_obj_set_height(fcol, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(fcol, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(fcol, 1, 0);
-    lz_text(fcol, "Node Mapper", LZ_F_HEAD, lv_color_white());
-    lv_obj_t *fd = lz_text(fcol, "Live mesh topology & GPS positions on an offline map",
-                           LZ_F_SMALL, lv_color_hex(0xCFD0E4));
-    lv_label_set_long_mode(fd, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(fd, lv_pct(100));
+    bool show_catalog = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY;
+    char source_line[48];
+    snprintf(source_line, sizeof source_line, "Source: %s", lz_app_source_label(S.settings.app_source));
+    lv_obj_t *src = lz_text(body, source_line, LZ_F_SMALL, LZ_TEXT_META);
+    lv_obj_set_style_pad_left(src, 4, 0);
+    lv_obj_set_style_pad_bottom(src, 3, 0);
+
+    if(show_catalog) {
+        /* featured card (flattened to solid fill per rendering constraints) */
+        lv_obj_t *feat = lz_box(body);
+        lv_obj_set_width(feat, lv_pct(100));
+        lv_obj_set_height(feat, LV_SIZE_CONTENT);
+        lv_obj_set_style_radius(feat, 13, 0);
+        lv_obj_set_style_bg_color(feat, LZ_FEATURED, 0);
+        lv_obj_set_style_bg_opa(feat, LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_all(feat, 11, 0);
+        lv_obj_set_flex_flow(feat, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(feat, 7, 0);
+        lz_text(feat, "FEATURED", LZ_F_SMALL, lv_color_hex(0xC9CBE8));
+        lv_obj_t *frow = lz_box(feat);
+        lv_obj_set_width(frow, lv_pct(100));
+        lv_obj_set_height(frow, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(frow, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(frow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(frow, 10, 0);
+        lv_obj_t *ftile = lz_box(frow);
+        lv_obj_set_size(ftile, 42, 42);
+        lv_obj_set_style_radius(ftile, 11, 0);
+        lv_obj_set_style_bg_color(ftile, lz_tile_color(150), 0);
+        lv_obj_set_style_bg_opa(ftile, LV_OPA_COVER, 0);
+        lv_obj_t *fic = lz_icon(ftile, LZ_I_MAP, &lz_icons_24, lv_color_white());
+        lv_obj_center(fic);
+        lv_obj_t *fcol = lz_box(frow);
+        lv_obj_set_flex_grow(fcol, 1);
+        lv_obj_set_height(fcol, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(fcol, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_pad_row(fcol, 1, 0);
+        lz_text(fcol, "Node Mapper", LZ_F_HEAD, lv_color_white());
+        lv_obj_t *fd = lz_text(fcol, "Live mesh topology & GPS positions on an offline map",
+                               LZ_F_SMALL, lv_color_hex(0xCFD0E4));
+        lv_label_set_long_mode(fd, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(fd, lv_pct(100));
+    }
 
     if(store_local_n > 0) {
         lv_obj_t *lh = lz_text(body, "Installed locally", LZ_F_BODY, lv_color_hex(0xCFD4DA));
@@ -161,6 +220,7 @@ void lz_scr_appstore(lv_obj_t *root)
 
         for(int i = 0; i < store_local_n; i++) {
             lz_local_app_t *a = &local[i];
+            const lz_store_app_t *update = local_app_update_for(a);
             lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
 
@@ -186,19 +246,24 @@ void lz_scr_appstore(lv_obj_t *root)
             lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             lv_obj_set_style_pad_column(meta, 4, 0);
             lz_icon(meta, LZ_I_FOLDER, &lz_icons_14, LZ_TEXT_3);
-            char cs[44]; snprintf(cs, sizeof cs, "v%s - %s", a->version, a->author);
+            char cs[56];
+            if(update) snprintf(cs, sizeof cs, "v%s -> %s - %s", a->version, update->version, a->author);
+            else snprintf(cs, sizeof cs, "v%s - %s", a->version, a->author);
             lz_text(meta, cs, LZ_F_SMALL, LZ_TEXT_3);
 
             lv_obj_t *btn = lz_box(row);
             lv_obj_set_size(btn, LV_SIZE_CONTENT, 21);
-            lv_obj_set_style_min_width(btn, 52, 0);
+            lv_obj_set_style_min_width(btn, update ? 66 : 52, 0);
             lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x222A33), 0);
+            lv_obj_set_style_bg_color(btn, update ? LZ_STORE_BTN : lv_color_hex(0x222A33), 0);
             lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_width(btn, 1, 0);
-            lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
+            if(!update) {
+                lv_obj_set_style_border_width(btn, 1, 0);
+                lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
+            }
             lv_obj_set_style_pad_hor(btn, 11, 0);
-            lv_obj_t *bl = lz_text(btn, "INFO", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
+            lv_obj_t *bl = lz_text(btn, update ? "UPDATE" : "INFO", LZ_F_SMALL,
+                                   update ? LZ_ON_MINT : lv_color_hex(0xCFD4DA));
             lv_obj_center(bl);
             lz_nav_track(row, i);
         }
@@ -237,84 +302,63 @@ void lz_scr_appstore(lv_obj_t *root)
         }
     }
 
-    lv_obj_t *hd = lz_text(body, store_local_n > 0 ? "Catalog examples" : "Apps & utilities",
-                           LZ_F_BODY, lv_color_hex(0xCFD4DA));
-    lv_obj_set_style_pad_bottom(hd, 3, 0);
+    if(show_catalog) {
+        lv_obj_t *hd = lz_text(body, store_local_n > 0 ? "Catalog examples" : "Apps & utilities",
+                               LZ_F_BODY, lv_color_hex(0xCFD4DA));
+        lv_obj_set_style_pad_bottom(hd, 3, 0);
 
-    for(int i = 0; i < 8; i++) {
-        int nav_idx = store_local_n + i;
-        lz_store_app_t *a = &LZ_STORE[i];
-        lv_obj_t *row = lz_row(body, nav_idx == S.focus);
-        lv_obj_set_style_radius(row, 11, 0);
+        for(int i = 0; i < 8; i++) {
+            int nav_idx = store_local_n + i;
+            lz_store_app_t *a = &LZ_STORE[i];
+            lv_obj_t *row = lz_row(body, nav_idx == S.focus);
+            lv_obj_set_style_radius(row, 11, 0);
 
-        lv_obj_t *tile = lz_box(row);
-        lv_obj_set_size(tile, 36, 36);
-        lv_obj_set_style_radius(tile, 10, 0);
-        lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
-        lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-        lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_18, lv_color_white());
-        lv_obj_center(ic);
+            lv_obj_t *tile = lz_box(row);
+            lv_obj_set_size(tile, 36, 36);
+            lv_obj_set_style_radius(tile, 10, 0);
+            lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
+            lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+            lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_18, lv_color_white());
+            lv_obj_center(ic);
 
-        lv_obj_t *cl = lz_box(row);
-        lv_obj_set_flex_grow(cl, 1);
-        lv_obj_set_height(cl, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(cl, 1, 0);
-        lz_text(cl, a->name, LZ_F_BODY, LZ_TEXT);
-        lv_obj_t *meta = lz_box(cl);
-        lv_obj_set_size(meta, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(meta, 4, 0);
-        lz_icon(meta, LZ_I_STAR, &lz_icons_14, LZ_SNR_MID);
-        lz_text(meta, a->rating, LZ_F_SMALL, LZ_TEXT_VALUE);
-        char cs[32]; snprintf(cs, sizeof cs, "- %s - %s", a->cat, a->size);
-        lz_text(meta, cs, LZ_F_SMALL, LZ_TEXT_3);
+            lv_obj_t *cl = lz_box(row);
+            lv_obj_set_flex_grow(cl, 1);
+            lv_obj_set_height(cl, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_row(cl, 1, 0);
+            lz_text(cl, a->name, LZ_F_BODY, LZ_TEXT);
+            lv_obj_t *meta = lz_box(cl);
+            lv_obj_set_size(meta, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(meta, 4, 0);
+            lz_icon(meta, LZ_I_STAR, &lz_icons_14, LZ_SNR_MID);
+            lz_text(meta, a->rating, LZ_F_SMALL, LZ_TEXT_VALUE);
+            char cs[44]; snprintf(cs, sizeof cs, "- v%s - %s - %s", a->version, a->cat, a->size);
+            lz_text(meta, cs, LZ_F_SMALL, LZ_TEXT_3);
 
-        const char *lbl = a->state == LZ_ST_INSTALLING ? "..."
-                        : a->state == LZ_ST_OPEN       ? "OPEN"
-                        : a->state == LZ_ST_UPDATE     ? "UPDATE" : "GET";
-        bool open = a->state == LZ_ST_OPEN;
-        lv_obj_t *btn = lz_box(row);
-        lv_obj_set_size(btn, LV_SIZE_CONTENT, 21);
-        lv_obj_set_style_min_width(btn, 52, 0);
-        lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(btn, open ? lv_color_hex(0x222A33) : LZ_STORE_BTN, 0);
-        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-        if(open) {
-            lv_obj_set_style_border_width(btn, 1, 0);
-            lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
+            const char *lbl = a->state == LZ_ST_INSTALLING ? "..."
+                            : a->state == LZ_ST_OPEN       ? "OPEN"
+                            : a->state == LZ_ST_UPDATE     ? "UPDATE" : "GET";
+            bool open = a->state == LZ_ST_OPEN;
+            lv_obj_t *btn = lz_box(row);
+            lv_obj_set_size(btn, LV_SIZE_CONTENT, 21);
+            lv_obj_set_style_min_width(btn, 52, 0);
+            lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(btn, open ? lv_color_hex(0x222A33) : LZ_STORE_BTN, 0);
+            lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+            if(open) {
+                lv_obj_set_style_border_width(btn, 1, 0);
+                lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
+            }
+            lv_obj_set_style_pad_hor(btn, 11, 0);
+            lv_obj_t *bl = lz_text(btn, lbl, LZ_F_SMALL,
+                                   open ? lv_color_hex(0xCFD4DA) : LZ_ON_MINT);
+            lv_obj_center(bl);
+            lz_nav_track(row, nav_idx);
         }
-        lv_obj_set_style_pad_hor(btn, 11, 0);
-        lv_obj_t *bl = lz_text(btn, lbl, LZ_F_SMALL,
-                               open ? lv_color_hex(0xCFD4DA) : LZ_ON_MINT);
-        lv_obj_center(bl);
-        lz_nav_track(row, nav_idx);
     }
-    lz_nav_set(1, store_local_n + 8, store_activate);
-}
-
-static void app_perm_list(uint16_t perms, char *out, size_t cap)
-{
-    static const struct { uint16_t bit; const char *name; } P[] = {
-        { LZ_APP_PERM_DISPLAY,       "display" },
-        { LZ_APP_PERM_INPUT,         "input" },
-        { LZ_APP_PERM_STORAGE,       "storage" },
-        { LZ_APP_PERM_MESH_READ,     "mesh read" },
-        { LZ_APP_PERM_MESH_SEND,     "mesh send" },
-        { LZ_APP_PERM_SYSTEM_TIME,   "time" },
-        { LZ_APP_PERM_BATTERY,       "battery" },
-        { LZ_APP_PERM_NOTIFICATIONS, "notify" },
-        { LZ_APP_PERM_NETWORK_WIFI,  "wifi" },
-    };
-    if(!out || cap == 0) return;
-    out[0] = 0;
-    for(unsigned i = 0; i < sizeof(P) / sizeof(P[0]); i++) {
-        if((perms & P[i].bit) == 0) continue;
-        if(out[0]) strncat(out, ", ", cap - strlen(out) - 1);
-        strncat(out, P[i].name, cap - strlen(out) - 1);
-    }
-    if(!out[0]) snprintf(out, cap, "none");
+    lz_nav_set(1, store_local_n + (show_catalog ? 8 : 0), store_activate);
 }
 
 static void app_data_quota_label(uint32_t used, uint32_t quota, char *out, size_t cap)
@@ -336,6 +380,11 @@ void lz_start_local_app(void)
     lz_go(LZ_V_LOCALAPP_RUN);
 }
 
+void lz_stop_local_app(void)
+{
+    lz_svc_stop_local_app(&S.local_app_run);
+}
+
 void lz_open_local_app(const lz_local_app_t *app)
 {
     if(!app) return;
@@ -348,9 +397,12 @@ static void local_app_detail_activate(int idx)
 {
     lz_local_app_t *a = &S.local_app_sel;
     bool can_clear = a->permissions & LZ_APP_PERM_STORAGE;
+    int clear_idx = can_clear ? 1 : -1;
+    int keep_idx = can_clear ? 2 : -1;
+    int delete_idx = can_clear ? 3 : 1;
     if(idx == 0) {
         lz_start_local_app();
-    } else if(can_clear && idx == 1) {
+    } else if(idx == clear_idx) {
         char err[48];
         if(lz_svc_clear_app_data(a, err, sizeof err))
             local_app_note_set(a, "Local app data cleared");
@@ -360,7 +412,37 @@ static void local_app_detail_activate(int idx)
             local_app_note_set(a, note);
         }
         lz_rebuild();
+    } else if(idx == keep_idx || idx == delete_idx) {
+        bool keep_data = idx == keep_idx;
+        char err[48];
+        if(lz_svc_uninstall_local_app(a, keep_data, err, sizeof err)) {
+            local_app_note_clear();
+            memset(&S.local_app_sel, 0, sizeof S.local_app_sel);
+            lz_go(LZ_V_APPSTORE);
+        } else {
+            char note[64];
+            snprintf(note, sizeof note, "Remove failed: %s", err[0] ? err : "unknown");
+            local_app_note_set(a, note);
+            lz_rebuild();
+        }
     }
+}
+
+static void local_app_action_row(lv_obj_t *body, int idx, const char *title,
+                                 const char *subtitle, const char *icon,
+                                 lv_color_t icon_color)
+{
+    lv_obj_t *row = lz_row(body, S.focus == idx);
+    lv_obj_set_style_radius(row, 11, 0);
+    lz_icon(row, icon, &lz_icons_18, icon_color);
+    lv_obj_t *cl = lz_box(row);
+    lv_obj_set_flex_grow(cl, 1);
+    lv_obj_set_height(cl, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(cl, 1, 0);
+    lz_text(cl, title, LZ_F_BODY, LZ_TEXT);
+    lz_text(cl, subtitle, LZ_F_SMALL, LZ_TEXT_META);
+    lz_nav_track(row, idx);
 }
 
 void lz_scr_local_app(lv_obj_t *root)
@@ -420,24 +502,23 @@ void lz_scr_local_app(lv_obj_t *root)
     lz_nav_track(open, 0);
 
     const char *note = local_app_note_for(a);
+    int action_idx = 1;
     if(a->permissions & LZ_APP_PERM_STORAGE) {
-        lv_obj_t *clear = lz_row(body, S.focus == 1);
-        lv_obj_set_style_radius(clear, 11, 0);
-        lz_icon(clear, LZ_I_FOLDER, &lz_icons_18, LZ_TEXT_META);
-        lv_obj_t *cl = lz_box(clear);
-        lv_obj_set_flex_grow(cl, 1);
-        lv_obj_set_height(cl, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_row(cl, 1, 0);
-        lz_text(cl, "Clear local data", LZ_F_BODY, LZ_TEXT);
-        bool note_fail = note && strncmp(note, "Clear failed", 12) == 0;
-        lz_text(cl, note ? note : "remove files in this app's data folder",
-                LZ_F_SMALL, note ? (note_fail ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN) : LZ_TEXT_META);
-        lz_nav_track(clear, 1);
+        const char *clear_note = note && strncmp(note, "Clear", 5) == 0 ? note : NULL;
+        bool note_fail = clear_note && strncmp(clear_note, "Clear failed", 12) == 0;
+        local_app_action_row(body, action_idx++, "Clear local data",
+                             clear_note ? clear_note : "remove files in this app's data folder",
+                             LZ_I_FOLDER, note_fail ? lv_color_hex(0xE9B05F) : LZ_TEXT_META);
+        local_app_action_row(body, action_idx++, "Remove app, keep data",
+                             "save data for a future reinstall",
+                             LZ_I_FOLDER, LZ_TEXT_META);
     }
+    local_app_action_row(body, action_idx++, "Remove app and data",
+                         "delete package and scoped data",
+                         LZ_I_DESCRIPTION, lv_color_hex(0xE9B05F));
 
     if(note) {
-        lv_color_t c = strncmp(note, "Clear failed", 12) == 0 ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN;
+        lv_color_t c = strstr(note, "failed") ? lv_color_hex(0xE9B05F) : LZ_STORE_BTN;
         lv_obj_t *nl = lz_text(body, note, LZ_F_SMALL, c);
         lv_obj_set_width(nl, lv_pct(100));
         lv_label_set_long_mode(nl, LV_LABEL_LONG_DOT);
@@ -450,11 +531,17 @@ void lz_scr_local_app(lv_obj_t *root)
 
     char api[28];
     char perms[104];
+    char access[220];
     char storage[80];
+    char status[48];
     char data_path[112];
     char data_err[48];
     snprintf(api, sizeof api, "SDK %s", a->api_version);
-    app_perm_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_summary(a->permissions, access, sizeof access);
+    const lz_store_app_t *update = local_app_update_for(a);
+    if(update) snprintf(status, sizeof status, "Update available: v%s", update->version);
+    else snprintf(status, sizeof status, "Manifest ready");
     if(a->permissions & LZ_APP_PERM_STORAGE) {
         if(lz_svc_prepare_app_data(a, data_path, sizeof data_path, data_err, sizeof data_err)) {
             uint32_t used = 0, quota = 0;
@@ -469,16 +556,16 @@ void lz_scr_local_app(lv_obj_t *root)
         snprintf(storage, sizeof storage, "not requested");
     }
 
-    const char *ks[7] = { "Status", "API", "Permissions", "Storage", "App ID", "Entry", "Folder" };
-    const char *vs[7] = { "Manifest ready", api, perms, storage, a->id, a->entry, a->path };
-    for(int i = 0; i < 7; i++) {
+    const char *ks[8] = { "Status", "API", "Permissions", "Access", "Storage", "App ID", "Entry", "Folder" };
+    const char *vs[8] = { status, api, perms, access, storage, a->id, a->entry, a->path };
+    for(int i = 0; i < 8; i++) {
         lv_obj_t *r = lz_box(card);
         lv_obj_set_width(r, lv_pct(100));
         lv_obj_set_height(r, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(r, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_hor(r, 11, 0);
         lv_obj_set_style_pad_ver(r, 7, 0);
-        if(i < 6) {
+        if(i < 7) {
             lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(r, 1, 0);
             lv_obj_set_style_border_color(r, lv_color_hex(0x21262D), 0);
@@ -486,10 +573,10 @@ void lz_scr_local_app(lv_obj_t *root)
         lz_text(r, ks[i], LZ_F_SMALL, lv_color_hex(0x8B939C));
         lv_obj_t *v = lz_text(r, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);
         lv_obj_set_width(v, lv_pct(100));
-        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+        lv_label_set_long_mode(v, strcmp(ks[i], "Access") == 0 ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
     }
 
-    lz_nav_set(1, (a->permissions & LZ_APP_PERM_STORAGE) ? 2 : 1, local_app_detail_activate);
+    lz_nav_set(1, action_idx, local_app_detail_activate);
 }
 
 static void local_app_run_activate(int idx)
@@ -500,7 +587,10 @@ static void local_app_run_activate(int idx)
         if(lz_svc_local_app_action(r, idx)) lz_rebuild();
         return;
     }
-    if(idx == actions) lz_back();
+    if(idx == actions) {
+        lz_stop_local_app();
+        lz_back();
+    }
 }
 
 void lz_scr_local_app_run(lv_obj_t *root)
@@ -559,6 +649,12 @@ void lz_scr_local_app_run(lv_obj_t *root)
         lv_obj_set_width(err, lv_pct(100));
         lv_label_set_long_mode(err, LV_LABEL_LONG_WRAP);
     } else {
+        if(r->fault[0]) {
+            lz_text(card, "Runtime fault", LZ_F_BODY, lv_color_hex(0xE9B05F));
+            lv_obj_t *fault = lz_text(card, r->fault, LZ_F_SMALL, LZ_TEXT);
+            lv_obj_set_width(fault, lv_pct(100));
+            lv_label_set_long_mode(fault, LV_LABEL_LONG_WRAP);
+        }
         lv_obj_t *body_txt = lz_text(card, r->body, LZ_F_BODY, LZ_TEXT);
         lv_obj_set_width(body_txt, lv_pct(100));
         lv_label_set_long_mode(body_txt, LV_LABEL_LONG_WRAP);
@@ -591,9 +687,12 @@ void lz_scr_local_app_run(lv_obj_t *root)
     }
 
     char perms[104];
+    char access[220];
     char storage[80];
     char runtime[48];
-    app_perm_list(a->permissions, perms, sizeof perms);
+    char memory[48];
+    lz_app_permissions_list(a->permissions, perms, sizeof perms);
+    lz_app_permissions_summary(a->permissions, access, sizeof access);
     if(a->permissions & LZ_APP_PERM_STORAGE) {
         if(r->storage_ready)
             app_data_quota_label(r->data_used_bytes, r->data_quota_bytes, storage, sizeof storage);
@@ -602,26 +701,34 @@ void lz_scr_local_app_run(lv_obj_t *root)
     } else {
         snprintf(storage, sizeof storage, "not requested");
     }
-    if(r->action_last > 0 && r->action_last <= r->action_count)
+    if(r->fault[0])
+        snprintf(runtime, sizeof runtime, "%s", r->fault);
+    else if(r->action_last > 0 && r->action_last <= r->action_count)
         snprintf(runtime, sizeof runtime, "action: %s", r->actions[r->action_last - 1].label);
     else if(r->action_count > 0)
         snprintf(runtime, sizeof runtime, "%u action%s",
                  (unsigned)r->action_count, r->action_count == 1 ? "" : "s");
     else
         snprintf(runtime, sizeof runtime, "%s", r->entry_loaded ? "foreground only" : "not loaded");
-    const char *ks[4] = { "Permissions", "Storage", "Entry", "Runtime" };
-    const char *vs[4] = { perms, storage, a->entry, runtime };
+    if(r->runtime_budget_bytes)
+        snprintf(memory, sizeof memory, "%lu / %lu B",
+                 (unsigned long)r->runtime_used_bytes,
+                 (unsigned long)r->runtime_budget_bytes);
+    else
+        snprintf(memory, sizeof memory, "not measured");
+    const char *ks[6] = { "Permissions", "Access", "Storage", "Entry", "Runtime", "Memory" };
+    const char *vs[6] = { perms, access, storage, a->entry, runtime, memory };
     lv_obj_t *meta = lz_card(body);
     lv_obj_set_height(meta, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_COLUMN);
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < 6; i++) {
         lv_obj_t *row = lz_box(meta);
         lv_obj_set_width(row, lv_pct(100));
         lv_obj_set_height(row, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_hor(row, 11, 0);
         lv_obj_set_style_pad_ver(row, 7, 0);
-        if(i < 3) {
+        if(i < 5) {
             lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
             lv_obj_set_style_border_width(row, 1, 0);
             lv_obj_set_style_border_color(row, lv_color_hex(0x21262D), 0);
@@ -629,7 +736,7 @@ void lz_scr_local_app_run(lv_obj_t *root)
         lz_text(row, ks[i], LZ_F_SMALL, lv_color_hex(0x8B939C));
         lv_obj_t *v = lz_text(row, vs[i], LZ_F_SMALL, LZ_TEXT_STRONG);
         lv_obj_set_width(v, lv_pct(100));
-        lv_label_set_long_mode(v, LV_LABEL_LONG_DOT);
+        lv_label_set_long_mode(v, strcmp(ks[i], "Access") == 0 ? LV_LABEL_LONG_WRAP : LV_LABEL_LONG_DOT);
     }
 
     lv_obj_t *close = lz_row(body, action_count == S.focus);
@@ -645,9 +752,31 @@ void lz_scr_local_app_run(lv_obj_t *root)
 
 static lz_node_rt *contact_list[LZ_MAX_NODES];
 static int contact_n;
+static char contact_trace_id[16];
+static char contact_trace_note[112];
 
 #define CONTACT_ROW_H 46
 #define CONTACT_STRIDE 49
+
+static void contact_trace_clear(void)
+{
+    contact_trace_id[0] = 0;
+    contact_trace_note[0] = 0;
+}
+
+static void contact_trace_set(lz_node_rt *n)
+{
+    if(!n) { contact_trace_clear(); return; }
+    snprintf(contact_trace_id, sizeof contact_trace_id, "%s", n->id);
+    lz_svc_node_trace(n, contact_trace_note, sizeof contact_trace_note);
+}
+
+static const char *contact_trace_for(const lz_node_rt *n)
+{
+    if(!n || !contact_trace_note[0] || strcmp(contact_trace_id, n->id) != 0)
+        return NULL;
+    return contact_trace_note;
+}
 
 static bool contact_locked(int idx)   /* MeshCore contacts inert until Stage 2 */
 {
@@ -751,16 +880,29 @@ static void contact_activate(int idx)
     lz_node_rt *n = S.contact_sel;
     if(!n) return;
     bool messageable = lz_node_messageable(n);
-    if(idx == 0 && messageable) {
-        lz_thread_rt *t = lz_svc_thread_for_node(n);
-        lz_open_convo(t);
+    if(idx == 0) {
+        if(messageable) {
+            lz_thread_rt *t = lz_svc_thread_for_node(n);
+            lz_open_convo(t);
+        } else if(!n->contact) {
+            contact_trace_clear();
+            lz_svc_add_contact(n);
+            lz_rebuild();
+        }
         return;
     }
-    if(idx == 0 && !messageable) return;          /* infra: no Message action */
     /* Add-contact / Trace button */
     if(idx == 1) {
-        if(!n->contact) lz_svc_add_contact(n);
-        else lz_rebuild();                         /* Trace: no-op for now */
+        if(messageable && !n->contact) {
+            contact_trace_clear();
+            lz_svc_add_contact(n);
+            lz_rebuild();
+        } else if(messageable) {
+            lz_rebuild();
+        } else {
+            contact_trace_set(n);
+            lz_rebuild();
+        }
     }
 }
 
@@ -861,6 +1003,17 @@ void lz_scr_contact(lv_obj_t *root)
         lz_nav_track(trace, 1);
     }
     #undef LZ_BTN
+
+    const char *trace_note = contact_trace_for(n);
+    if(trace_note) {
+        lv_obj_t *trace_card = lz_card(body);
+        lv_obj_set_height(trace_card, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_hor(trace_card, 11, 0);
+        lv_obj_set_style_pad_ver(trace_card, 8, 0);
+        lv_obj_t *tl = lz_text(trace_card, trace_note, LZ_F_SMALL, LZ_TEXT_VALUE);
+        lv_obj_set_width(tl, lv_pct(100));
+        lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);
+    }
 
     /* spec table */
     lv_obj_t *card = lz_card(body);

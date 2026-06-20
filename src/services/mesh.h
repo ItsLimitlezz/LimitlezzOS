@@ -30,10 +30,22 @@ extern "C" {
 #define LZ_MAX_LOCAL_APP_ISSUES 8
 #define LZ_LOCAL_APP_BODY_MAX 360
 #define LZ_LOCAL_APP_ENTRY_MAX 1024u
+#define LZ_LOCAL_APP_RUNTIME_BUDGET_BYTES 704u
 #define LZ_LOCAL_APP_DATA_QUOTA_BYTES (64u * 1024u)
 #define LZ_LOCAL_APP_ACTION_MAX 2
 #define LZ_LOCAL_APP_ACTION_EFFECT_MAX 32
 #define LZ_LOCAL_APP_ACTION_BODY_MAX 192
+#define LZ_FEEDBACK_SOURCE_MAX 24
+#define LZ_FEEDBACK_TITLE_MAX 32
+#define LZ_FEEDBACK_BODY_MAX 96
+#define LZ_APP_CATALOG_JSON_MAX 4096u
+#define LZ_APP_CATALOG_MAX_APPS 24
+#define LZ_OTA_MANIFEST_SCHEMA "limitlezz.ota_manifest.v1"
+#define LZ_OTA_BOARD_TDECK "tdeck"
+#define LZ_OTA_SLOT_MAX_BYTES 0x500000u
+#define LZ_SECURITY_PIN_MIN 4
+#define LZ_SECURITY_PIN_MAX 12
+#define LZ_SECURITY_KDF_ROUNDS 2048u
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -44,6 +56,27 @@ extern "C" {
 #define LZ_APP_PERM_BATTERY       0x0040u
 #define LZ_APP_PERM_NOTIFICATIONS 0x0080u
 #define LZ_APP_PERM_NETWORK_WIFI  0x0100u
+
+enum {
+    LZ_APP_SOURCE_OFFICIAL = 0,
+    LZ_APP_SOURCE_COMMUNITY = 1,
+    LZ_APP_SOURCE_LOCAL_ONLY = 2,
+    LZ_APP_SOURCE_COUNT = 3,
+};
+
+static inline int lz_app_source_clamp(int source)
+{
+    return (source >= 0 && source < LZ_APP_SOURCE_COUNT) ? source : LZ_APP_SOURCE_OFFICIAL;
+}
+
+static inline const char *lz_app_source_label(int source)
+{
+    switch(lz_app_source_clamp(source)) {
+        case LZ_APP_SOURCE_COMMUNITY: return "Community";
+        case LZ_APP_SOURCE_LOCAL_ONLY: return "Local only";
+        default: return "Official";
+    }
+}
 
 /* MeshCore (2nd RF profile, TDM with Meshtastic) is built but not receive-ready,
  * so it's shown as "Coming soon" / grayed for the Alpha. Default off; a dev/sim
@@ -109,6 +142,7 @@ typedef struct {
 #define LZ_NODE_TEL_HUM     0x04u
 #define LZ_NODE_TEL_PRESS   0x08u
 #define LZ_NODE_TEL_UPTIME  0x10u
+#define LZ_NODE_DB_SCHEMA_VERSION 2u
 
 typedef struct {
     uint32_t num;                /* node number (low 32 of MAC on Meshtastic) */
@@ -196,6 +230,14 @@ typedef struct {
 } lz_local_app_issue_t;
 
 typedef struct {
+    bool ok;
+    int  app_count;
+    int  rejected_count;
+    char first_id[24];
+    char first_error[64];
+} lz_app_catalog_report_t;
+
+typedef struct {
     char label[24];              /* app-provided foreground control label */
     char status[48];             /* bounded status shown after activation */
     char effect[LZ_LOCAL_APP_ACTION_EFFECT_MAX]; /* optional safe SDK effect */
@@ -208,8 +250,12 @@ typedef struct {
     char status[64];             /* short runtime/sandbox state */
     char data_path[112];         /* prepared only when storage is declared */
     char error[48];              /* launch blocked reason, if any */
+    char fault[64];              /* bounded launch/action fault snapshot */
     uint32_t data_used_bytes;
     uint32_t data_quota_bytes;
+    uint32_t entry_source_bytes;
+    uint32_t runtime_used_bytes;  /* app-controlled resident text/action state */
+    uint32_t runtime_budget_bytes;
     uint16_t permissions;         /* manifest permissions captured at launch */
     bool entry_loaded;
     bool storage_ready;
@@ -217,6 +263,30 @@ typedef struct {
     uint8_t action_last;         /* 1-based selected action, 0 = none */
     lz_local_app_action_t actions[LZ_LOCAL_APP_ACTION_MAX];
 } lz_local_app_session_t;
+
+typedef struct {
+    bool found;
+    bool valid;
+    char source[112];            /* cached manifest file path */
+    char error[48];              /* plain-language rejection reason */
+    char version[24];
+    char channel[16];
+    char board[16];
+    char firmware_url[128];
+    char sha256[65];
+    uint32_t size_bytes;
+    char min_version[24];
+    char notes_url[96];
+} lz_ota_manifest_t;
+
+typedef struct {
+    bool configured;             /* a device PIN verifier exists */
+    bool valid;                  /* false = security.cfg is corrupt/unsupported */
+    uint32_t rounds;             /* verifier KDF work factor */
+    char salt[17];               /* hex salt, diagnostics only */
+    char error[48];              /* unset / corrupt reason */
+} lz_security_status_t;
+#define LZ_APP_CATALOG_CACHE_MAX 4096
 
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
@@ -232,8 +302,43 @@ bool lz_svc_prepare_app_data(const lz_local_app_t *app, char *path_out, int path
 bool lz_svc_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
                            char *err, int err_cap);
 bool lz_svc_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
+bool lz_svc_uninstall_local_app(const lz_local_app_t *app, bool keep_data,
+                                char *err, int err_cap);
+bool lz_svc_save_app_catalog_cache(const char *json, int len, char *err, int err_cap);
+bool lz_svc_load_app_catalog_cache(char *out, int cap, int *out_len, char *err, int err_cap);
+bool lz_svc_clear_app_catalog_cache(char *err, int err_cap);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
+void lz_svc_stop_local_app(lz_local_app_session_t *session);
+uint32_t lz_local_app_runtime_used(const lz_local_app_session_t *session);
+void lz_local_app_runtime_refresh(lz_local_app_session_t *session);
+bool lz_local_app_runtime_within_budget(lz_local_app_session_t *session);
+
+/* ---- feedback / app notifications ----
+ * Minimal V0.95 service boundary: local apps can request user-visible feedback
+ * without owning LED, buzzer, keyboard backlight, or future DND policy. */
+typedef struct {
+    uint32_t request_count;
+    uint32_t last_ms;
+    char     last_source[LZ_FEEDBACK_SOURCE_MAX];
+    char     last_title[LZ_FEEDBACK_TITLE_MAX];
+    char     last_body[LZ_FEEDBACK_BODY_MAX];
+} lz_feedback_status_t;
+
+bool lz_svc_feedback_notify(const char *source, const char *title, const char *body);
+void lz_svc_feedback_status(lz_feedback_status_t *out);
+int  lz_svc_feedback_diag(char *buf, int n);
+int  lz_svc_feedback_selftest(char *buf, int n);
+bool lz_svc_validate_app_catalog_json(const char *json, lz_app_catalog_report_t *out);
+int  lz_svc_app_catalog_diag(char *buf, int n);
+int  lz_svc_app_catalog_selftest(char *buf, int n);
+bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out);
+int  lz_svc_ota_manifest_selftest(char *buf, int n);
+bool lz_svc_security_status(lz_security_status_t *out);
+bool lz_svc_security_set_pin(const char *pin, char *err, int err_cap);
+bool lz_svc_security_check_pin(const char *pin);
+bool lz_svc_security_clear_pin(const char *pin, char *err, int err_cap);
+int  lz_svc_security_selftest(char *buf, int n);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */
@@ -243,6 +348,9 @@ lz_node_rt *lz_svc_node_by_num(uint32_t num);          /* node for a DM thread *
 void lz_svc_add_contact(lz_node_rt *n);
 bool lz_node_messageable(const lz_node_rt *n);          /* people, not infrastructure */
 int  lz_svc_node_count(lz_net_t net);
+int  lz_svc_node_trace(const lz_node_rt *n, char *buf, int nbuf); /* contact detail trace */
+const char *lz_svc_mt_role_label(int role);
+const char *lz_svc_mt_hw_label(int hw);
 
 /* ---- threads / messages ----
  * Storage is stable: thread/node pointers never move, so the UI can hold a
@@ -263,6 +371,17 @@ bool lz_svc_resend(int tail_idx);     /* retry a failed sent DM (long-press) */
 const char *lz_svc_delivery_fail_label(uint8_t reason);
 int  lz_svc_delivery_diag(char *buf, int n);  /* serial: pending DM ACK state */
 
+/* MeshCore companion v0: line-oriented snapshot/send surface for USB smoke and
+ * future external bridge work. This is not an external app compatibility claim. */
+int  lz_svc_mc_companion_hello(char *buf, int n);
+int  lz_svc_mc_companion_status(char *buf, int n);
+int  lz_svc_mc_companion_nodes(char *buf, int n);
+int  lz_svc_mc_companion_threads(char *buf, int n);
+bool lz_svc_mc_companion_send_public(const char *text);
+bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
+int  lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_selftest(char *buf, int n);
+
 /* ---- radio stats (airtime accounting) ---- */
 typedef struct { uint32_t tx_count, rx_count; float util_pct; } lz_radio_stats_t;
 void lz_svc_radio_stats(lz_radio_stats_t *out);
@@ -275,6 +394,8 @@ void lz_svc_set_identity(const char *long_name, const char *short_name);
 void lz_svc_set_node_num(uint32_t num);                   /* real node id (from MAC); call before init */
 
 /* ---- persisted user settings ---- */
+#define LZ_SETTINGS_SCHEMA_VERSION 4   /* v4 adds app_source; loads v1-v3 */
+
 typedef struct {
     bool net_mt, net_mc;
     int  airtime;
@@ -287,10 +408,13 @@ typedef struct {
     bool clock24;
     bool save;
     bool developer;
+    int  app_source;
 } lz_user_settings_t;
 
 void lz_store_save_settings(const lz_user_settings_t *s);
 bool lz_store_load_settings(lz_user_settings_t *s);
+bool lz_store_settings_selftest(char *err, int err_cap);
+bool lz_store_nodes_selftest(char *err, int err_cap);
 
 /* ---- time ---- */
 void lz_svc_set_time(uint32_t epoch);                     /* set UTC (e.g. NTP) */
@@ -363,6 +487,13 @@ bool lz_mtc_ble_connected(void);
 void lz_mtc_ble_set_enabled(bool on);
 int  lz_mtc_ble_status(char *buf, int n);
 int  lz_mtc_ble_selftest(char *buf, int n);
+
+/* MeshCore companion bridge: USB serial speaks the MC0 line protocol when active. */
+bool lz_mcc_usb_active(void);
+void lz_mcc_usb_set_active(bool on);
+void lz_mcc_usb_poll(void);
+int  lz_mcc_usb_status(char *buf, int n);
+int  lz_mcc_usb_selftest(char *buf, int n);
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);

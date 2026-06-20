@@ -55,6 +55,12 @@ extern "C" bool lz_mtc_active(void) { return g_companion; }
 #define MTC_BLE_CFG_PER_POLL 2
 #define MTC_BLE_CFG_GAP_MS 20
 #define MTC_BLE_NOTIFY_DELAY_MS 100
+/* Android hard-blocks firmware older than 2.3.15 and warns below 2.5.14.
+ * Advertise the current stable Meshtastic firmware line for app compatibility
+ * without claiming alpha-only 2.7.18+ capabilities this bridge does not expose. */
+#define MTC_COMPAT_FW_VERSION      "2.7.15.567b8ea"
+#define MTC_COMPAT_MIN_APP_VERSION 30200U
+#define MTC_COMPAT_PIO_ENV         "tdeck"
 
 static NimBLEServer *g_ble_server;
 static NimBLECharacteristic *g_ble_fromradio;
@@ -65,6 +71,18 @@ static NimBLECharacteristic *g_ble_fromnum;
 static volatile bool g_ble_ready;
 static volatile bool g_ble_enabled;
 static volatile bool g_ble_connected;
+static volatile uint32_t g_ble_connect_count;
+static volatile uint32_t g_ble_disconnect_count;
+static volatile uint32_t g_ble_connected_since_ms;
+static volatile uint32_t g_ble_last_disconnect_ms;
+static volatile uint32_t g_ble_last_io_ms;
+static volatile int g_ble_last_disconnect_reason = -1;
+static volatile uint16_t g_ble_last_mtu;
+static volatile uint16_t g_ble_last_to_len;
+static volatile uint32_t g_ble_to_write_count;
+static volatile uint32_t g_ble_from_read_count;
+static volatile uint32_t g_ble_fromnum_read_count;
+static volatile uint32_t g_ble_fromnum_write_count;
 
 typedef struct {
     uint32_t num;
@@ -349,8 +367,11 @@ static void send_fromradio_uint(int field, uint32_t v)
 /* ---------- FromRadio builders ---------- */
 static void send_my_info(void)
 {
-    uint8_t m[16]; int n = 0;
+    uint8_t m[48]; int n = 0;
     if(!pb_put_uint(m, sizeof m, &n, 1, lz_svc_identity()->num)) return;   /* my_node_num */
+    if(!pb_put_uint(m, sizeof m, &n, 8, 0)) return;                        /* reboot_count */
+    if(!pb_put_uint(m, sizeof m, &n, 11, MTC_COMPAT_MIN_APP_VERSION)) return;
+    if(!pb_put_str(m, sizeof m, &n, 13, MTC_COMPAT_PIO_ENV)) return;       /* pio_env */
     send_fromradio(3, m, n);
 }
 
@@ -388,8 +409,10 @@ static void send_channel_primary(void)
 /* DeviceMetadata (FromRadio.metadata=13): firmware, role, hw_model */
 static void send_metadata(void)
 {
-    uint8_t m[48]; int n = 0;
-    if(!pb_put_str(m, sizeof m, &n, 1, "0.6.0-limitlezz")) return;         /* firmware_version */
+    uint8_t m[64]; int n = 0;
+    if(!pb_put_str(m, sizeof m, &n, 1, MTC_COMPAT_FW_VERSION)) return;     /* firmware_version */
+    if(!pb_put_uint(m, sizeof m, &n, 4, 1)) return;                        /* hasWifi */
+    if(!pb_put_uint(m, sizeof m, &n, 5, 1)) return;                        /* hasBluetooth */
     if(!pb_put_uint(m, sizeof m, &n, 7, 0)) return;                        /* role = CLIENT */
     if(!pb_put_uint(m, sizeof m, &n, 9, 50)) return;                       /* hw_model = T_DECK */
     send_fromradio(13, m, n);
@@ -697,6 +720,7 @@ static void handle_toradio(const uint8_t *b, int len, bool from_ble)
 class MtcBleServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer *server, NimBLEConnInfo &connInfo) override
     {
+        uint32_t now = millis();
         taskENTER_CRITICAL(&g_ble_mux);
         g_ble_head = g_ble_count = 0;
         g_ble_to_head = g_ble_to_count = 0;
@@ -706,6 +730,15 @@ class MtcBleServerCallbacks : public NimBLEServerCallbacks {
         g_ble_cfg_active = false;
         g_ble_cfg_phase = BLE_CFG_IDLE;
         g_ble_connected = true;
+        g_ble_connect_count++;
+        g_ble_connected_since_ms = now;
+        g_ble_last_io_ms = 0;
+        g_ble_last_mtu = 0;
+        g_ble_last_to_len = 0;
+        g_ble_to_write_count = 0;
+        g_ble_from_read_count = 0;
+        g_ble_fromnum_read_count = 0;
+        g_ble_fromnum_write_count = 0;
         taskEXIT_CRITICAL(&g_ble_mux);
         reset_fromradio_ids();
         if(server) {
@@ -716,7 +749,8 @@ class MtcBleServerCallbacks : public NimBLEServerCallbacks {
     }
     void onDisconnect(NimBLEServer *server, NimBLEConnInfo &connInfo, int reason) override
     {
-        (void)server; (void)connInfo; (void)reason;
+        (void)server; (void)connInfo;
+        uint32_t now = millis();
         taskENTER_CRITICAL(&g_ble_mux);
         g_ble_connected = false;
         g_ble_head = g_ble_count = 0;
@@ -724,12 +758,19 @@ class MtcBleServerCallbacks : public NimBLEServerCallbacks {
         g_ble_notify_pending = false;
         g_ble_cfg_active = false;
         g_ble_cfg_phase = BLE_CFG_IDLE;
+        g_ble_disconnect_count++;
+        g_ble_last_disconnect_reason = reason;
+        g_ble_last_disconnect_ms = now;
+        g_ble_connected_since_ms = 0;
         taskEXIT_CRITICAL(&g_ble_mux);
         if(g_ble_enabled) NimBLEDevice::startAdvertising();
     }
     void onMTUChange(uint16_t mtu, NimBLEConnInfo &connInfo) override
     {
-        (void)mtu; (void)connInfo;
+        (void)connInfo;
+        taskENTER_CRITICAL(&g_ble_mux);
+        g_ble_last_mtu = mtu;
+        taskEXIT_CRITICAL(&g_ble_mux);
     }
 };
 
@@ -741,16 +782,21 @@ class MtcBleToRadioCallbacks : public NimBLECharacteristicCallbacks {
     {
         (void)connInfo;
         std::string v = chr->getValue();
-        if(v.empty() || v.size() > MTC_BLE_MAX_PACKET || !g_ble_to_q) return;
+        size_t vlen = v.size();
+        if(v.empty() || vlen > MTC_BLE_MAX_PACKET || !g_ble_to_q) return;
+        uint32_t now = millis();
         taskENTER_CRITICAL(&g_ble_mux);
         if(g_ble_to_count >= MTC_BLE_QUEUE_N) {     /* drop oldest on overflow */
             g_ble_to_head = (g_ble_to_head + 1) % MTC_BLE_QUEUE_N;
             g_ble_to_count--;
         }
         int idx = (g_ble_to_head + g_ble_to_count) % MTC_BLE_QUEUE_N;
-        g_ble_to_q[idx].len = (uint16_t)v.size();
-        memcpy(g_ble_to_q[idx].data, v.data(), v.size());
+        g_ble_to_q[idx].len = (uint16_t)vlen;
+        memcpy(g_ble_to_q[idx].data, v.data(), vlen);
         g_ble_to_count++;
+        g_ble_to_write_count++;
+        g_ble_last_to_len = (uint16_t)vlen;
+        g_ble_last_io_ms = now;
         taskEXIT_CRITICAL(&g_ble_mux);
     }
 };
@@ -759,6 +805,11 @@ class MtcBleFromRadioCallbacks : public NimBLECharacteristicCallbacks {
     void onRead(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
     {
         (void)chr; (void)connInfo;
+        uint32_t now = millis();
+        taskENTER_CRITICAL(&g_ble_mux);
+        g_ble_from_read_count++;
+        g_ble_last_io_ms = now;
+        taskEXIT_CRITICAL(&g_ble_mux);
         ble_prepare_fromradio_value();
     }
 };
@@ -767,6 +818,11 @@ class MtcBleFromNumCallbacks : public NimBLECharacteristicCallbacks {
     void onRead(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
     {
         (void)chr; (void)connInfo;
+        uint32_t now = millis();
+        taskENTER_CRITICAL(&g_ble_mux);
+        g_ble_fromnum_read_count++;
+        g_ble_last_io_ms = now;
+        taskEXIT_CRITICAL(&g_ble_mux);
         ble_set_fromnum(g_ble_next_num ? g_ble_next_num - 1 : 0, false);
     }
     void onWrite(NimBLECharacteristic *chr, NimBLEConnInfo &connInfo) override
@@ -778,8 +834,11 @@ class MtcBleFromNumCallbacks : public NimBLECharacteristicCallbacks {
                           | ((uint32_t)(uint8_t)v[1] << 8)
                           | ((uint32_t)(uint8_t)v[2] << 16)
                           | ((uint32_t)(uint8_t)v[3] << 24);
+            uint32_t now = millis();
             taskENTER_CRITICAL(&g_ble_mux);
             g_ble_read_num = want;
+            g_ble_fromnum_write_count++;
+            g_ble_last_io_ms = now;
             taskEXIT_CRITICAL(&g_ble_mux);
         }
     }
@@ -846,6 +905,7 @@ extern "C" void lz_mtc_ble_set_enabled(bool on)
          * both be resident — free WiFi first so the controller can init. */
         if(lz_wifi_enabled()) lz_wifi_set_enabled(false);
         if(g_companion) g_companion = false;   /* one external app bridge at a time */
+        if(lz_mcc_usb_active()) lz_mcc_usb_set_active(false);
         if(!g_ble_ready) lz_mtc_ble_begin();
         if(!g_ble_ready) {                     /* controller init failed (out of RAM): */
             lz_wifi_set_enabled(true);         /* don't strand the user — restore WiFi */
@@ -920,21 +980,48 @@ extern "C" void lz_mtc_ble_poll(void)
 
 extern "C" int lz_mtc_ble_status(char *buf, int n)
 {
-    const char *state = !g_ble_enabled ? "off"
-                      : g_ble_connected ? "connected"
-                      : "advertising";
     uint32_t latest;
-    int from_q, to_q;
-    bool syncing;
+    uint32_t connects, disconnects, connected_since, last_disconnect, last_io;
+    uint32_t to_writes, from_reads, fromnum_reads, fromnum_writes;
+    int from_q, to_q, last_reason;
+    uint16_t mtu, last_to_len;
+    bool enabled, connected, syncing;
     taskENTER_CRITICAL(&g_ble_mux);
+    enabled = g_ble_enabled;
+    connected = g_ble_connected;
     latest = g_ble_next_num ? g_ble_next_num - 1 : 0;
     from_q = g_ble_count;
     to_q = g_ble_to_count;
     syncing = g_ble_cfg_active;
+    connects = g_ble_connect_count;
+    disconnects = g_ble_disconnect_count;
+    connected_since = g_ble_connected_since_ms;
+    last_disconnect = g_ble_last_disconnect_ms;
+    last_io = g_ble_last_io_ms;
+    last_reason = g_ble_last_disconnect_reason;
+    mtu = g_ble_last_mtu;
+    last_to_len = g_ble_last_to_len;
+    to_writes = g_ble_to_write_count;
+    from_reads = g_ble_from_read_count;
+    fromnum_reads = g_ble_fromnum_read_count;
+    fromnum_writes = g_ble_fromnum_write_count;
     taskEXIT_CRITICAL(&g_ble_mux);
-    return snprintf(buf, n, "BLE companion: %s | from_q=%d to_q=%d sync=%s latest=%lu service=%s",
+    uint32_t now = millis();
+    const char *state = !enabled ? "off" : connected ? "connected" : "advertising";
+    const char *age_label = connected ? "up" : "down";
+    uint32_t age_ms = connected ? (connected_since ? now - connected_since : 0)
+                                : (last_disconnect ? now - last_disconnect : 0);
+    uint32_t io_age_ms = last_io ? now - last_io : 0;
+    return snprintf(buf, n,
+                    "BLE companion: %s | q=%d/%d sync=%s seq=%lu c=%lu d=%lu r=%d mtu=%u "
+                    "to=%lu/%uB fr=%lu fn=%lu/%lu %s=%lums io=%lums svc=%.8s",
                     state, from_q, to_q, syncing ? "config" : "idle",
-                    (unsigned long)latest, MTC_BLE_SERVICE_UUID);
+                    (unsigned long)latest, (unsigned long)connects,
+                    (unsigned long)disconnects, last_reason, (unsigned)mtu,
+                    (unsigned long)to_writes, (unsigned)last_to_len,
+                    (unsigned long)from_reads, (unsigned long)fromnum_reads,
+                    (unsigned long)fromnum_writes, age_label, (unsigned long)age_ms,
+                    (unsigned long)io_age_ms, MTC_BLE_SERVICE_UUID);
 }
 
 extern "C" int lz_mtc_ble_selftest(char *buf, int n)
@@ -1001,6 +1088,7 @@ extern "C" void lz_mtc_poll(void)
 /* ---------- mode control + self-test ---------- */
 extern "C" void lz_mtc_set_active(bool on)
 {
+    if(on && lz_mcc_usb_active()) lz_mcc_usb_set_active(false);
     if(on && g_ble_enabled) lz_mtc_ble_set_enabled(false);
     g_companion = on;
     if(on) {
@@ -1057,8 +1145,10 @@ extern "C" int lz_mtc_selftest(char *out, int n)
         frames++; p += len;
     }
     bool ok = !g_cap_overflow && my_info && meta && cfg && chan && complete && nonce == 0x1234abcd;
-    int written = snprintf(out, n, "%d frames | my_info=%d metadata=%d config=%d channel=%d complete=%d nonce=%08x%s -> %s",
-                           frames, my_info, meta, cfg, chan, complete, (unsigned)nonce,
+    int written = snprintf(out, n, "%d frames | my_info=%d metadata=%d fw=%s min_app=%u config=%d channel=%d complete=%d nonce=%08x%s -> %s",
+                           frames, my_info, meta, MTC_COMPAT_FW_VERSION,
+                           (unsigned)MTC_COMPAT_MIN_APP_VERSION, cfg, chan, complete,
+                           (unsigned)nonce,
                            g_cap_overflow ? " overflow" : "", ok ? "PASS" : "FAIL");
     free(g_cap);
     g_cap = NULL; g_caplen = 0; g_capcap = 0;

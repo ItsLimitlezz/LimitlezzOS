@@ -32,6 +32,7 @@ typedef struct {
     const char *name;
     const char *shortc;
     lz_net_t    net;
+    int         hw_model;     /* Meshtastic only: HardwareModel enum value      */
     int         mc_adv_type;  /* MeshCore only: MC_ADV_TYPE_* (1 Chat..4 Sensor) */
     uint8_t     mc_pub[32];   /* MeshCore only: a deterministic 32-byte pubkey   */
     bool        chatty;       /* auto-replies to our DMs                         */
@@ -91,16 +92,20 @@ static void roster_init(void)
     /* --- Meshtastic peers (real on-air frames) --- */
     p = &g_peers[g_peer_n++];
     *p = (sim_peer_t){ .num = 0x7c3a91d0, .id = "!7c3a91d0", .name = "Ava Reyes",
-                       .shortc = "AVA", .net = LZ_NET_MT, .chatty = true, .batt = 68 };
+                       .shortc = "AVA", .net = LZ_NET_MT, .hw_model = 50,
+                       .chatty = true, .batt = 68 };
     p = &g_peers[g_peer_n++];
     *p = (sim_peer_t){ .num = 0x9f21de33, .id = "!9f21de33", .name = "Sam OK1QRP",
-                       .shortc = "SAM", .net = LZ_NET_MT, .chatty = true, .batt = 45 };
+                       .shortc = "SAM", .net = LZ_NET_MT, .hw_model = 43,
+                       .chatty = true, .batt = 45 };
     p = &g_peers[g_peer_n++];
     *p = (sim_peer_t){ .num = 0xa1b2c3d4, .id = "!a1b2c3d4", .name = "Base-01",
-                       .shortc = "B01", .net = LZ_NET_MT, .chatty = false, .batt = 92 };
+                       .shortc = "B01", .net = LZ_NET_MT, .hw_model = 4,
+                       .chatty = false, .batt = 92 };
     p = &g_peers[g_peer_n++];
     *p = (sim_peer_t){ .num = 0x336699cc, .id = "!336699cc", .name = "Ridge Hiker",
-                       .shortc = "RDH", .net = LZ_NET_MT, .chatty = true, .batt = 73 };
+                       .shortc = "RDH", .net = LZ_NET_MT, .hw_model = 7,
+                       .chatty = true, .batt = 73 };
 
     /* --- MeshCore peers (real Ed25519-shaped pubkeys; ADVERTs are real) --- */
     static uint8_t pub_lim[32], pub_dmi[32], pub_rid[32], pub_room[32];
@@ -218,6 +223,7 @@ static void mt_rx_frame(const uint8_t *buf, int len, float snr)
         /* parse the User protobuf the same way parse_user() does */
         const uint8_t *b = d.payload; int n = d.plen, pos = 0;
         char id[16] = {0}, longn[24] = {0}, shortn[6] = {0};
+        int hw = 0;
         while(pos < n) {
             uint8_t tag = b[pos++]; int field = tag >> 3, wire = tag & 7;
             if(wire == 2) {
@@ -229,11 +235,16 @@ static void mt_rx_frame(const uint8_t *buf, int len, float snr)
                 else if(field == 2) snprintf(longn, sizeof longn, "%.*s", li < 23 ? li : 23, (const char*)(b+pos));
                 else if(field == 3) snprintf(shortn, sizeof shortn, "%.*s", li < 5 ? li : 5, (const char*)(b+pos));
                 pos += li;
-            } else if(wire == 0) { while(pos < n && (b[pos++] & 0x80)) {} }
+            } else if(wire == 0) {
+                uint64_t v = 0; int sh = 0;
+                while(pos < n && sh < 64) { uint8_t x = b[pos++]; v |= (uint64_t)(x & 0x7F) << sh; if(!(x & 0x80)) break; sh += 7; }
+                if(field == 5) hw = (int)v;
+            }
             else if(wire == 5) pos += 4; else if(wire == 1) pos += 8; else break;
         }
         lz_core_on_nodeinfo(f.from, id[0]?id:NULL, longn[0]?longn:NULL,
-                            shortn[0]?shortn:NULL, 0, NULL, snr);
+                            shortn[0]?shortn:NULL, -1,
+                            hw > 0 ? lz_svc_mt_hw_label(hw) : NULL, snr);
     } else if(d.portnum == MT_PORT_POSITION) {
         mt_position_t pos;
         if(mt_position_decode(d.payload, d.plen, &pos) && pos.has_lat && pos.has_lon)
@@ -289,7 +300,7 @@ static bool mt_emit_nodeinfo(const sim_peer_t *p, float snr)
     memcpy(user+u, p->name, strlen(p->name)); u += strlen(p->name);
     user[u++] = (3 << 3) | 2; user[u++] = (uint8_t)strlen(p->shortc);
     memcpy(user+u, p->shortc, strlen(p->shortc)); u += strlen(p->shortc);
-    user[u++] = (5 << 3) | 0; user[u++] = 50;          /* hw_model = T_DECK */
+    user[u++] = (5 << 3) | 0; user[u++] = (uint8_t)(p->hw_model ? p->hw_model : 50);
 
     mt_data_t d; memset(&d, 0, sizeof d);
     d.portnum = MT_PORT_NODEINFO; memcpy(d.payload, user, u); d.plen = (uint8_t)u;
@@ -495,8 +506,9 @@ static void pump_replies(void)
 
 bool sim_radio_send(lz_mt_packet_t *p)
 {
-    g_stats.tx_count++;
     if(!p) return false;
+    if(!tuned(LZ_NET_MT)) return false;
+    g_stats.tx_count++;
 
     /* DM (not broadcast) to a real peer: ack it, and let a chatty peer reply */
     if(p->to != LZ_BROADCAST && p->portnum == 1 /* TEXT */) {
@@ -733,11 +745,33 @@ int sim_scenario_run(void)
     ST_CHECK(ch != NULL, "MT: LongFast channel thread exists");
     ST_CHECK(ch && strstr(ch->last_text, "ridge") != NULL, "MT: broadcast decoded to channel");
 
+    {
+        lz_svc_open_thread(ch);
+        g_net_mt = false;
+        bool ok = lz_svc_send_text(ch, "offline channel probe");
+        const lz_msg_rt *tail; int tn = lz_svc_tail(&tail);
+        bool failed = false;
+        for(int i = tn - 1; i >= 0; i--)
+            if(tail[i].self && tail[i].status == LZ_MSG_FAILED &&
+               tail[i].fail_reason == LZ_FAIL_RADIO_SEND) { failed = true; break; }
+        ST_CHECK(ok, "CHANNEL SEND: failed TX is accepted into the thread");
+        ST_CHECK(failed, "CHANNEL SEND: radio failure shown as failed");
+        g_net_mt = true;
+    }
+
     /* 5. NodeInfo enriches a node's name/short code */
     sim_inject_mt_nodeinfo();
     lz_node_rt *sam = lz_svc_node_by_name("Sam OK1QRP");
     ST_CHECK(sam != NULL, "MT: NodeInfo created/named the node");
     ST_CHECK(sam && strcmp(sam->shortcode, "SAM") == 0, "MT: NodeInfo short code applied");
+    ST_CHECK(sam && strcmp(sam->hw, "Heltec V3") == 0, "MT: NodeInfo hardware enum labelled");
+    lz_core_on_nodeinfo(0x22000001, "!22000001", "Late Router", "LTR",
+                        11, "T-Beam S3", -3.0f);
+    lz_node_rt *late = lz_svc_node_by_name("Late Router");
+    ST_CHECK(late && strcmp(late->role, "RouterLate") == 0,
+             "MT: role enum RouterLate labelled");
+    ST_CHECK(late && strcmp(late->hw, "T-Beam S3") == 0,
+             "MT: NodeInfo hardware label stored");
 
     /* 6. POSITION + TELEMETRY decode onto a node */
     sim_inject_mt_position();
@@ -745,6 +779,18 @@ int sim_scenario_run(void)
     sim_inject_mt_telemetry();
     lz_node_rt *base = lz_svc_node_by_name("Base-01");
     ST_CHECK(base && (base->telem_flags & LZ_NODE_TEL_VOLT), "MT: TELEMETRY voltage decoded");
+
+    lz_core_on_nodeinfo(0x10203040, "!10203040", "Ridge Relay", "RLY",
+                        2, "T-Beam", -4.5f);   /* role 2 = Router (infra, observe-only) */
+    lz_node_rt *relay = lz_svc_node_by_name("Ridge Relay");
+    char trace[128];
+    int trace_n = lz_svc_node_trace(relay, trace, sizeof trace);
+    ST_CHECK(trace_n > 0 && strstr(trace, "MT Router") != NULL,
+             "TRACE: includes network role");
+    ST_CHECK(strstr(trace, "observe-only") != NULL,
+             "TRACE: infrastructure node marked observe-only");
+    ST_CHECK(strstr(trace, "SNR -4.5") != NULL && strstr(trace, "heard now") != NULL,
+             "TRACE: radio evidence included");
 
     /* 7. MeshCore ADVERT -> a MeshCore Chat node named "Limitlezz" */
     sim_inject_mc_advert();   /* rotates; force Limitlezz explicitly too */
@@ -777,6 +823,16 @@ int sim_scenario_run(void)
         for(int i = tn - 1; i >= 0; i--)
             if(tail[i].self && tail[i].status == LZ_MSG_DELIVERED) { delivered = true; break; }
         ST_CHECK(delivered, "SEND: sent DM marked DELIVERED via ROUTING ACK");
+        char diag[256];
+        lz_svc_delivery_diag(diag, sizeof diag);
+        ST_CHECK(strstr(diag, "no pending sent DMs") != NULL,
+                 "ACK: delivery diagnostics clear pending after ACK");
+        ST_CHECK(strstr(diag, "open thread failures") == NULL,
+                 "ACK: delivered DM does not appear as a failure");
+        lz_core_on_ack(0x0badcafe);       /* unrelated late ACK must be ignored */
+        lz_svc_delivery_diag(diag, sizeof diag);
+        ST_CHECK(strstr(diag, "no pending sent DMs") != NULL,
+                 "ACK: unrelated ACK leaves diagnostics unchanged");
     }
 
     /* 11. TDM gate: with MeshCore tuned OUT, a MeshCore event is NOT delivered */

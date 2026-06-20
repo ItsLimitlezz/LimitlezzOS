@@ -85,6 +85,59 @@ static const uint32_t SLOT_TOTAL_MS = 500;
 static const uint32_t ACK_DWELL_MC = 700; /* linger on MC after our want-ack DM (peer TXT_ACK_DELAY 200 + ack airtime + ~1 hop) */
 static uint32_t g_rx_mt, g_rx_mc;         /* per-network packet counts */
 static uint32_t g_switches;               /* TDM profile switches */
+static bool     g_switch_waiting;         /* slot expired and is waiting to retune */
+static bool     g_switch_wait_rx;         /* current late switch saw RX hold */
+static bool     g_switch_wait_ack;        /* current late switch saw ACK-dwell hold */
+static uint32_t g_switch_due_ms;          /* original slot deadline for the waiting switch */
+static uint32_t g_switch_late_count;      /* switches delayed by RX/ACK holds */
+static uint64_t g_switch_late_total_ms;
+static uint32_t g_switch_late_max_ms;
+static uint32_t g_rx_hold_count;          /* expired-slot episodes held for in-flight RX */
+static uint32_t g_ack_hold_count;         /* expired-slot episodes held for MC ACK dwell */
+
+static void tdm_wait_reset(void)
+{
+    g_switch_waiting = false;
+    g_switch_wait_rx = false;
+    g_switch_wait_ack = false;
+    g_switch_due_ms = 0;
+}
+
+static void tdm_wait_due(uint32_t due)
+{
+    if(g_switch_waiting) return;
+    g_switch_waiting = true;
+    g_switch_due_ms = due;
+    g_switch_wait_rx = false;
+    g_switch_wait_ack = false;
+}
+
+static void tdm_note_rx_hold(void)
+{
+    if(!g_switch_wait_rx) {
+        g_switch_wait_rx = true;
+        g_rx_hold_count++;
+    }
+}
+
+static void tdm_note_ack_hold(void)
+{
+    if(!g_switch_wait_ack) {
+        g_switch_wait_ack = true;
+        g_ack_hold_count++;
+    }
+}
+
+static void tdm_note_switch(uint32_t now)
+{
+    if(g_switch_waiting && (g_switch_wait_rx || g_switch_wait_ack)) {
+        uint32_t late = now - g_switch_due_ms;
+        g_switch_late_count++;
+        g_switch_late_total_ms += late;
+        if(late > g_switch_late_max_ms) g_switch_late_max_ms = late;
+    }
+    tdm_wait_reset();
+}
 
 static uint32_t slot_ms_for(int which)
 {
@@ -115,6 +168,7 @@ static void apply_profile(int which)
  * airtime of a frame on that profile (SF11/BW250 is far slower than SF7/BW62.5). */
 static void slot_begin(int which, uint32_t now)
 {
+    tdm_wait_reset();
     apply_profile(which);
     g_slot_until = now + slot_ms_for(which);
     g_rx_guard_until = g_slot_until + (which == PROF_MT ? 2000u : 600u);
@@ -219,6 +273,7 @@ static void flush_pending_dm(uint32_t to);                    /* fwd decl */
 static struct { lz_mt_packet_t pkt; uint32_t req_ms; uint8_t tries; bool used; } g_pend[LZ_PEND_N];
 static volatile bool g_rxlog;     /* serial: log inbound MT packet metadata + decode */
 extern "C" void lz_backend_set_rxlog(bool on) { g_rxlog = on; }
+extern "C" bool lz_backend_rxlog_enabled(void) { return g_rxlog; }
 
 /* ---- minimal Meshtastic User decode (NodeInfo payload) ---- */
 static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)
@@ -254,10 +309,10 @@ static void parse_user(const uint8_t *b, int len, uint32_t from, float snr)
     if(g_rxlog) Serial.printf("[ni] from=!%08x name='%s' short='%s' hw=%d pubkey=%s (userlen=%d)\n",
                               (unsigned)from, longn, shortn, hw, pubkey ? "YES" : "no", len);
     lz_core_on_nodeinfo(from, id[0] ? id : NULL, longn[0] ? longn : NULL,
-                        shortn[0] ? shortn : NULL, 0, NULL, snr);
+                        shortn[0] ? shortn : NULL, -1,
+                        hw > 0 ? lz_svc_mt_hw_label(hw) : NULL, snr);
     if(pubkey) { lz_core_on_pubkey(from, pubkey);   /* remember key for PKI DMs */
                  flush_pending_dm(from); }           /* send DMs that were waiting on it */
-    (void)hw;
 }
 
 /* ---- transmit one assembled frame, with a light CSMA gate ---- */
@@ -856,14 +911,18 @@ void lz_backend_loop(void)
     if(g_net_mt && g_net_mc && g_slot_until && (int32_t)(now - g_slot_until) >= 0) {
         drain_rx();                       /* same-tick: a frame may have completed since the top */
         now = millis();
+        tdm_wait_due(g_slot_until);
         uint16_t irq = radio.getIrqStatus();
         bool rx_in_flight = (irq & RADIOLIB_SX126X_IRQ_HEADER_VALID) &&
                            !(irq & RADIOLIB_SX126X_IRQ_RX_DONE);
         if(rx_in_flight && (int32_t)(now - g_rx_guard_until) < 0) {
+            tdm_note_rx_hold();
             /* hold: finish the in-flight frame */
         } else if((int32_t)(now - g_ack_dwell_until) < 0) {
+            tdm_note_ack_hold();
             /* hold: lingering on MC to catch our DM's ACK (g_ack_dwell_until=0 => no hold) */
         } else {
+            tdm_note_switch(now);
             slot_begin(g_active == PROF_MT ? PROF_MC : PROF_MT, now);   /* clears g_ack_dwell_until */
             g_switches++;
         }
@@ -996,6 +1055,7 @@ extern "C" void lz_backend_set_networks(bool mt, bool mc)
     if(!g_ok) return;
     drain_rx();                          /* don't drop a frame just received on the old profile */
     g_ack_dwell_until = 0;
+    tdm_wait_reset();
     if(mt && mc) {                       /* share the radio, start on Meshtastic */
         slot_begin(PROF_MT, millis());
     } else if(mt) {
@@ -1014,6 +1074,7 @@ extern "C" void lz_backend_set_airtime(int mode)
     g_airtime_mode = next;
     if(!g_ok || !(g_net_mt && g_net_mc)) return;
     drain_rx();
+    tdm_wait_reset();
     slot_begin(g_active, millis());
 }
 
@@ -1100,19 +1161,26 @@ extern "C" int lz_backend_tdm_info(char *buf, int n)
                                       : g_net_mc ? "MeshCore 100%" : "idle");
     const rf_prof_t *a = &g_prof[g_active];
     uint32_t rem = (g_slot_until && millis() < g_slot_until) ? g_slot_until - millis() : 0;
+    uint32_t late_avg = g_switch_late_count
+        ? (uint32_t)(g_switch_late_total_ms / g_switch_late_count)
+        : 0;
     return snprintf(buf, n,
         "mode: %s\n"
         "dwell: Meshtastic %lums / MeshCore %lums\n"
         "active: %s  %.3f MHz  BW %.1f  SF%d  CR4/%d  (slot %lums left)\n"
         "Meshtastic: %.3f MHz BW%.0f SF%d   rx %lu\n"
         "MeshCore:   %.3f MHz BW%.1f SF%d   rx %lu\n"
-        "switches: %lu",
+        "switches: %lu\n"
+        "timing: late %lu avg %lums max %lums | holds rx %lu ack %lu",
         mode, (unsigned long)slot_ms_for(PROF_MT), (unsigned long)slot_ms_for(PROF_MC),
         g_active == PROF_MT ? "Meshtastic" : "MeshCore",
         (double)a->freq, (double)a->bw, a->sf, a->cr, (unsigned long)rem,
         (double)g_prof[PROF_MT].freq, (double)g_prof[PROF_MT].bw, g_prof[PROF_MT].sf, (unsigned long)g_rx_mt,
         (double)g_prof[PROF_MC].freq, (double)g_prof[PROF_MC].bw, g_prof[PROF_MC].sf, (unsigned long)g_rx_mc,
-        (unsigned long)g_switches);
+        (unsigned long)g_switches,
+        (unsigned long)g_switch_late_count, (unsigned long)late_avg,
+        (unsigned long)g_switch_late_max_ms,
+        (unsigned long)g_rx_hold_count, (unsigned long)g_ack_hold_count);
 }
 
 #endif /* LZ_TARGET_TDECK */

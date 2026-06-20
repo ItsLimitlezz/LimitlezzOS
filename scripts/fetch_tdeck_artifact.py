@@ -36,7 +36,36 @@ def current_commit(project_dir: Path) -> str:
     return git(project_dir, "rev-parse", "HEAD")
 
 
+def repo_from_remote_url(url: str) -> str | None:
+    clean = url.strip()
+    if clean.endswith(".git"):
+        clean = clean[:-4]
+    marker = "github.com"
+    if marker not in clean:
+        return None
+    tail = clean.split(marker, 1)[1].lstrip("/:").strip("/")
+    parts = tail.split("/")
+    if len(parts) >= 2 and parts[0] and parts[1]:
+        return f"{parts[0]}/{parts[1]}"
+    return None
+
+
+def tracking_repo(project_dir: Path) -> str | None:
+    branch = current_branch(project_dir)
+    if not branch:
+        return None
+    try:
+        remote = git(project_dir, "config", "--get", f"branch.{branch}.remote")
+        url = git(project_dir, "remote", "get-url", remote)
+    except SystemExit:
+        return None
+    return repo_from_remote_url(url)
+
+
 def default_repo(project_dir: Path) -> str:
+    repo = tracking_repo(project_dir)
+    if repo:
+        return repo
     try:
         data = json.loads(run_text(["gh", "repo", "view", "--json", "nameWithOwner"], project_dir))
         repo = data.get("nameWithOwner")
@@ -114,6 +143,42 @@ def bundle_dir(out_dir: Path) -> Path:
     raise SystemExit(f"Multiple possible artifact bundle directories found:\n{choices}")
 
 
+def load_flash_manifest(bundle: Path) -> dict[str, str]:
+    manifest = bundle / "FLASH_MANIFEST.txt"
+    if not manifest.exists():
+        raise SystemExit(f"Downloaded artifact is missing {manifest}")
+
+    values: dict[str, str] = {}
+    for raw in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not raw or raw.lstrip().startswith("#") or "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def validate_flash_manifest(bundle: Path, expected_sha: str, expected_run_id: int) -> dict[str, str]:
+    values = load_flash_manifest(bundle)
+    actual_sha = values.get("sha", "")
+    actual_run_id = values.get("run_id", "")
+    if actual_sha.lower() != expected_sha.lower():
+        raise SystemExit(
+            f"Downloaded artifact SHA mismatch: manifest has {actual_sha or '<missing>'}, "
+            f"expected {expected_sha}."
+        )
+    if actual_run_id != str(expected_run_id):
+        raise SystemExit(
+            f"Downloaded artifact run mismatch: manifest has {actual_run_id or '<missing>'}, "
+            f"expected {expected_run_id}."
+        )
+    if values.get("budget_status") != "pass":
+        raise SystemExit(
+            f"Downloaded artifact did not pass the T-Deck budget gate: "
+            f"{values.get('budget_status', '<missing>')}"
+        )
+    return values
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Download the current branch T-Deck firmware artifact.")
     parser.add_argument("--project-dir", default=Path(__file__).resolve().parents[1])
@@ -181,9 +246,14 @@ def main() -> int:
     )
 
     bundle = bundle_dir(out_dir)
+    manifest = validate_flash_manifest(bundle, artifact_sha, run_id)
     print(f"[artifact] run: {run_url}")
     print(f"[artifact] name: {artifact_name}")
     print(f"[artifact] dir: {bundle}")
+    print(
+        f"[artifact] manifest: sha={manifest.get('sha')} run_id={manifest.get('run_id')} "
+        f"budget={manifest.get('budget_status')}"
+    )
     print("[artifact] flash:")
     print(f"  python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir {bundle}")
     return 0

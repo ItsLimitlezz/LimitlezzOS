@@ -38,7 +38,8 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   nodes (matches MUI), evicting the stalest when full.
 - **Message history** — persists across leaving a chat and across reboots (SD card).
 - **Compose** — long drafts scroll within the input box instead of overflowing.
-- **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget.
+- **Wi-Fi** — scan, connect, saved password, auto-connect toggle, forget; T-Deck
+  hardware stores saved credentials in ESP32 NVS instead of plaintext SD files.
 - **User settings** — network toggles, brightness, sleep timeout, keyboard
   light, TX power, time zone, clock format, GPS toggle, and power saving persist.
 - **Battery & charging** — live percentage + charge state; System page telemetry.
@@ -85,6 +86,15 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   merged and the device advertises without crashing; phone-connect retest pending.
   (Wi-Fi and BLE are mutually exclusive on this RAM-tight ESP32-S3; enabling one
   frees the other.)
+  and the official Android app discovers + connects. Serial `companion` status
+  now reports connect/disconnect counts, last GAP disconnect reason, negotiated
+  MTU, and characteristic IO counters for phone-app drop captures; the companion
+  handshake reports Meshtastic-compatible firmware metadata (`2.7.15.567b8ea`)
+  so current Android builds do not reject it as too old. 2026-06-17 COM8 photo
+  evidence shows Android connected to `limitlessdeck`, populated nodes, and
+  LongFast send/receive through the app. Remaining checks: reconnect,
+  disconnect, and coexistence soak. (Wi-Fi and BLE are mutually exclusive on
+  this RAM-tight ESP32-S3; enabling one frees the other.)
 
 ### 🛠️ Roadmap — versioned plan
 - ✅ **0.3** — DM profile shortcuts; **Meshtastic DMs (PKI, both ways)**; **delivery
@@ -104,18 +114,25 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   updates the compose pill in place, Contacts uses virtualized rows, and Settings
   brightness adjusts without a full screen rebuild; chat rebuilds preserve scroll
   unless pinned to the newest message. Hardware regression is still open.
-- ✅ **0.5** — **BLE companion** for Meshtastic: firmware GATT transport in place.
+- ✅ **0.5** — **BLE companion** for Meshtastic: firmware GATT transport in
+  place, official Android app connection and LongFast send/receive validated on
+  COM8; reconnect/disconnect soak remains to repeat.
 - 🚀 **0.6 — this release** — **MeshCore is live**: public-channel chat **and**
   encrypted DMs (X25519 + AES), in the same unified inbox as Meshtastic and
   time-shared on the one SX1262 by a **split-airtime scheduler** that never cuts
   an in-flight RX/TX. **BLE companion** merged and running on hardware
-  (advertising + GATT mailbox; phone pairing/send/receive validation next). A full
+  (advertising + GATT mailbox; Android app connection, nodes, and LongFast
+  send/receive validated; reconnect/disconnect soak next). A full
   **desktop simulator** (virtual mesh + 50+ self-test assertions) to cut hardware
   testing. **Wi-Fi and BLE are mutually exclusive** on this RAM-tight ESP32-S3 —
   enabling one frees the other.
 
 ### 🔭 Later
-- **MeshCore companion bridge** — let the companion app speak MeshCore too (Public + DMs are already on-device).
+- **MeshCore companion bridge** — V0 protocol foundation is drafted, and an
+  initial `companion mc ...` USB serial-console smoke surface can report
+  snapshots and exercise send boundaries; the formal USB/BLE bridge remains
+  planned, and it is not official MeshCore app compatible unless the real
+  MeshCore app protocol is confirmed.
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
@@ -125,27 +142,63 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   terminates on exit. Storage-enabled actions can increment a safe counter in
   the app's scoped `data/` directory, unsupported action effects fail closed,
   and apps with matching permissions can use read-only `{time}` / `{battery}`
+  tokens in foreground text. Loaded entry source plus app-controlled foreground
+  metadata are charged against a 704-byte resident runtime budget. SDK
+  apps with matching permissions can use read-only `{time}` / `{battery}`
+  tokens in foreground text, and apps with `notifications` can request a
+  feedback-service notification through a bounded `notify:` action effect. SDK
+  `api_version` and permission metadata are parsed fail-closed, with rejected
+  package diagnostics visible in Developer Mode. Apps that request `storage`
+  get a scoped package `data/` directory prepared with a 64 KB launch-time quota
+  guard, and the App Store detail screen can clear only that app's scoped data.
+  Script execution, richer API injection, downloads, and updates are still TODO.
   tokens in foreground text. SDK `api_version` and permission metadata are
   parsed fail-closed, with rejected package diagnostics visible in Developer
   Mode. Apps that request `storage` get a scoped package `data/` directory
   prepared with a 64 KB launch-time quota guard, and the App Store detail screen
-  can clear only that app's scoped data. Script execution, richer API injection,
-  downloads, and updates are still TODO.
+  can clear only that app's scoped data. The future network catalog now has a
+  bounded `index.json` schema validator and serial `app catalog status|test`
+  diagnostics. Script execution, richer API injection, catalog fetch, downloads,
+  and updates are still TODO.
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
+- **OTA manifest diagnostics** - validate cached `limitlezz.ota_manifest.v1`
+  metadata from `/sd/limitlezz/ota`, `/sd/ota`, or `/appfs/ota`; serial
+  `ota status` and `ota test` prove the parser before Wi-Fi download,
+  inactive-slot write, and rollback are implemented.
 - **Security**: optional device **password/PIN**, and **encrypt the data files**
   (messages, identity, keys) when a password is set.
-- **Hardening**: Wi-Fi passwords are stored in plaintext on the SD card
-  (`/limitlezz/wifi.cfg`) — move to NVS or encrypt (covered by the above when a
-  password is set).
+- **Credential hardening**: T-Deck Wi-Fi passwords are stored in ESP32 NVS, and
+  legacy `/limitlezz/wifi.cfg` credentials are migrated and removed after a
+  successful NVS write. Remaining security work is the optional device
+  password/PIN and encrypted local data files above.
+- **Device security** - optional device PIN verifier with serial
+  `security status`, `security set`, `security check`, `security clear`, and
+  `security test`; this is setup groundwork and does not encrypt local data yet.
+- **Security still ahead**: use the PIN/password secret to encrypt message
+  history, identity, keys, and app data, with honest recovery wording when a PIN
+  is forgotten.
 
 ## Audit and completion plan
 
 - [`docs/tdeck-firmware-audit.md`](docs/tdeck-firmware-audit.md) - current firmware audit and risk list.
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
+- [`docs/tdeck-meshcore-companion-protocol.md`](docs/tdeck-meshcore-companion-protocol.md) - draft Phase 5/V0.8 MeshCore companion line protocol.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
+- [`docs/tdeck-release-checklist.md`](docs/tdeck-release-checklist.md) - slow-host Actions artifact and COM8 release evidence checklist.
+- [`docs/tdeck-troubleshooting.md`](docs/tdeck-troubleshooting.md) - build, flash, boot, radio, storage, Wi-Fi, and companion troubleshooting.
+- [`docs/tdeck-user-guide.md`](docs/tdeck-user-guide.md) - practical on-device user guide.
+- [`docs/tdeck-app-developer-guide.md`](docs/tdeck-app-developer-guide.md) - SDK 0.1 local app developer guide.
+- [`docs/tdeck-hardware-test-matrix.md`](docs/tdeck-hardware-test-matrix.md) - release-candidate hardware validation matrix.
+- [`docs/tdeck-upgrade-path.md`](docs/tdeck-upgrade-path.md) - current USB artifact upgrade and rollback path.
+- [`docs/tdeck-release-artifacts.md`](docs/tdeck-release-artifacts.md) - release binary attachment runbook.
+- [`docs/tdeck-release-bug-gate.md`](docs/tdeck-release-bug-gate.md) - release P0/P1 bug gate.
+- [`docs/tdeck-app-catalog-schema.md`](docs/tdeck-app-catalog-schema.md) - first Network App Store catalog schema.
+- [`docs/tdeck-ota-manifest.md`](docs/tdeck-ota-manifest.md) - cached OTA firmware manifest schema and serial diagnostics.
+- [`docs/tdeck-device-security.md`](docs/tdeck-device-security.md) - device PIN verifier contract and remaining encrypted-store work.
+- [`docs/tdeck-network-app-catalog.md`](docs/tdeck-network-app-catalog.md) - network App Store catalog schema.
 
 ![screens](docs/screens.png)
 
@@ -244,6 +297,9 @@ On the Windows COM8 T-Deck, the ROM stub upload path can be flaky. Use
 through PlatformIO's packaged `esptool.py --no-stub`, and run the serial CLI
 smoke in one pass. PowerShell users can run the same flow with
 `powershell -ExecutionPolicy Bypass -File scripts\tdeck_smoke.ps1 -Port COM8 -NoStubUpload`.
+For the standard read-only smoke commands, `tdeck_smoke.py` now automatically
+tries one no-reset serial reattach if the first post-flash console attach times
+out; custom command lists do not retry unless `--reattach-retries` is provided.
 
 **GitHub Actions artifact → local T-Deck** (fast remote build, local hardware proof):
 
@@ -255,15 +311,55 @@ python scripts/tdeck_smoke.py --port /dev/ttyACM0 --no-stub-upload --skip-build 
 ```
 
 The fetch helper uses the current branch and current commit by default, then
+downloads the matching successful `Firmware CI` artifact with `gh`. On fork
+branches, it follows the branch's tracking remote, so a branch tracking
+`fork/codex/...` fetches from the fork; pass `--repo owner/name` to override.
+It refuses to use an older run unless `--allow-latest-success` is passed.
+
+The artifact flash path does not require a local T-Deck firmware build. It does
+need `gh`, Python `esptool` (`python -m pip install esptool` when PlatformIO's
+bundled `esptool.py` is absent), and `pyserial` for the post-flash serial smoke.
+
+For release PRs, `python scripts/release_evidence.py --artifact-dir .pio/ci-artifacts/tdeck --port COM8`
+prints the required local, Actions, artifact, and COM8 evidence checklist.
+
+For Phase 3 split-airtime checks on a MeshCore-enabled build, run the dedicated
+serial TDM probe after flashing. The default `tdeck` firmware stays conservative;
+CI also uploads an opt-in `tdeck-meshcore` flash bundle for this validation path:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+python scripts/tdm_airtime_smoke.py --port COM8
+
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore
+python scripts/tdeck_smoke.py --port /dev/ttyACM0 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+python scripts/tdm_airtime_smoke.py --port /dev/ttyACM0
+```
+
+It drives `net`, `airtime`, and `rf`, asserts the 60/40, 50/50, and 40/60 dwell
+splits, checks that the TDM switch counter advances, and fails clearly if the
+flashed firmware still has MeshCore gated.
 downloads the matching successful `Firmware CI` artifact with `gh`. It refuses
-to use an older run unless `--allow-latest-success` is passed.
+to use an older run unless `--allow-latest-success` is passed, and verifies the
+downloaded `FLASH_MANIFEST.txt` before printing the local flash command: artifact
+SHA, Actions run id, and T-Deck budget status must match.
 
 CI runs the native simulator build, native codec selftest, deterministic simulator
 scenario, screenshot generation, T-Deck firmware build, and T-Deck size report
-in `.github/workflows/firmware.yml`. It also enforces the current T-Deck budget
-gate (2,200,000 bytes for `firmware.bin`, 307,200 bytes static RAM), writes the
-result into `FLASH_MANIFEST.txt`, then uploads the firmware artifacts from
-`.pio/build/tdeck` plus the generated simulator screenshots.
+in `.github/workflows/firmware.yml`. The codec selftest includes Meshtastic
+channel/frame/protobuf guard vectors plus MeshCore crypto references. CI also
+enforces the current T-Deck budget gate (2,200,000 bytes for `firmware.bin`,
+307,200 bytes static RAM), writes the result into `FLASH_MANIFEST.txt`, then
+uploads the firmware artifacts from `.pio/build/tdeck` plus the generated
+simulator screenshots.
+scenario, screenshot generation, the default T-Deck firmware build, the opt-in
+MeshCore-enabled TDM validation build, and size reports for both firmware
+artifacts in `.github/workflows/firmware.yml`. It also enforces the current
+T-Deck budget gate (2,200,000 bytes for `firmware.bin`, 307,200 bytes static
+RAM), writes each result into its own `FLASH_MANIFEST.txt`, then uploads the
+`tdeck-firmware-<sha>` and `tdeck-meshcore-firmware-<sha>` bundles plus the
+generated simulator screenshots.
 
 Current footprint: ~1.48 MB flash (28.2% of the 5 MB OTA slot), 271 KB static RAM
 (82.7%) — the rest of RAM is PSRAM-backed double framebuffers. Message history,
@@ -302,8 +398,24 @@ for local apps and read-only inspection when present.
   clears scoped app data on request, opens a manifest detail shell, and launches
   local apps into the SDK 0.1 foreground shell with bounded app-provided actions
   and scoped storage counters plus read-only `{time}` / `{battery}` tokens;
+  Close/Esc terminates the foreground session instead of leaving it resident;
   unsupported action effects launch-block instead of being ignored; the static
   catalog remains a prototype (GET -> "..." -> OPEN).
+- **Local app sample pack** - `examples/local-apps/` contains copyable SDK 0.1
+  packages for Calculator, Field Notes, Offline Maps, Weather Mesh, Mesh BBS,
+  Signal Scope, LoRa Chess, and APRS Bridge; CI validates that each package
+  stays inside the firmware's bounded manifest, permission, token, action, and
+  scoped-storage rules.
+  and scoped storage counters plus read-only `{time}` / `{battery}` tokens. The
+  foreground shell reports and enforces the 704-byte resident runtime metadata
+  budget; unsupported action effects launch-block instead of being ignored; the
+  static catalog remains a prototype (GET -> "..." -> OPEN).
+  unsupported action effects launch-block instead of being ignored; network
+  catalog schema validation exists, while fetch/download/install remains ahead;
+  the static catalog remains a prototype (GET -> "..." -> OPEN).
+  unsupported action effects launch-block instead of being ignored; the network
+  catalog has a CI-validated `index.json` schema, while fetch/download/install
+  are still prototype/future work (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the
@@ -317,9 +429,10 @@ for local apps and read-only inspection when present.
   `settings.cfg` and are applied again at boot, including the Developer Mode
   toggle that reveals Terminal on Home.
 - **Wi-Fi** — scan, join (masked password entry), remembers one network's
-  credentials on the SD card, an **auto-connect** toggle (rejoin on boot / on
-  reappearance / after a drop, or never), and long-press-to-forget so you can
-  change a saved password.
+  credentials in ESP32 NVS on T-Deck hardware, an **auto-connect** toggle
+  (rejoin on boot / on reappearance / after a drop, or never), and
+  long-press-to-forget so you can change a saved password. The desktop
+  simulator keeps a file-backed store for repeatable local testing.
 - **MeshCore via TDM** — MeshCore runs as a second RF profile time-division
   multiplexed with Meshtastic on the one SX1262: the radio listens on one
   profile, retunes, listens on the other, round-robin. Both networks on → 50/50
@@ -335,11 +448,15 @@ for local apps and read-only inspection when present.
   state are live; identity, settings, node table, and message history persist
   across reboots; nothing on screen is hard-coded demo data on hardware.
 - **Serial console** — a USB-CDC command shell (`help`, `time`, `tz`, `net`,
-  `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control + diagnostics.
+  `rf`, `dm status`, `nodes`, `send`, `stats`, `wifi`, `sys`, …) for control +
+  diagnostics; `rf` also reports TDM delayed-switch timing and RX/ACK hold
+  counters for split-airtime soak runs.
 - **Companion bridge controls** — USB companion mode and BLE companion advertising
   are separate rows in Meshtastic → Nodes. Only one external app transport owns
   the bridge at a time: enabling BLE returns USB to the serial console; enabling
-  USB turns BLE advertising/connection off.
+  USB turns BLE advertising/connection off. `companion` reports BLE session
+  counters (`c`/`d`), last disconnect reason (`r`), MTU, ToRadio writes,
+  FromRadio reads, and FromNum reads/writes for official-app debugging.
 - **Terminal / Files** — Developer Mode mono console with blinking cursor;
   read-only Files browser for the mounted SD/local store.
 
@@ -364,6 +481,9 @@ position/telemetry, MeshCore encrypted-payload (DM/channel) decode, the Lua app
 sandbox, App Store networking, OTA, and the Feedback Manager (LED/buzzer/backlight).
 
 ## Flashing & first hardware test
+
+For the full Actions-artifact flash and recovery workflow, see
+[`docs/tdeck-flashing-recovery.md`](docs/tdeck-flashing-recovery.md).
 
 ```sh
 pio run -e tdeck -t upload        # build + flash over USB-C

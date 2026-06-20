@@ -1,2 +1,11 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Union-merge ONLY genuinely append-safe files: narrative markdown docs and the
+# flat declarations/#defines header. The 50 codex PRs each append a line/block to
+# these, so union auto-resolves them. Do NOT add structured code with nested {}
+# blocks (main_sim.c, serial_cli.cpp, store.c, ...) here — line-based union splits
+# their brace structure and silently corrupts the file. Resolve those by hand.
+docs/tdeck-firmware-roadmap.md           merge=union
+docs/tdeck-feature-inventory.md          merge=union
+docs/tdeck-hardware-dogfood-checklist.md merge=union
+docs/tdeck-local-app-manifest.md         merge=union
+README.md                                merge=union
+src/services/mesh.h                      merge=union

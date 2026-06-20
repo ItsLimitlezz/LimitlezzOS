@@ -1,0 +1,12 @@
+{
+  "id": "calc.local",
+  "name": "Calculator",
+  "version": "0.1.0",
+  "author": "Limitless",
+  "summary": "Offline field calculator",
+  "entry": "main.lua",
+  "api_version": "0.1",
+  "permissions": ["display", "input"],
+  "icon": "calculate",
+  "hue": 18
+}

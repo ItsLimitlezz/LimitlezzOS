@@ -1,0 +1,12 @@
+{
+  "id": "notes.local",
+  "name": "Field Notes",
+  "version": "0.1.0",
+  "author": "Limitless",
+  "summary": "Scratchpad for field work",
+  "entry": "main.lua",
+  "api_version": "0.1",
+  "permissions": ["display", "input", "storage"],
+  "icon": "note",
+  "hue": 175
+}
