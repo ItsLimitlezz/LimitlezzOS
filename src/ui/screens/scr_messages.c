@@ -16,23 +16,14 @@ static void draft_label_text(const lz_thread_rt *t, char *out, size_t cap, bool 
     bool has = S.draft[0] != 0;
     if(has_draft) *has_draft = has;
     if(!has) {
-        snprintf(out, cap, "Message %s...", t ? t->name : "thread");
+        char name[40];
+        lz_text_safe_copy(name, sizeof name, t ? t->name : "thread", LZ_TEXT_SAFE_LINE);
+        snprintf(out, cap, "Message %s...", name);
         return;
     }
 
-    snprintf(out, cap, "%s", S.draft);
     int maxw = LZ_W - 80;                    /* usable px inside the pill */
-    lv_point_t sz;
-    lv_txt_get_size(&sz, S.draft, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
-    if(sz.x <= maxw) return;
-
-    int start = 0;
-    while(S.draft[start]) {
-        lv_txt_get_size(&sz, S.draft + start, LZ_F_SMALL, 0, 0, LV_COORD_MAX, 0);
-        if(sz.x <= maxw - 12) break;          /* leave room for the ellipsis */
-        start++;
-    }
-    snprintf(out, cap, "...%s", S.draft + start);
+    lz_text_safe_tail_fit(out, cap, S.draft, LZ_F_SMALL, maxw, LZ_TEXT_SAFE_LINE);
 }
 
 bool lz_convo_draft_refresh(void)
@@ -232,6 +223,10 @@ void lz_scr_messages(lv_obj_t *root)
         for(int i = 0; i < vis_thread_count; i++) {
             lz_thread_rt *t = vis_threads[i];
             char ago[8]; lz_fmt_ago(t->last_ts, ago, sizeof ago);
+            char tname[48];
+            char last_text[96];
+            lz_text_safe_copy(tname, sizeof tname, t->name, LZ_TEXT_SAFE_LINE);
+            lz_text_safe_copy(last_text, sizeof last_text, t->last_text, LZ_TEXT_SAFE_LINE);
             bool unread = t->unread && !t->muted;
             lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
@@ -244,7 +239,7 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_t *avwrap = lz_box(row);
             lv_obj_set_size(avwrap, 34, 34);
             lv_obj_t *av = lz_dot(avwrap, 33, lz_av_color(t->net));
-            char initial[2] = { t->name[0], 0 };
+            char initial[2] = { (tname[0] && tname[0] != ' ') ? tname[0] : '?', 0 };
             lv_obj_t *ini = lz_text(av, initial, LZ_F_BODY, lv_color_white());
             lv_obj_center(ini);
             lv_obj_t *ring = lz_dot(avwrap, 13, LZ_SCREEN_BG);
@@ -264,7 +259,7 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_set_height(top, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lv_obj_t *name = lz_text(top, t->name, LZ_F_BODY, unread ? lv_color_hex(0xF2F4F6) : LZ_TEXT);
+            lv_obj_t *name = lz_text(top, tname, LZ_F_BODY, unread ? lv_color_hex(0xF2F4F6) : LZ_TEXT);
             lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
             lz_text(top, ago, LZ_F_SMALL, LZ_TEXT_META);
 
@@ -273,7 +268,7 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_set_height(bot, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(bot, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(bot, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lv_obj_t *snip = lz_text(bot, t->last_text, LZ_F_SMALL,
+            lv_obj_t *snip = lz_text(bot, last_text, LZ_F_SMALL,
                                      unread ? lv_color_hex(0xCFD4DA) : lv_color_hex(0x838A93));
             lv_label_set_long_mode(snip, LV_LABEL_LONG_DOT);
             lv_obj_set_flex_grow(snip, 1);
@@ -331,6 +326,10 @@ void lz_scr_messages(lv_obj_t *root)
         for(int i = 0; i < vis_thread_count; i++) {
             lz_thread_rt *t = vis_threads[i];
             char ago[8]; lz_fmt_ago(t->last_ts, ago, sizeof ago);
+            char tname[48];
+            char last_text[96];
+            lz_text_safe_copy(tname, sizeof tname, t->name, LZ_TEXT_SAFE_LINE);
+            lz_text_safe_copy(last_text, sizeof last_text, t->last_text, LZ_TEXT_SAFE_LINE);
             lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
             lv_obj_add_event_cb(row, mute_longpress_cb, LV_EVENT_LONG_PRESSED, t); /* hold = silence */
@@ -355,10 +354,10 @@ void lz_scr_messages(lv_obj_t *root)
             lv_obj_set_height(top, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            lz_text(top, t->name, LZ_F_BODY, LZ_TEXT);
+            lz_text(top, tname, LZ_F_BODY, LZ_TEXT);
             lz_text(top, t->last_ts ? ago : "", LZ_F_SMALL, LZ_TEXT_META);
             lz_text(colm, "Primary - broadcast to everyone", LZ_F_SMALL, lv_color_hex(0x838A93));
-            lv_obj_t *last = lz_text(colm, t->last_text[0] ? t->last_text : "Tap to open the channel",
+            lv_obj_t *last = lz_text(colm, last_text[0] ? last_text : "Tap to open the channel",
                                      LZ_F_SMALL, LZ_TEXT_VALUE);
             lv_label_set_long_mode(last, LV_LABEL_LONG_DOT);
             lv_obj_set_width(last, lv_pct(100));
@@ -380,6 +379,12 @@ void lz_scr_convo(lv_obj_t *root)
     if(!t) t = lz_svc_thread_at(0);
     if(!t) return;
     lv_color_t net = lz_net_color(t->net);
+    char tname[48];
+    char taddr[24];
+    char tpath[20];
+    lz_text_safe_copy(tname, sizeof tname, t->name, LZ_TEXT_SAFE_LINE);
+    lz_text_safe_copy(taddr, sizeof taddr, t->addr, LZ_TEXT_SAFE_LINE);
+    lz_text_safe_copy(tpath, sizeof tpath, t->path, LZ_TEXT_SAFE_LINE);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
 
     /* nav bar: name + network tag */
@@ -396,7 +401,7 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_size(backhit, 64, LZ_NAVBAR_H);
     lv_obj_set_pos(backhit, 0, 0);
     lz_on_click(backhit, lz_back);
-    lv_obj_t *name = lz_text(bar, t->name, LZ_F_BODY, lv_color_hex(0xF2F4F6));
+    lv_obj_t *name = lz_text(bar, tname, LZ_F_BODY, lv_color_hex(0xF2F4F6));
     lv_obj_align(name, LV_ALIGN_TOP_MID, 0, 3);
     lv_obj_t *sub = lz_box(bar);
     lv_obj_set_size(sub, LV_SIZE_CONTENT, 10);
@@ -405,7 +410,7 @@ void lz_scr_convo(lv_obj_t *root)
     lv_obj_set_style_pad_column(sub, 4, 0);
     lz_dot(sub, 5, net);
     lz_text(sub, lz_net_name(t->net), LZ_F_SMALL, net);
-    char pathb[24]; snprintf(pathb, sizeof pathb, "- %s", t->path);
+    char pathb[24]; snprintf(pathb, sizeof pathb, "- %s", tpath);
     lz_text(sub, pathb, LZ_F_SMALL, LZ_TEXT_META);
     lv_obj_align(sub, LV_ALIGN_BOTTOM_MID, 0, -1);
 
@@ -428,7 +433,7 @@ void lz_scr_convo(lv_obj_t *root)
     lz_nav_set_scroll(body);
 
     char cap[64];
-    snprintf(cap, sizeof cap, "Encrypted - %s - %s", lz_net_name(t->net), t->addr);
+    snprintf(cap, sizeof cap, "Encrypted - %s - %s", lz_net_name(t->net), taddr);
     lv_obj_t *caption = lz_text(body, cap, LZ_F_SMALL, lv_color_hex(0x5E656E));
     lv_obj_set_width(caption, lv_pct(100));
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
@@ -437,7 +442,8 @@ void lz_scr_convo(lv_obj_t *root)
     int total = lz_svc_tail(&msgs);
     for(int i = 0; i < total; i++) {
         bool self = msgs[i].self;
-        const char *txt = msgs[i].text;
+        char txt[sizeof msgs[i].text + 32];
+        lz_text_safe_copy(txt, sizeof txt, msgs[i].text, LZ_TEXT_SAFE_BLOCK);
 
         /* row spanning the width; justify the bubble cluster right for self
          * (outgoing) and left for incoming — the standard messenger layout */

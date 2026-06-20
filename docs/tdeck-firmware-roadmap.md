@@ -48,7 +48,7 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | V0.6 | MeshCore public chat and split airtime config | In progress - public chat send/receive hardware-verified; split-airtime serial dwell/switch smoke passed on COM8; packet-loss, latency, and real dual-network traffic soak still open |
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
 | V0.8 | MeshCore USB companion and MeshCore BLE companion | 🚧 Protocol foundation drafted; USB/BLE implementation still planned and not external-app compatible yet |
-| V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
+| V0.9 | Code review, optimization, and emoji polish | In progress - display-safe chat text and emoji aliases implemented in UI rendering |
 | V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner, Home paging, and detail shell started; runtime/catalog still TODO |
 | V0.96 | Upgraded Wi-Fi password storage | ✅ Implemented on T-Deck hardware: credentials use ESP32 NVS, legacy `wifi.cfg` migrates/removes, and diagnostics do not print passwords |
 
@@ -232,6 +232,9 @@ Deliverables:
   for Data, POSITION, and TELEMETRY decoders.
 - Clean up dead demo data and stale comments that no longer match product state.
 - Add basic emoji rendering/input support appropriate for the T-Deck screen and memory budget.
+  Initial UI slice implemented: Messages, conversation bubbles, draft text, and
+  lock-screen notifications now render through a bounded display-safe text path
+  that aliases common emoji and folds malformed UTF-8 before LVGL measures text.
 - Re-run hardware dogfood tests on Meshtastic-only, MeshCore-only, and split-airtime modes.
 
 Exit criteria:

@@ -497,6 +497,14 @@ static int shots(const char *dir)
     pump(60);
     snprintf(path, sizeof path, "%s/17-convo-draft.bmp", dir);
     write_bmp(path); printf("wrote %s\n", path);
+    {
+        const char safe_draft[] = "ETA 12 " "\xF0\x9F\x94\xA5" " near waypoint, bring " "\xF0\x9F\x94\x8B" " pack";
+        snprintf(S.draft, sizeof S.draft, "%s", safe_draft);
+        lz_convo_draft_refresh();
+        pump(60);
+        snprintf(path, sizeof path, "%s/17b-convo-safe-draft.bmp", dir);
+        write_bmp(path); printf("wrote %s\n", path);
+    }
     lz_ui_key(LZ_K_ENTER, 0);
     pump(60);
     snprintf(path, sizeof path, "%s/18-convo-sent.bmp", dir);
@@ -634,6 +642,47 @@ static int codec_selftest(void)
 
     /* 1. default LongFast channel hash must be 0x08 */
     CHECK(mt_channel_hash() == 0x08, "channel hash(LongFast,defaultPSK) == 0x08");
+
+    /* UI chat labels only receive display-safe text: protocol/storage bytes are
+     * left alone, but invalid UTF-8 and unsupported glyphs are folded before
+     * LVGL measures or renders them. */
+    {
+        char out[48];
+        lz_text_safe_copy(out, sizeof out, "plain text", LZ_TEXT_SAFE_LINE);
+        CHECK(strcmp(out, "plain text") == 0, "display text leaves ASCII unchanged");
+        lz_text_safe_copy(out, sizeof out, "one\ntwo\tthree", LZ_TEXT_SAFE_LINE);
+        CHECK(strcmp(out, "one two three") == 0, "display line text folds controls");
+        lz_text_safe_copy(out, sizeof out, "one\ntwo", LZ_TEXT_SAFE_BLOCK);
+        CHECK(strcmp(out, "one\ntwo") == 0, "display block text preserves newlines");
+        lz_text_safe_copy(out, sizeof out,
+                          "rx " "\xF0\x9F\x94\xA5" " " "\xE2\x9C\x85",
+                          LZ_TEXT_SAFE_LINE);
+        CHECK(strcmp(out, "rx fire OK") == 0, "display text aliases common emoji");
+        lz_text_safe_copy(out, sizeof out, "copy " "\xE2\x80\x94" " 73",
+                          LZ_TEXT_SAFE_LINE);
+        CHECK(strcmp(out, "copy - 73") == 0, "display text aliases punctuation");
+        {
+            const char bad[] = { 'b', 'a', 'd', ' ', (char)0xF0, (char)0x28,
+                                 (char)0x8C, (char)0x28, 0 };
+            bool ok = true;
+            lz_text_safe_copy(out, sizeof out, bad, LZ_TEXT_SAFE_LINE);
+            for(size_t i = 0; out[i]; i++) {
+                unsigned char c = (unsigned char)out[i];
+                if(c >= 0x80u || c < 32u || c == 127u) ok = false;
+            }
+            CHECK(ok && strstr(out, "?") != NULL,
+                  "display text replaces malformed UTF-8");
+        }
+        {
+            char small[5];
+            size_t n = lz_text_safe_copy(small, sizeof small, "abcdef",
+                                         LZ_TEXT_SAFE_LINE);
+            CHECK(n == 4 && strcmp(small, "abcd") == 0,
+                  "display text stays nul-terminated under cap");
+        }
+        lz_text_safe_copy(out, sizeof out, NULL, LZ_TEXT_SAFE_LINE);
+        CHECK(out[0] == 0, "display text accepts null input");
+    }
 
     /* 2. text frame round-trip: build -> parse header -> decrypt -> decode */
     const char *msg = "hello mesh, this is limitlezzOS";

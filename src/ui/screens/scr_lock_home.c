@@ -105,14 +105,18 @@ void lz_scr_lock(lv_obj_t *root)
         lv_obj_set_flex_align(hrow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(hrow, 6, 0);
         lz_icon(hrow, LZ_I_FORUM, &lz_icons_14, LZ_MINT);
-        lv_obj_t *nm = lz_text(hrow, g_notif_t->name, LZ_F_BODY, LZ_TEXT);
+        char safe_name[48];
+        char safe_last[96];
+        lz_text_safe_copy(safe_name, sizeof safe_name, g_notif_t->name, LZ_TEXT_SAFE_LINE);
+        lz_text_safe_copy(safe_last, sizeof safe_last, g_notif_t->last_text, LZ_TEXT_SAFE_LINE);
+        lv_obj_t *nm = lz_text(hrow, safe_name, LZ_F_BODY, LZ_TEXT);
         lv_obj_set_flex_grow(nm, 1);
         lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
         if(g_notif_t->unread > 1) {
             char cnt[8]; snprintf(cnt, sizeof cnt, "%d", g_notif_t->unread);
             lz_text(hrow, cnt, LZ_F_SMALL, LZ_MINT);
         }
-        lv_obj_t *snip = lz_text(card, g_notif_t->last_text, LZ_F_SMALL, lv_color_hex(0xCFD4DA));
+        lv_obj_t *snip = lz_text(card, safe_last, LZ_F_SMALL, lv_color_hex(0xCFD4DA));
         lv_obj_set_width(snip, lv_pct(100));
         lv_label_set_long_mode(snip, LV_LABEL_LONG_DOT);
         lz_on_click(card, notif_tap);
