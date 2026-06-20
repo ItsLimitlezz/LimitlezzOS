@@ -20,6 +20,9 @@ dogfood belong to the later roadmap phases.
   commit: `python scripts/fetch_tdeck_artifact.py`, then flash with
   `python scripts/tdeck_smoke.py --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck --port COM8`.
 - Record the firmware artifact path, size, and timestamp.
+- Keep the default smoke command set unless a test needs a narrower probe:
+  `id`, `sys`, `net`, `rf`, `stats`, `wifi`, `dm status`, `nodes`,
+  `companion test`, and `companion ble`.
 - Confirm a native simulator sanity pass:
   - Linux/macOS: `pio run -e native && .pio/build/native/program --selftest`
   - Windows: `pio run -e native; .pio\build\native\program.exe --selftest`
@@ -47,6 +50,10 @@ dogfood belong to the later roadmap phases.
   slots were held by in-flight RX or MeshCore ACK dwell; this proves scheduler
   hold behavior but not packet-loss rate by itself.
 - For BLE companion phone-app drops, run `companion ble on`, attempt the official app connection, then run `companion` after the drop and capture the whole BLE line. The key fields are `c`/`d` (connect/disconnect counts), `r` (last GAP disconnect reason), `mtu`, `to` (ToRadio writes/last bytes), `fr` (FromRadio reads), and `fn` (FromNum reads/writes).
+- The default smoke now captures delivery state, heard nodes, USB companion
+  loopback, and BLE companion status. Run `help` afterward and confirm
+  diagnostics include `dm status`, `rxlog`, `nodes`, `net`, `rf`, `companion`,
+  and `companion ble`.
 
 ## Hardware Evidence Log
 

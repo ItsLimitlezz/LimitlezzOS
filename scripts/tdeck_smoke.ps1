@@ -13,7 +13,7 @@ param(
     [int]$BootTimeout = 45,
     [int]$CommandTimeout = 30,
     [switch]$NoExpect,
-    [string[]]$Commands = @("id", "sys", "net", "rf", "stats", "wifi", "companion test")
+    [string[]]$Commands = @("id", "sys", "net", "rf", "stats", "wifi", "dm status", "nodes", "companion test", "companion ble")
 )
 
 $ErrorActionPreference = "Stop"
