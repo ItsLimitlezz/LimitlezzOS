@@ -9,6 +9,10 @@
 #include <stdarg.h>
 #include <math.h>
 #include <time.h>
+#include <stdlib.h>
+#ifdef LZ_TARGET_TDECK
+#include "esp_heap_caps.h"        /* node DB lives in PSRAM to save internal DRAM */
+#endif
 
 /* store.c */
 void lz_store_init(const char *datadir);
@@ -45,7 +49,7 @@ extern uint32_t lz_tick_ms(void);
 extern bool lz_backend_mc_send_public(const char *text) __attribute__((weak));
 extern bool lz_backend_mc_dm(const char *name, const char *text) __attribute__((weak));
 
-static lz_node_rt    g_nodes[LZ_MAX_NODES];
+static lz_node_rt   *g_nodes;     /* 45 KB node DB — PSRAM-backed on T-Deck (alloc in lz_svc_init) */
 static int           g_node_count;
 static lz_thread_rt  g_threads[LZ_MAX_THREADS];   /* stable: never reordered */
 static int           g_thread_count;
@@ -1514,6 +1518,16 @@ void lz_seed_demo(void);   /* in mesh_seed.c */
 
 void lz_svc_init(const char *datadir, bool seed_demo)
 {
+    /* Node DB (45 KB) lives in PSRAM on the T-Deck to keep internal DRAM free for
+     * WiFi/BLE; the sim falls back to the heap. Allocated once, before any use. */
+    if(!g_nodes) {
+#ifdef LZ_TARGET_TDECK
+        g_nodes = (lz_node_rt *)heap_caps_calloc(LZ_MAX_NODES, sizeof(lz_node_rt),
+                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
+        if(!g_nodes) g_nodes = (lz_node_rt *)calloc(LZ_MAX_NODES, sizeof(lz_node_rt));
+    }
+
     lz_store_init(datadir);
 
     /* identity from a prior onboarding; absent -> UI shows onboarding first */
