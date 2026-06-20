@@ -128,11 +128,12 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   enabling one frees the other.
 
 ### 🔭 Later
-- **MeshCore companion bridge** - V0 protocol foundation is drafted, with
-  `companion mc ...` diagnostics and formal USB `MC0` mode for snapshots,
-  public send, private send, and exact public-key DM routing. BLE transport,
-  live events, and official MeshCore app compatibility remain planned until the
-  real MeshCore app protocol is confirmed.
+- **MeshCore companion bridge** — V0 USB foundation is in progress:
+  `companion mc ...` covers console smoke, and `companion mc usb on` enters
+  formal MC0 mode for identity/status/node/thread snapshots, send boundaries,
+  revision counters, event controls, and bounded node/message/TX event draining.
+  BLE transport remains planned, and it is not official MeshCore app compatible
+  unless the real MeshCore app protocol is confirmed.
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
@@ -185,7 +186,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-firmware-audit.md`](docs/tdeck-firmware-audit.md) - current firmware audit and risk list.
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
-- [`docs/tdeck-meshcore-companion-protocol.md`](docs/tdeck-meshcore-companion-protocol.md) - draft Phase 5/V0.8 MeshCore companion line protocol.
+- [`docs/tdeck-meshcore-companion-protocol.md`](docs/tdeck-meshcore-companion-protocol.md) - Phase 5/V0.8 MeshCore companion V0 protocol.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
 - [`docs/tdeck-release-checklist.md`](docs/tdeck-release-checklist.md) - slow-host Actions artifact and COM8 release evidence checklist.
 - [`docs/tdeck-troubleshooting.md`](docs/tdeck-troubleshooting.md) - build, flash, boot, radio, storage, Wi-Fi, and companion troubleshooting.

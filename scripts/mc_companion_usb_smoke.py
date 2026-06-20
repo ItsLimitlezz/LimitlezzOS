@@ -36,11 +36,21 @@ DEFAULT_MC0_HELLO_ID = "1"
 DEFAULT_MC0_IDENTITY_ID = "2"
 DEFAULT_MC0_STATUS_ID = "3"
 DEFAULT_MC0_NODES_ID = "4"
+DEFAULT_MC0_THREADS_ID = "5"
+DEFAULT_MC0_EVENTS_ON_ID = "6"
+DEFAULT_MC0_EVENTS_OFF_ID = "7"
+DEFAULT_MC0_SEND_PUBLIC_ID = "8"
 DEFAULT_MC0_EXIT_ID = "99"
 DEFAULT_MC0_HELLO_TEMPLATE = "MC0 {id} HELLO proto=0 app=limitlezz-smoke host=windows want=none"
 DEFAULT_MC0_IDENTITY_TEMPLATE = "MC0 {id} IDENTITY"
 DEFAULT_MC0_STATUS_TEMPLATE = "MC0 {id} STATUS"
 DEFAULT_MC0_NODES_TEMPLATE = "MC0 {id} NODES since=0 limit=5"
+DEFAULT_MC0_THREADS_TEMPLATE = "MC0 {id} THREADS since=0 limit=5"
+DEFAULT_MC0_EVENTS_ON_TEMPLATE = "MC0 {id} EVENTS mode=on types=nodes,messages,tx,status"
+DEFAULT_MC0_EVENTS_OFF_TEMPLATE = "MC0 {id} EVENTS mode=off"
+DEFAULT_MC0_SEND_PUBLIC_TEMPLATE = (
+    "MC0 {id} SEND_PUBLIC room=public text={text} client_mid={client_mid}"
+)
 DEFAULT_MC0_EXIT_TEMPLATE = "MC0 {id} EXIT"
 DEFAULT_STATUS_MARKERS = ["mccomp: status", "MeshCore", "MC companion"]
 DEFAULT_TEST_MARKERS = ["PASS"]
@@ -120,6 +130,19 @@ def format_mc0_template(option: str, template: str, request_id: str) -> str:
     return template.format(id=request_id)
 
 
+def format_mc0_send_public_template(args: argparse.Namespace) -> str:
+    validate_template_fields(
+        "--mc0-send-public-template",
+        args.mc0_send_public_template,
+        {"id", "text", "client_mid"},
+    )
+    return args.mc0_send_public_template.format(
+        id=args.mc0_send_public_id,
+        text=args.mc0_send_public_text,
+        client_mid=args.mc0_send_public_client_mid,
+    )
+
+
 def add_markers(
     specs: list[CommandSpec],
     command: str,
@@ -191,13 +214,27 @@ def build_mc0_specs(args: argparse.Namespace) -> list[CommandSpec]:
     nodes_command = format_mc0_template(
         "--mc0-nodes-template", args.mc0_nodes_template, args.mc0_nodes_id
     )
-    return [
+    threads_command = format_mc0_template(
+        "--mc0-threads-template", args.mc0_threads_template, args.mc0_threads_id
+    )
+    events_on_command = format_mc0_template(
+        "--mc0-events-on-template", args.mc0_events_on_template, args.mc0_events_on_id
+    )
+    events_off_command = format_mc0_template(
+        "--mc0-events-off-template", args.mc0_events_off_template, args.mc0_events_off_id
+    )
+    specs = [
         CommandSpec(
             "mc0 hello",
             hello_command,
             default_marker_override(
                 args.mc0_hello_marker,
-                [f"MC0 {args.mc0_hello_id} OK"],
+                [
+                    f"MC0 {args.mc0_hello_id} OK",
+                    "event_seq=",
+                    "nodes_rev=",
+                    "messages_rev=",
+                ],
             ),
         ),
         CommandSpec(
@@ -217,7 +254,7 @@ def build_mc0_specs(args: argparse.Namespace) -> list[CommandSpec]:
             status_command,
             default_marker_override(
                 args.mc0_status_marker,
-                [f"MC0 {args.mc0_status_id} OK"],
+                [f"MC0 {args.mc0_status_id} OK", "event_seq=", "nodes_rev=", "messages_rev="],
             ),
         ),
         CommandSpec(
@@ -228,7 +265,66 @@ def build_mc0_specs(args: argparse.Namespace) -> list[CommandSpec]:
                 [f"MC0 {args.mc0_nodes_id} BEGIN", f"MC0 {args.mc0_nodes_id} END"],
             ),
         ),
+        CommandSpec(
+            "mc0 threads",
+            threads_command,
+            default_marker_override(
+                args.mc0_threads_marker,
+                [f"MC0 {args.mc0_threads_id} BEGIN", f"MC0 {args.mc0_threads_id} END"],
+            ),
+        ),
+        CommandSpec(
+            "mc0 events on",
+            events_on_command,
+            default_marker_override(
+                args.mc0_events_on_marker,
+                [
+                    f"MC0 {args.mc0_events_on_id} OK",
+                    "events=on",
+                    "types=",
+                    "event_seq=",
+                    "nodes_rev=",
+                    "messages_rev=",
+                ],
+            ),
+        ),
     ]
+    if args.mc0_tx_smoke:
+        specs.append(
+            CommandSpec(
+                "mc0 send public tx event",
+                format_mc0_send_public_template(args),
+                default_marker_override(
+                    args.mc0_send_public_marker,
+                    [
+                        f"MC0 {args.mc0_send_public_id} OK",
+                        "accepted=1",
+                        "event_seq=",
+                        f"client_mid={args.mc0_send_public_client_mid}",
+                        "MC0 EVT",
+                        "tx_status",
+                        "kind=public",
+                    ],
+                ),
+            )
+        )
+    specs.append(
+        CommandSpec(
+            "mc0 events off",
+            events_off_command,
+            default_marker_override(
+                args.mc0_events_off_marker,
+                [
+                    f"MC0 {args.mc0_events_off_id} OK",
+                    "events=off",
+                    "event_seq=",
+                    "nodes_rev=",
+                    "messages_rev=",
+                ],
+            ),
+        ),
+    )
+    return specs
 
 
 def open_console(args: argparse.Namespace) -> tuple[serial.Serial, str]:
@@ -569,6 +665,10 @@ def main() -> int:
     mc0.add_argument("--mc0-identity-id", default=DEFAULT_MC0_IDENTITY_ID)
     mc0.add_argument("--mc0-status-id", default=DEFAULT_MC0_STATUS_ID)
     mc0.add_argument("--mc0-nodes-id", default=DEFAULT_MC0_NODES_ID)
+    mc0.add_argument("--mc0-threads-id", default=DEFAULT_MC0_THREADS_ID)
+    mc0.add_argument("--mc0-events-on-id", default=DEFAULT_MC0_EVENTS_ON_ID)
+    mc0.add_argument("--mc0-events-off-id", default=DEFAULT_MC0_EVENTS_OFF_ID)
+    mc0.add_argument("--mc0-send-public-id", default=DEFAULT_MC0_SEND_PUBLIC_ID)
     mc0.add_argument("--mc0-exit-id", default=DEFAULT_MC0_EXIT_ID)
     mc0.add_argument(
         "--mc0-hello-template",
@@ -591,9 +691,44 @@ def main() -> int:
         help="MC0 NODES line template; supports {id}.",
     )
     mc0.add_argument(
+        "--mc0-threads-template",
+        default=DEFAULT_MC0_THREADS_TEMPLATE,
+        help="MC0 THREADS line template; supports {id}.",
+    )
+    mc0.add_argument(
+        "--mc0-events-on-template",
+        default=DEFAULT_MC0_EVENTS_ON_TEMPLATE,
+        help="MC0 EVENTS-on line template; supports {id}.",
+    )
+    mc0.add_argument(
+        "--mc0-events-off-template",
+        default=DEFAULT_MC0_EVENTS_OFF_TEMPLATE,
+        help="MC0 EVENTS-off line template; supports {id}.",
+    )
+    mc0.add_argument(
+        "--mc0-tx-smoke",
+        action="store_true",
+        help="After EVENTS on, send a public MC0 message and require its tx_status event.",
+    )
+    mc0.add_argument(
+        "--mc0-send-public-template",
+        default=DEFAULT_MC0_SEND_PUBLIC_TEMPLATE,
+        help="MC0 SEND_PUBLIC template; supports {id}, {text}, and {client_mid}.",
+    )
+    mc0.add_argument(
+        "--mc0-send-public-text",
+        default="mc0%20usb%20smoke",
+        help="Percent-encoded text used by --mc0-tx-smoke.",
+    )
+    mc0.add_argument(
+        "--mc0-send-public-client-mid",
+        default="mc0-smoke-tx",
+        help="client_mid used by --mc0-tx-smoke.",
+    )
+    mc0.add_argument(
         "--mc0-hello-marker",
         action="append",
-        help="Override HELLO expected marker(s). Defaults to 'MC0 <hello-id> OK'.",
+        help="Override HELLO expected marker(s). Defaults to OK plus revision fields.",
     )
     mc0.add_argument(
         "--mc0-identity-marker",
@@ -606,7 +741,7 @@ def main() -> int:
     mc0.add_argument(
         "--mc0-status-marker",
         action="append",
-        help="Override STATUS expected marker(s). Defaults to 'MC0 <status-id> OK'.",
+        help="Override STATUS expected marker(s). Defaults to OK plus revision fields.",
     )
     mc0.add_argument(
         "--mc0-nodes-marker",
@@ -615,6 +750,29 @@ def main() -> int:
             "Override NODES expected marker(s). Defaults to both "
             "'MC0 <nodes-id> BEGIN' and 'MC0 <nodes-id> END'."
         ),
+    )
+    mc0.add_argument(
+        "--mc0-threads-marker",
+        action="append",
+        help=(
+            "Override THREADS expected marker(s). Defaults to both "
+            "'MC0 <threads-id> BEGIN' and 'MC0 <threads-id> END'."
+        ),
+    )
+    mc0.add_argument(
+        "--mc0-events-on-marker",
+        action="append",
+        help="Override EVENTS-on expected marker(s). Defaults to OK plus events=on.",
+    )
+    mc0.add_argument(
+        "--mc0-events-off-marker",
+        action="append",
+        help="Override EVENTS-off expected marker(s). Defaults to OK plus events=off.",
+    )
+    mc0.add_argument(
+        "--mc0-send-public-marker",
+        action="append",
+        help="Override TX-smoke SEND_PUBLIC/event marker(s).",
     )
     mc0.add_argument(
         "--mc0-exit-template",

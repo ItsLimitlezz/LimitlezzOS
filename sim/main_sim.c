@@ -2109,53 +2109,89 @@ static int codec_selftest(void)
         char mc0[900], proto[120];
         bool mc0_exit = false;
         lz_svc_mc_companion_handle_line("MC0 1 HELLO proto=0 app=selftest", mc0, sizeof mc0, &mc0_exit);
-        CHECK(strstr(mc0, "MC0 1 OK proto=0") != NULL && strstr(mc0, "caps=") != NULL,
+        const char *event_seq_s = strstr(mc0, "event_seq=");
+        const char *nodes_rev_s = strstr(mc0, "nodes_rev=");
+        const char *messages_rev_s = strstr(mc0, "messages_rev=");
+        CHECK(strstr(mc0, "MC0 1 OK proto=0") != NULL && strstr(mc0, "caps=") != NULL &&
+              event_seq_s != NULL && nodes_rev_s != NULL && messages_rev_s != NULL,
               "MeshCore MC0 HELLO reports protocol capabilities");
         lz_svc_mc_companion_handle_line("MC0 2 STATUS", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "MC0 2 OK") != NULL && strstr(mc0, "nodes=1") != NULL &&
-              strstr(mc0, "threads=2") != NULL,
-              "MeshCore MC0 STATUS counts snapshots");
+              strstr(mc0, "threads=2") != NULL && strstr(mc0, "events=off") != NULL &&
+              strstr(mc0, "event_seq=") != NULL &&
+              strstr(mc0, "nodes_rev=") != NULL &&
+              strstr(mc0, "messages_rev=") != NULL,
+              "MeshCore MC0 STATUS counts snapshots and event state");
         lz_svc_mc_companion_handle_line("MC0 3 NODES since=0 limit=5", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "MC0 3 BEGIN type=nodes") != NULL &&
               strstr(mc0, pub_addr) != NULL &&
               strstr(mc0, "short_id=MC-42000000") != NULL &&
+              strstr(mc0, "rev=") != NULL &&
               strstr(mc0, "public_key=present") != NULL &&
               strstr(mc0, "dm=ready") != NULL &&
               strstr(mc0, "name=CompanionPeer") != NULL &&
               strstr(mc0, "MC0 3 END type=nodes") != NULL,
-              "MeshCore MC0 NODES snapshot lists full-address peer");
-        lz_svc_mc_companion_handle_line("MC0 4 THREADS", mc0, sizeof mc0, &mc0_exit);
-        CHECK(strstr(mc0, "MC0 4 BEGIN type=threads") != NULL &&
+              "MeshCore MC0 NODES snapshot lists full-address peer with revision");
+        lz_svc_mc_companion_handle_line("MC0 4 NODES since=999999 limit=5", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "count=0") != NULL && strstr(mc0, "rev=") != NULL,
+              "MeshCore MC0 NODES since current revision returns empty snapshot");
+        lz_svc_mc_companion_handle_line("MC0 5 THREADS", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 5 BEGIN type=threads") != NULL &&
               strstr(mc0, "text=CompanionPeer%3A%20public%20hello") != NULL &&
               strstr(mc0, "text=dm%20hello") != NULL,
               "MeshCore MC0 THREADS snapshot lists encoded thread text");
-        lz_svc_mc_companion_handle_line("MC0 5 SEND_PUBLIC text=mc0%20public", mc0, sizeof mc0, &mc0_exit);
-        CHECK(strstr(mc0, "MC0 5 OK accepted=1") != NULL,
+        lz_svc_mc_companion_handle_line("MC0 6 EVENTS mode=on types=nodes,messages,tx", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 6 OK events=on") != NULL &&
+              strstr(mc0, "types=nodes,messages,tx") != NULL &&
+              strstr(mc0, "event_seq=") != NULL &&
+              strstr(mc0, "nodes_rev=") != NULL &&
+              strstr(mc0, "messages_rev=") != NULL,
+              "MeshCore MC0 EVENTS enables typed streaming");
+        lz_core_on_mc_channel_text("CompanionPeer", "event hello", -7.5f);
+        char ev[360];
+        lz_svc_mc_companion_drain_events(ev, sizeof ev);
+        CHECK(strstr(ev, "MC0 EVT") != NULL && strstr(ev, "rx_public") != NULL &&
+              strstr(ev, "event%20hello") != NULL,
+              "MeshCore MC0 event drain emits enabled message events");
+        lz_svc_mc_companion_handle_line("MC0 7 SEND_PUBLIC text=mc0%20public client_mid=pc-1", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 7 OK accepted=1") != NULL &&
+              strstr(mc0, "event_seq=") != NULL &&
+              strstr(mc0, "client_mid=pc-1") != NULL,
               "MeshCore MC0 SEND_PUBLIC uses service boundary");
+        lz_svc_mc_companion_drain_events(ev, sizeof ev);
+        CHECK(strstr(ev, "tx_status") != NULL && strstr(ev, "client_mid=pc-1") != NULL,
+              "MeshCore MC0 SEND_PUBLIC emits queued tx_status event");
         sim_backend_mc_clear_last_dm();
-        char mc0_cmd[180];
-        snprintf(mc0_cmd, sizeof mc0_cmd, "MC0 6 SEND_DM to_addr=%s text=mc0%%20dm", pub_addr);
+        char mc0_cmd[220];
+        snprintf(mc0_cmd, sizeof mc0_cmd,
+                 "MC0 8 SEND_DM to_addr=%s text=mc0%%20dm client_mid=dm-1",
+                 pub_addr);
         lz_svc_mc_companion_handle_line(mc0_cmd, mc0, sizeof mc0, &mc0_exit);
-        CHECK(strstr(mc0, "MC0 6 OK accepted=1") != NULL &&
-              strstr(mc0, pub_addr) != NULL,
+        CHECK(strstr(mc0, "MC0 8 OK accepted=1") != NULL &&
+              strstr(mc0, pub_addr) != NULL &&
+              strstr(mc0, "client_mid=dm-1") != NULL,
               "MeshCore MC0 SEND_DM accepts exact public-key address");
         CHECK(sim_backend_mc_last_dm(last_key, last_name, sizeof last_name,
                                      last_text, sizeof last_text) &&
               memcmp(last_key, pub, 32) == 0 &&
               strcmp(last_text, "mc0 dm") == 0,
               "MeshCore MC0 SEND_DM routes by exact public key");
-        lz_svc_mc_companion_handle_line("MC0 7 SEND_DM to_name=companionpeer text=mc0%20dm%20name", mc0, sizeof mc0, &mc0_exit);
-        CHECK(strstr(mc0, "MC0 7 OK accepted=1") != NULL,
+        lz_svc_mc_companion_drain_events(ev, sizeof ev);
+        CHECK(strstr(ev, "tx_status") != NULL && strstr(ev, pub_addr) != NULL &&
+              strstr(ev, "client_mid=dm-1") != NULL,
+              "MeshCore MC0 SEND_DM emits queued tx_status for exact address");
+        lz_svc_mc_companion_handle_line("MC0 9 SEND_DM to_name=companionpeer text=mc0%20dm%20name", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 9 OK accepted=1") != NULL,
               "MeshCore MC0 SEND_DM keeps unambiguous name fallback");
         lz_seed_node(0x00009999u, "MC-nokey", LZ_NET_MC, "NoKey", "NOK",
                      "Chat", -5.0f, 90, "MeshCore", "1.0 km", 10, false);
-        lz_svc_mc_companion_handle_line("MC0 8 SEND_DM to_name=NoKey text=x", mc0, sizeof mc0, &mc0_exit);
+        lz_svc_mc_companion_handle_line("MC0 10 SEND_DM to_name=NoKey text=x", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "ERR code=no_key") != NULL,
               "MeshCore MC0 SEND_DM rejects chat nodes without a key");
         uint8_t other[32] = {0};
         other[0] = 0x44; other[3] = 0x01;
         lz_core_on_mc_node(other, "OtherPeer", 1, -7.5f);
-        lz_svc_mc_companion_handle_line("MC0 9 SEND_DM to_addr=4200000000000000000000000000000000000000000000000000000000000000 to_name=OtherPeer text=x",
+        lz_svc_mc_companion_handle_line("MC0 11 SEND_DM to_addr=4200000000000000000000000000000000000000000000000000000000000000 to_name=OtherPeer text=x",
                                         mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "ERR code=target_mismatch") != NULL,
               "MeshCore MC0 SEND_DM rejects mismatched address/name targets");
@@ -2164,10 +2200,16 @@ static int codec_selftest(void)
         dup2[0] = 0x51; dup2[3] = 0x02;
         lz_core_on_mc_node(dup1, "DupePeer", 1, -7.5f);
         lz_core_on_mc_node(dup2, "DupePeer", 1, -7.5f);
-        lz_svc_mc_companion_handle_line("MC0 10 SEND_DM to_name=dupepeer text=x", mc0, sizeof mc0, &mc0_exit);
+        lz_svc_mc_companion_handle_line("MC0 12 SEND_DM to_name=dupepeer text=x", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "ERR code=ambiguous_name") != NULL,
               "MeshCore MC0 SEND_DM rejects duplicate display names");
-        lz_svc_mc_companion_handle_line("MC0 11 EXIT", mc0, sizeof mc0, &mc0_exit);
+        lz_svc_mc_companion_handle_line("MC0 13 EVENTS mode=off", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 13 OK events=off") != NULL &&
+              strstr(mc0, "event_seq=") != NULL &&
+              strstr(mc0, "nodes_rev=") != NULL &&
+              strstr(mc0, "messages_rev=") != NULL,
+              "MeshCore MC0 EVENTS disables streaming");
+        lz_svc_mc_companion_handle_line("MC0 14 EXIT", mc0, sizeof mc0, &mc0_exit);
         CHECK(mc0_exit && strstr(mc0, "state=detached") != NULL,
               "MeshCore MC0 EXIT returns to console");
         lz_svc_mc_companion_selftest(proto, sizeof proto);
