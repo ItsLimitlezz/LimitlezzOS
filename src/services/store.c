@@ -1113,32 +1113,35 @@ bool lz_store_parse_app_catalog_json(const char *json, lz_app_catalog_entry_t *o
         return true;
     }
 
-    char obj[1536];
-    char seen_ids[LZ_APP_CATALOG_MAX_APPS][24];
-    memset(seen_ids, 0, sizeof seen_ids);
+    char *obj = (char *)malloc(1536);
+    char (*seen_ids)[24] = (char (*)[24])calloc(LZ_APP_CATALOG_MAX_APPS, sizeof(*seen_ids));
+    if(!obj || !seen_ids) {
+        free(obj);
+        free(seen_ids);
+        catalog_fail(&r, NULL, "catalog buffer unavailable");
+        if(report) *report = r;
+        return false;
+    }
+    bool result = false;
     for(;;) {
         bool done = false, too_big = false;
-        p = catalog_next_object(p, obj, sizeof obj, &done, &too_big);
+        p = catalog_next_object(p, obj, 1536, &done, &too_big);
         if(done) break;
         if(!p) {
             catalog_fail(&r, NULL, "bad apps array");
-            if(report) *report = r;
-            return false;
+            goto done;
         }
         if(too_big) {
             catalog_fail(&r, NULL, "app entry too large");
-            if(report) *report = r;
-            return false;
+            goto done;
         }
         if(r.app_count + r.rejected_count >= LZ_APP_CATALOG_MAX_APPS) {
             catalog_fail(&r, NULL, "too many apps");
-            if(report) *report = r;
-            return false;
+            goto done;
         }
         lz_app_catalog_entry_t entry;
         if(!catalog_validate_app(obj, &r, &entry, seen_ids, r.app_count)) {
-            if(report) *report = r;
-            return false;
+            goto done;
         }
         snprintf(seen_ids[r.app_count], sizeof seen_ids[r.app_count], "%s", entry.id);
         if(out && cap > 0 && r.app_count < cap) out[r.app_count] = entry;
@@ -1147,8 +1150,12 @@ bool lz_store_parse_app_catalog_json(const char *json, lz_app_catalog_entry_t *o
 
     r.ok = r.rejected_count == 0;
     if(!r.ok && !r.first_error[0]) snprintf(r.first_error, sizeof r.first_error, "invalid catalog");
+    result = r.ok;
+done:
+    free(obj);
+    free(seen_ids);
     if(report) *report = r;
-    return r.ok;
+    return result;
 }
 
 bool lz_store_validate_app_catalog_json(const char *json, lz_app_catalog_report_t *out)
@@ -1176,19 +1183,31 @@ static bool catalog_read_file(const char *path, lz_app_catalog_entry_t *out, int
     if(loaded) *loaded = 0;
     FILE *f = fopen(path, "rb");
     if(!f) return false;
-    char json[LZ_APP_CATALOG_JSON_MAX + 2];
-    size_t n = fread(json, 1, sizeof json - 1, f);
+    size_t cap_json = LZ_APP_CATALOG_JSON_MAX + 2;
+    char *json = (char *)malloc(cap_json);
+    if(!json) {
+        fclose(f);
+        lz_app_catalog_report_t tmp;
+        memset(&tmp, 0, sizeof tmp);
+        tmp.ok = false;
+        catalog_fail(&tmp, NULL, "catalog buffer unavailable");
+        if(r) *r = tmp;
+        return true;
+    }
+    size_t n = fread(json, 1, cap_json - 1, f);
     fclose(f);
     json[n] = 0;
-    if(n >= sizeof json - 1) {
+    if(n >= cap_json - 1) {
         lz_app_catalog_report_t tmp;
         memset(&tmp, 0, sizeof tmp);
         tmp.ok = false;
         catalog_fail(&tmp, NULL, "catalog too large");
         if(r) *r = tmp;
+        free(json);
         return true;
     }
     lz_store_parse_app_catalog_json(json, out, cap, r);
+    free(json);
     if(loaded && r && r->ok) *loaded = r->app_count < cap ? r->app_count : cap;
     return true;
 }
@@ -2379,8 +2398,13 @@ static bool app_catalog_selftest_save_catalog(const char *id, const char *versio
                                               const char *sha, uint32_t bytes,
                                               char *err, int err_cap)
 {
-    char json[1024];
-    int n = snprintf(json, sizeof json,
+    size_t cap_json = 1024;
+    char *json = (char *)malloc(cap_json);
+    if(!json) {
+        set_err(err, err_cap, "catalog buffer unavailable");
+        return false;
+    }
+    int n = snprintf(json, cap_json,
         "{\"schema\":\"%s\",\"apps\":[{"
         "\"id\":\"%s\",\"name\":\"Package Selftest\",\"version\":\"%s\","
         "\"author\":\"Limitless\",\"summary\":\"Catalog installer selftest\","
@@ -2391,11 +2415,14 @@ static bool app_catalog_selftest_save_catalog(const char *id, const char *versio
         "\"compatibility\":{\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\",\"sim\"]},"
         "\"permissions\":[\"display\"]}]}",
         LZ_APP_CATALOG_SCHEMA, id, version, id, sha, (unsigned long)bytes);
-    if(n <= 0 || n >= (int)sizeof json) {
+    if(n <= 0 || n >= (int)cap_json) {
         set_err(err, err_cap, "catalog too large");
+        free(json);
         return false;
     }
-    return lz_store_save_app_catalog_cache(json, n, err, err_cap);
+    bool ok = lz_store_save_app_catalog_cache(json, n, err, err_cap);
+    free(json);
+    return ok;
 }
 
 int lz_store_app_catalog_install_selftest(char *buf, int n)
@@ -2409,10 +2436,14 @@ int lz_store_app_catalog_install_selftest(char *buf, int n)
     if(!path_mkdir(root))
         return snprintf(buf, (size_t)n, "App catalog install selftest: SKIP root unavailable\n");
 
-    char prev_catalog[LZ_APP_CATALOG_CACHE_MAX + 1];
+    char *prev_catalog = (char *)malloc(LZ_APP_CATALOG_CACHE_MAX + 1);
+    if(!prev_catalog)
+        return snprintf(buf, (size_t)n,
+                        "App catalog install selftest: SKIP catalog buffer unavailable\n");
     int prev_len = 0;
     char prev_err[48] = "";
-    bool had_prev_catalog = lz_store_load_app_catalog_cache(prev_catalog, sizeof prev_catalog,
+    bool had_prev_catalog = lz_store_load_app_catalog_cache(prev_catalog,
+                                                            LZ_APP_CATALOG_CACHE_MAX + 1,
                                                             &prev_len, prev_err, sizeof prev_err);
 
     char package_path[160];
@@ -2484,6 +2515,7 @@ int lz_store_app_catalog_install_selftest(char *buf, int n)
         lz_store_save_app_catalog_cache(prev_catalog, prev_len, err, sizeof err);
     else
         lz_store_clear_app_catalog_cache(err, sizeof err);
+    free(prev_catalog);
 
     return snprintf(buf, (size_t)n,
                     "App catalog install selftest: %s version=%s files=%u%s%s\n",
