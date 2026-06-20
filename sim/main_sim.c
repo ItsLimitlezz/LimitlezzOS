@@ -648,6 +648,38 @@ static int codec_selftest(void)
     CHECK(f.hop_limit == 3 && f.hop_start == 3 && f.want_ack, "header flags round-trip");
     CHECK(f.channel_hash == 0x08, "frame carries channel hash 0x08");
 
+    /* 2b. fixed Meshtastic header vector: little-endian IDs and packed flags */
+    {
+        mt_frame_t hv; memset(&hv, 0, sizeof hv);
+        hv.to = 0x01020304u;
+        hv.from = 0xa0b0c0d0u;
+        hv.id = 0x11223344u;
+        hv.hop_limit = 5;
+        hv.hop_start = 6;
+        hv.want_ack = true;
+        hv.via_mqtt = true;
+        hv.channel_hash = 0x08;
+        hv.next_hop = 0x2a;
+        hv.relay_node = 0x7f;
+        uint8_t hb[MT_HEADER_LEN];
+        int hn = mt_header_write(hb, &hv);
+        static const uint8_t expect[] = {
+            0x04, 0x03, 0x02, 0x01,
+            0xd0, 0xc0, 0xb0, 0xa0,
+            0x44, 0x33, 0x22, 0x11,
+            0xdd, 0x08, 0x2a, 0x7f
+        };
+        mt_frame_t hr;
+        CHECK(hn == MT_HEADER_LEN && memcmp(hb, expect, sizeof expect) == 0,
+              "header fixed vector matches Meshtastic layout");
+        CHECK(mt_header_read(expect, sizeof expect, &hr) &&
+              hr.to == hv.to && hr.from == hv.from && hr.id == hv.id &&
+              hr.flags == 0xdd && hr.hop_limit == 5 && hr.hop_start == 6 &&
+              hr.want_ack && hr.via_mqtt && hr.channel_hash == 0x08 &&
+              hr.next_hop == 0x2a && hr.relay_node == 0x7f,
+              "header fixed vector decodes flags/hops");
+    }
+
     uint8_t dec[251];
     memcpy(dec, f.payload, f.plen);
     mt_crypt(dec, f.plen, from, id);          /* decrypt (CTR symmetric) */
@@ -725,6 +757,33 @@ static int codec_selftest(void)
     }
 
     /* 6. POSITION decode: lat/lon fixed32, altitude varint, precision_bits */
+    /* 4b. fixed Data protobuf vector: TEXT payload, want_response, request_id */
+    {
+        mt_data_t dv; memset(&dv, 0, sizeof dv);
+        dv.portnum = MT_PORT_TEXT;
+        memcpy(dv.payload, "hi", 2);
+        dv.plen = 2;
+        dv.want_response = true;
+        dv.request_id = 0x12345678u;
+        uint8_t db[32];
+        int dn = mt_data_encode(db, sizeof db, &dv);
+        static const uint8_t expect[] = {
+            0x08, 0x01,
+            0x12, 0x02, 'h', 'i',
+            0x18, 0x01,
+            0x35, 0x78, 0x56, 0x34, 0x12
+        };
+        mt_data_t dd;
+        CHECK(dn == (int)sizeof expect && memcmp(db, expect, sizeof expect) == 0,
+              "Data protobuf fixed vector matches wire layout");
+        CHECK(mt_data_decode(expect, sizeof expect, &dd) &&
+              dd.portnum == MT_PORT_TEXT && dd.plen == 2 &&
+              memcmp(dd.payload, "hi", 2) == 0 &&
+              dd.want_response && dd.request_id == 0x12345678u,
+              "Data protobuf fixed vector decodes");
+    }
+
+    /* 5. POSITION decode: lat/lon fixed32, altitude varint, precision_bits */
     {
         uint8_t pos[] = {
             0x0D, 0x44,0x33,0x22,0x11,     /* field 1  latitude_i  = 0x11223344 */
