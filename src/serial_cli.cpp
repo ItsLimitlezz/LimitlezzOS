@@ -27,7 +27,6 @@ extern "C" void lz_backend_mc_tune(float freq, float bw, int sf, int cr, int syn
 extern "C" int  lz_backend_mc_id(char *buf, int n)        __attribute__((weak));
 extern "C" bool lz_backend_mc_advert_now(bool flood)      __attribute__((weak));
 extern "C" bool lz_backend_mc_send_public(const char *text) __attribute__((weak));
-extern "C" bool lz_backend_mc_dm(const char *name, const char *text) __attribute__((weak));
 extern "C" int  lz_backend_mc_peers(char *buf, int n)     __attribute__((weak));
 extern "C" int  lz_backend_mc_selftest(char *buf, int n)  __attribute__((weak));
 extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
@@ -234,10 +233,10 @@ static void cmd_mc(char *args)
         char *p = args + 3; char *sp = strchr(p, ' ');
         if(!sp) { Serial.println("usage: mc dm <peer-name> <text>"); return; }
         *sp = 0; const char *text = sp + 1;
-        if(lz_backend_mc_dm && lz_backend_mc_dm(p, text))
+        if(lz_svc_mc_companion_send_dm(p, text))
             Serial.printf("[ok] DM sent to %s\n", p);
         else
-            Serial.println("[err] DM not sent (unknown peer? try 'mc peers')");
+            Serial.println("[err] DM not sent (unknown, ambiguous, no key, or not messageable)");
         return;
     }
     if(args && strcmp(args, "peers") == 0) {
@@ -377,7 +376,7 @@ static void cmd_companion(char *args)
             return;
         }
         if(strcmp(sub, "nodes") == 0) {
-            char b[760]; lz_svc_mc_companion_nodes(b, sizeof b); Serial.print(b);
+            char b[1200]; lz_svc_mc_companion_nodes(b, sizeof b); Serial.print(b);
             return;
         }
         if(strcmp(sub, "threads") == 0) {

@@ -190,16 +190,20 @@ Exit criteria:
 Goal: expose MeshCore companion functionality only after native MeshCore messaging is stable.
 
 **Status:** protocol foundation in progress with an initial USB serial-console
-smoke surface. `companion mc hello|status|nodes|threads|send|dm|test` now
-exercises the firmware-owned MeshCore snapshots and send boundaries for COM8
-validation, while the formal `MC0` bridge, BLE transport, events, and real
-external MeshCore app compatibility are still planned work.
+smoke surface plus formal USB `MC0` mode. `companion mc
+hello|status|nodes|threads|send|dm|test` and `MC0`
+`HELLO|IDENTITY|STATUS|NODES|THREADS|SEND_PUBLIC|SEND_DM|EXIT` exercise the
+firmware-owned MeshCore snapshots and send boundaries for COM8 validation.
+`MC0` uses full public-key addresses for exact DM routing. BLE transport, live
+events, and real external MeshCore app compatibility are still planned work.
 
 Deliverables:
 
 - Define the MeshCore companion protocol surface for node DB, public chat, private chats, and send/receive forwarding. Drafted as `docs/tdeck-meshcore-companion-protocol.md`.
 - Add a USB serial-console smoke surface that reports MeshCore companion status, nodes, threads, Public send, DM send, and self-test.
-- Implement MeshCore USB companion mode.
+- Implement MeshCore USB companion mode. USB `MC0` is implemented for
+  snapshots, public send, private send, exact full-public-key DM routing, and
+  explicit exit back to console; live event streaming is still a later step.
 - Implement MeshCore BLE companion mode.
 - Add UI and serial commands that distinguish Meshtastic companion from MeshCore companion.
 - Decide whether one companion session or one network can own the external-app bridge at a time.

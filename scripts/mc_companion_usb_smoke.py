@@ -33,10 +33,12 @@ DEFAULT_TEST_COMMAND = "companion mc test"
 DEFAULT_PUBLIC_TEMPLATE = "companion mc send {text}"
 DEFAULT_MC0_ENTER_COMMAND = "companion mc usb on"
 DEFAULT_MC0_HELLO_ID = "1"
-DEFAULT_MC0_STATUS_ID = "2"
-DEFAULT_MC0_NODES_ID = "3"
+DEFAULT_MC0_IDENTITY_ID = "2"
+DEFAULT_MC0_STATUS_ID = "3"
+DEFAULT_MC0_NODES_ID = "4"
 DEFAULT_MC0_EXIT_ID = "99"
 DEFAULT_MC0_HELLO_TEMPLATE = "MC0 {id} HELLO proto=0 app=limitlezz-smoke host=windows want=none"
+DEFAULT_MC0_IDENTITY_TEMPLATE = "MC0 {id} IDENTITY"
 DEFAULT_MC0_STATUS_TEMPLATE = "MC0 {id} STATUS"
 DEFAULT_MC0_NODES_TEMPLATE = "MC0 {id} NODES since=0 limit=5"
 DEFAULT_MC0_EXIT_TEMPLATE = "MC0 {id} EXIT"
@@ -180,6 +182,9 @@ def build_mc0_specs(args: argparse.Namespace) -> list[CommandSpec]:
     hello_command = format_mc0_template(
         "--mc0-hello-template", args.mc0_hello_template, args.mc0_hello_id
     )
+    identity_command = format_mc0_template(
+        "--mc0-identity-template", args.mc0_identity_template, args.mc0_identity_id
+    )
     status_command = format_mc0_template(
         "--mc0-status-template", args.mc0_status_template, args.mc0_status_id
     )
@@ -193,6 +198,18 @@ def build_mc0_specs(args: argparse.Namespace) -> list[CommandSpec]:
             default_marker_override(
                 args.mc0_hello_marker,
                 [f"MC0 {args.mc0_hello_id} OK"],
+            ),
+        ),
+        CommandSpec(
+            "mc0 identity",
+            identity_command,
+            default_marker_override(
+                args.mc0_identity_marker,
+                [
+                    f"MC0 {args.mc0_identity_id} OK",
+                    "addr_format=meshcore-pubkey-hex",
+                    "pubkey=",
+                ],
             ),
         ),
         CommandSpec(
@@ -549,6 +566,7 @@ def main() -> int:
         help="Seconds of quiet serial input that ends an optional MC0 read.",
     )
     mc0.add_argument("--mc0-hello-id", default=DEFAULT_MC0_HELLO_ID)
+    mc0.add_argument("--mc0-identity-id", default=DEFAULT_MC0_IDENTITY_ID)
     mc0.add_argument("--mc0-status-id", default=DEFAULT_MC0_STATUS_ID)
     mc0.add_argument("--mc0-nodes-id", default=DEFAULT_MC0_NODES_ID)
     mc0.add_argument("--mc0-exit-id", default=DEFAULT_MC0_EXIT_ID)
@@ -556,6 +574,11 @@ def main() -> int:
         "--mc0-hello-template",
         default=DEFAULT_MC0_HELLO_TEMPLATE,
         help="MC0 HELLO line template; supports {id}.",
+    )
+    mc0.add_argument(
+        "--mc0-identity-template",
+        default=DEFAULT_MC0_IDENTITY_TEMPLATE,
+        help="MC0 IDENTITY line template; supports {id}.",
     )
     mc0.add_argument(
         "--mc0-status-template",
@@ -571,6 +594,14 @@ def main() -> int:
         "--mc0-hello-marker",
         action="append",
         help="Override HELLO expected marker(s). Defaults to 'MC0 <hello-id> OK'.",
+    )
+    mc0.add_argument(
+        "--mc0-identity-marker",
+        action="append",
+        help=(
+            "Override IDENTITY expected marker(s). Defaults to OK, "
+            "addr_format=meshcore-pubkey-hex, and pubkey=."
+        ),
     )
     mc0.add_argument(
         "--mc0-status-marker",
