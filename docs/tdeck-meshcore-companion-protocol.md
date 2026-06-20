@@ -5,7 +5,8 @@ Status: Phase 5 / V0.8 USB-first protocol foundation. The firmware exposes
 for USB console validation, plus formal `companion mc usb on` MC0 mode for
 `HELLO`, `IDENTITY`, `STATUS`, `NODES`, `THREADS`, `SEND_PUBLIC`, `SEND_DM`,
 `EVENTS`, and `EXIT`. Snapshot revision counters and a bounded event drain are
-implemented; BLE transport and external app compatibility are still planned.
+implemented. A private MC0-over-BLE transport mirrors the same logical lines for
+test clients; external MeshCore app compatibility is still unclaimed.
 
 ## Goal
 
@@ -21,7 +22,8 @@ built test tool or LimitlezzOS companion app:
 - receive message, node, send-status, and snapshot-change events
 - recover cleanly from validation, routing, and radio errors
 
-BLE can reuse the same logical lines later, but USB is the V0 transport.
+USB is the primary V0 validation transport. BLE uses the same MC0 lines over a
+LimitlezzOS-specific GATT service and is not the official MeshCore app protocol.
 
 ## Compatibility Boundary
 
@@ -62,6 +64,18 @@ MC0 99 EXIT
 Host smoke keeps the mode-entry command and exit line configurable for older
 artifacts and later protocol revisions, but it must not treat Meshtastic
 companion mode as a fallback.
+
+MC0 BLE mode is enabled from the serial console with `companion mc ble on`.
+It advertises as `Limitlezz-MC0-<shortname>` and exposes:
+
+```text
+service b8f13f20-6a6f-4f8d-8b0d-4d4330000001
+rx/write b8f13f20-6a6f-4f8d-8b0d-4d4330000002
+tx/read+notify b8f13f20-6a6f-4f8d-8b0d-4d4330000003
+```
+
+Hosts write one UTF-8 MC0 line to RX and read or subscribe to TX for response
+and event lines. `STATUS` reports `bridge=ble` over this transport.
 
 - Encoding: UTF-8 text lines.
 - Line ending: `\n`; firmware should accept `\r\n`.
@@ -182,7 +196,7 @@ MC0 3 OK proto=0 mc=on bridge=usb mc_companion=attached mt_companion=off addr=6b
 Suggested fields:
 
 - `mc`: `on`, `off`, or `disabled`.
-- `bridge`: active transport, usually `usb` for V0.
+- `bridge`: active transport, `usb` or `ble`.
 - `mc_companion`: `attached` or `streaming`.
 - `mt_companion`: Meshtastic companion state so clients can detect conflicts.
 - `addr` and `short_id`: local MeshCore identity fields, matching `IDENTITY`.
@@ -393,7 +407,9 @@ Rules:
    implemented for node, message, and TX events.
 6. Add snapshot revision counters and reconnect/resync behavior. Implemented
    for node/thread snapshots and `STATUS`/`HELLO` resync.
-7. Mirror the same logical protocol over BLE only after USB behavior is stable.
+7. Mirror the same logical protocol over BLE after USB behavior is stable.
+   Implemented as the private MC0 BLE service above; hardware smoke remains
+   the validation gate.
 8. Revisit external-app compatibility only after the real MeshCore app protocol
    is confirmed.
 
@@ -411,6 +427,10 @@ Rules:
 - Add `--mc0-tx-smoke` to the formal USB smoke when a hardware run should prove
   live event draining. It sends a public `SEND_PUBLIC` with a known
   `client_mid` and waits for a matching `MC0 EVT tx_status`.
+- Formal BLE MC0 smoke is opt-in and requires a host BLE client dependency:
+  enable the service with `companion mc ble on`, then run
+  `python scripts/mc_companion_ble_smoke.py --mc0-tx-smoke`. The smoke asserts
+  `bridge=ble`, snapshot markers, and the same public `tx_status` event path.
 - If firmware lands different command names, use the smoke helper's
   `--mc0-enter-command`, `--mc0-*-template`, `--mc0-*-marker`, and
   `--mc0-exit-template` flags instead of editing firmware or weakening the

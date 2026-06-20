@@ -132,8 +132,10 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   `companion mc ...` covers console smoke, and `companion mc usb on` enters
   formal MC0 mode for identity/status/node/thread snapshots, send boundaries,
   revision counters, event controls, and bounded node/message/TX event draining.
-  BLE transport remains planned, and it is not official MeshCore app compatible
-  unless the real MeshCore app protocol is confirmed.
+  Private MC0-over-BLE transport is available for LimitlezzOS/test clients via
+  `companion mc ble on` and the custom `Limitlezz-MC0-*` GATT service. It is not
+  official MeshCore app compatible unless the real MeshCore app protocol is
+  confirmed and mapped.
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps

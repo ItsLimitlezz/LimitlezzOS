@@ -47,7 +47,7 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | V0.6 | MeshCore public chat and split airtime config | 🚧 Public chat send/receive hardware-verified; **split airtime may not be working — needs re-verification**; config UI still TODO |
 | V0.6 | MeshCore public chat and split airtime config | In progress - public chat send/receive hardware-verified; split-airtime serial dwell/switch smoke passed on COM8; packet-loss, latency, and real dual-network traffic soak still open |
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
-| V0.8 | MeshCore USB companion and MeshCore BLE companion | In progress - USB MC0 mode now covers identity/status/node/thread snapshots, send boundaries, revision counters, event controls, and COM8 smoke hooks; BLE and external-app compatibility are still planned |
+| V0.8 | MeshCore USB companion and MeshCore BLE companion | In progress - USB MC0 mode covers identity/status/node/thread snapshots, send boundaries, revision counters, event controls, and COM8 smoke hooks; private MC0-over-BLE service is implemented for LimitlezzOS/test clients; official MeshCore app compatibility remains unclaimed |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
 | V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner, Home paging, and detail shell started; runtime/catalog still TODO |
 | V0.96 | Upgraded Wi-Fi password storage | ✅ Implemented on T-Deck hardware: credentials use ESP32 NVS, legacy `wifi.cfg` migrates/removes, and diagnostics do not print passwords |
@@ -194,8 +194,10 @@ hello|status|nodes|threads|send|dm|test` still exercises the firmware-owned
 MeshCore snapshots and send boundaries for COM8 validation, and formal
 `companion mc usb on` MC0 mode now handles `HELLO`, `IDENTITY`, `STATUS`,
 `NODES`, `THREADS`, `SEND_PUBLIC`, `SEND_DM`, `EVENTS`, and `EXIT` with
-snapshot revisions plus bounded node/message/TX event draining. BLE transport
-and real external MeshCore app compatibility are still planned work.
+snapshot revisions plus bounded node/message/TX event draining. Private
+MC0-over-BLE mode exposes the same line protocol through a LimitlezzOS-specific
+GATT service for test clients; real external MeshCore app compatibility remains
+planned work until the app protocol is confirmed and mapped.
 
 Deliverables:
 
@@ -204,9 +206,10 @@ Deliverables:
 - Implement MeshCore USB companion mode. In progress: MC0 USB request/response
   mode is implemented for identity, status, node/thread snapshots, send
   boundaries, exact full-public-key DM routing, event controls, bounded event
-  draining, and reconnect/resync counters; BLE and external protocol mapping
-  remain.
-- Implement MeshCore BLE companion mode.
+  draining, and reconnect/resync counters.
+- Implement MeshCore BLE companion mode. In progress: private MC0 BLE service
+  mirrors the USB logical protocol over custom RX/TX GATT characteristics; BLE
+  client hardware smoke and external protocol mapping remain.
 - Add UI and serial commands that distinguish Meshtastic companion from MeshCore companion.
 - Decide whether one companion session or one network can own the external-app bridge at a time.
 - Confirm the real MeshCore app protocol before claiming compatibility with existing external MeshCore apps.

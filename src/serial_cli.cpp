@@ -32,6 +32,8 @@ extern "C" int  lz_backend_mc_selftest(char *buf, int n)  __attribute__((weak));
 extern "C" int  lz_mtc_selftest(char *buf, int n)         __attribute__((weak));
 extern "C" int  lz_mtc_ble_status(char *buf, int n)       __attribute__((weak));
 extern "C" int  lz_mtc_ble_selftest(char *buf, int n)     __attribute__((weak));
+extern "C" int  lz_mcc_ble_status(char *buf, int n)       __attribute__((weak));
+extern "C" int  lz_mcc_ble_selftest(char *buf, int n)     __attribute__((weak));
 extern "C" void lz_touch_set_transform(int swap, int invx, int invy) __attribute__((weak));
 extern "C" void lz_touch_set_debug(bool on)               __attribute__((weak));
 extern "C" int  lz_touch_info(char *buf, int n)           __attribute__((weak));
@@ -72,6 +74,7 @@ static void cmd_help(void)
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
         "  companion mc hello|status|nodes|threads|send|dm|test  MeshCore companion v0\n"
         "  companion mc usb on|off|status|test  USB speaks MeshCore MC0\n"
+        "  companion mc ble on|off|status|test  BLE speaks MeshCore MC0\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  feedback status|test  feedback/app-notification diagnostics\n"
         "  app notify test      request a test app notification\n"
@@ -367,6 +370,44 @@ static void cmd_companion(char *args)
             Serial.println("usage: companion mc usb on|off|status|test");
             return;
         }
+        if(strncmp(sub, "ble", 3) == 0 && (sub[3] == 0 || sub[3] == ' ')) {
+            char *state = sub + 3;
+            while(*state == ' ') state++;
+            if(!state[0] || strcmp(state, "status") == 0) {
+                if(lz_mcc_ble_status) {
+                    char b[260]; lz_mcc_ble_status(b, sizeof b); Serial.println(b);
+                } else {
+                    Serial.println("[--] MeshCore MC0 BLE companion not present");
+                }
+                return;
+            }
+            if(strcmp(state, "test") == 0) {
+                if(lz_mcc_ble_selftest) {
+                    char b[140]; lz_mcc_ble_selftest(b, sizeof b); Serial.println(b);
+                } else {
+                    Serial.println("[--] MeshCore MC0 BLE companion not present");
+                }
+                return;
+            }
+            if(strcmp(state, "on") == 0) {
+                lz_mcc_ble_set_enabled(true);
+                if(lz_mcc_ble_enabled())
+                    Serial.println("[ok] MeshCore MC0 BLE companion advertising");
+                else
+                    Serial.println("[err] MeshCore MC0 BLE companion could not start");
+                if(lz_mcc_ble_status) {
+                    char b[260]; lz_mcc_ble_status(b, sizeof b); Serial.println(b);
+                }
+                return;
+            }
+            if(strcmp(state, "off") == 0) {
+                lz_mcc_ble_set_enabled(false);
+                Serial.println("[ok] MeshCore MC0 BLE companion OFF");
+                return;
+            }
+            Serial.println("usage: companion mc ble on|off|status|test");
+            return;
+        }
         if(!sub[0] || strcmp(sub, "status") == 0) {
             char b[220]; lz_svc_mc_companion_status(b, sizeof b); Serial.print(b);
             return;
@@ -434,7 +475,10 @@ static void cmd_companion(char *args)
         if(lz_mtc_selftest) { char b[160]; lz_mtc_selftest(b, sizeof b); Serial.println(b); }
         if(lz_mtc_ble_selftest) { char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b); }
         if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
-        else Serial.println("[--] not present");
+        if(lz_mcc_ble_selftest) { char b[140]; lz_mcc_ble_selftest(b, sizeof b); Serial.println(b); }
+        if(lz_mcc_ble_status) { char b[260]; lz_mcc_ble_status(b, sizeof b); Serial.println(b); }
+        if(!lz_mtc_selftest && !lz_mtc_ble_selftest && !lz_mcc_ble_selftest)
+            Serial.println("[--] not present");
         return;
     }
     if(args && strcmp(args, "on") == 0) {
@@ -447,6 +491,7 @@ static void cmd_companion(char *args)
     if(args && strcmp(args, "off") == 0) { lz_mtc_set_active(false); Serial.println("[ok] companion mode OFF"); return; }
     Serial.printf("USB companion mode: %s  (on|off|test)\n", lz_mtc_active() ? "ON" : "off");
     if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
+    if(lz_mcc_ble_status) { char b[260]; lz_mcc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
 static void cmd_app(char *args)

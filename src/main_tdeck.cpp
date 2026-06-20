@@ -170,6 +170,7 @@ extern "C" void lz_mtc_ble_begin(void);
 extern "C" void lz_mtc_ble_poll(void);
 extern "C" bool lz_mcc_usb_active(void); /* MeshCore companion bridge (mc_companion.cpp) */
 extern "C" void lz_mcc_usb_poll(void);
+extern "C" void lz_mcc_ble_poll(void);
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px)
 {
@@ -550,6 +551,7 @@ void loop()
     kb_backlight_update();
 
     lz_mtc_ble_poll();                   /* BLE advert/connection maintenance */
+    lz_mcc_ble_poll();                   /* MeshCore MC0 BLE request/event bridge */
     if(lz_mcc_usb_active()) lz_mcc_usb_poll(); /* MeshCore companion mode: USB speaks MC0 text */
     else if(lz_mtc_active()) lz_mtc_poll();    /* Meshtastic companion mode: USB speaks Stream API */
     else lz_cli_poll();                        /* otherwise: the text command console */

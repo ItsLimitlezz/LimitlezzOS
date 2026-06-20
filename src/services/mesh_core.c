@@ -1860,7 +1860,7 @@ static int mc0_identity(char *buf, int n, const char *id)
                        have_addr ? 1 : 0);
 }
 
-static int mc0_status(char *buf, int n, const char *id)
+static int mc0_status(char *buf, int n, const char *id, const char *bridge)
 {
     char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
     int unread = 0;
@@ -1870,8 +1870,9 @@ static int mc0_status(char *buf, int n, const char *id)
     lz_backend_mc_addr(short_id, sizeof short_id);
     int pos = mc0_ok_prefix(buf, n, id);
     return buf_appendf(buf, n, pos,
-                       "proto=0 mc=%s bridge=usb mc_companion=%s mt_companion=%s addr=%s short_id=%s nodes=%d threads=%d unread=%d public=%d dm=%d events=%s event_seq=%lu nodes_rev=%lu messages_rev=%lu\n",
+                       "proto=0 mc=%s bridge=%s mc_companion=%s mt_companion=%s addr=%s short_id=%s nodes=%d threads=%d unread=%d public=%d dm=%d events=%s event_seq=%lu nodes_rev=%lu messages_rev=%lu\n",
                        LZ_MESHCORE_ENABLED ? "on" : "disabled",
+                       bridge && bridge[0] ? bridge : "usb",
                        g_mc_events_enabled ? "streaming" : "attached",
                        lz_mtc_active() ? "on" : "off",
                        addr, short_id, nodes, threads, unread,
@@ -2088,7 +2089,8 @@ static int mc0_events(char *buf, int n, const char *id, const char *args)
                        (unsigned long)g_mc_messages_rev);
 }
 
-int lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode)
+int lz_svc_mc_companion_handle_line_for(const char *line, const char *bridge,
+                                        char *buf, int n, bool *exit_mode)
 {
     char prefix[8], id[16], verb[24];
     const char *p = line;
@@ -2104,7 +2106,7 @@ int lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *ex
 
     if(strcmp(verb, "HELLO") == 0) return mc0_hello(buf, n, id);
     if(strcmp(verb, "IDENTITY") == 0) return mc0_identity(buf, n, id);
-    if(strcmp(verb, "STATUS") == 0) return mc0_status(buf, n, id);
+    if(strcmp(verb, "STATUS") == 0) return mc0_status(buf, n, id, bridge);
     if(strcmp(verb, "NODES") == 0) return mc0_nodes(buf, n, id, p);
     if(strcmp(verb, "THREADS") == 0) return mc0_threads(buf, n, id, p);
     if(strcmp(verb, "SEND_PUBLIC") == 0) return mc0_send_public(buf, n, id, p);
@@ -2113,9 +2115,15 @@ int lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *ex
     if(strcmp(verb, "EXIT") == 0) {
         if(exit_mode) *exit_mode = true;
         int pos = mc0_ok_prefix(buf, n, id);
-        return buf_appendf(buf, n, pos, "mode=usb state=detached\n");
+        return buf_appendf(buf, n, pos, "mode=%s state=detached\n",
+                           bridge && bridge[0] ? bridge : "usb");
     }
     return mc0_err(buf, n, id, "unknown_command", false, "unknown MC0 command");
+}
+
+int lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode)
+{
+    return lz_svc_mc_companion_handle_line_for(line, "usb", buf, n, exit_mode);
 }
 
 int lz_svc_mc_companion_drain_events(char *buf, int n)
@@ -2134,6 +2142,14 @@ int lz_svc_mc_companion_drain_events(char *buf, int n)
     return pos;
 }
 
+void lz_svc_mc_companion_reset_session(void)
+{
+    g_mc_events_enabled = false;
+    snprintf(g_mc_event_types, sizeof g_mc_event_types, "none");
+    g_mc_event_head = 0;
+    g_mc_event_count = 0;
+}
+
 int lz_svc_mc_companion_selftest(char *buf, int n)
 {
     char out[900];
@@ -2143,6 +2159,8 @@ int lz_svc_mc_companion_selftest(char *buf, int n)
     ok = ok && strstr(out, "MC0 1 OK proto=0") != NULL;
     lz_svc_mc_companion_handle_line("MC0 2 STATUS", out, sizeof out, &exit_mode);
     ok = ok && strstr(out, "MC0 2 OK") != NULL && strstr(out, "bridge=usb") != NULL;
+    lz_svc_mc_companion_handle_line_for("MC0 2B STATUS", "ble", out, sizeof out, &exit_mode);
+    ok = ok && strstr(out, "MC0 2B OK") != NULL && strstr(out, "bridge=ble") != NULL;
     lz_svc_mc_companion_handle_line("MC0 3 NODES", out, sizeof out, &exit_mode);
     ok = ok && strstr(out, "MC0 3 BEGIN type=nodes") != NULL &&
               strstr(out, "MC0 3 END type=nodes") != NULL;
@@ -2151,7 +2169,9 @@ int lz_svc_mc_companion_selftest(char *buf, int n)
     lz_svc_mc_companion_handle_line("MC0 5 EVENTS mode=off", out, sizeof out, &exit_mode);
     ok = ok && strstr(out, "events=off") != NULL;
     lz_svc_mc_companion_handle_line("MC0 6 EXIT", out, sizeof out, &exit_mode);
-    ok = ok && exit_mode && strstr(out, "state=detached") != NULL;
+    ok = ok && exit_mode && strstr(out, "mode=usb") != NULL && strstr(out, "state=detached") != NULL;
+    lz_svc_mc_companion_handle_line_for("MC0 7 EXIT", "ble", out, sizeof out, &exit_mode);
+    ok = ok && exit_mode && strstr(out, "mode=ble") != NULL && strstr(out, "state=detached") != NULL;
     return snprintf(buf, (size_t)n, "MeshCore MC0 protocol selftest: %s", ok ? "PASS" : "FAIL");
 }
 
@@ -2594,10 +2614,7 @@ void lz_svc_init(const char *datadir, bool seed_demo)
     g_mc_event_seq = 0;
     g_mc_nodes_rev = 0;
     g_mc_messages_rev = 0;
-    g_mc_events_enabled = false;
-    snprintf(g_mc_event_types, sizeof g_mc_event_types, "none");
-    g_mc_event_head = 0;
-    g_mc_event_count = 0;
+    lz_svc_mc_companion_reset_session();
     lz_backend_init();
 }
 

@@ -22,12 +22,16 @@ extern "C" void lz_mcc_usb_set_active(bool on)
     if(on) {
         if(lz_mtc_active()) lz_mtc_set_active(false);
         if(lz_mtc_ble_enabled()) lz_mtc_ble_set_enabled(false);
+        if(lz_mcc_ble_enabled()) lz_mcc_ble_set_enabled(false);
+        lz_svc_mc_companion_reset_session();
         if(!g_mc_line) g_mc_line = (char *)malloc(MC_USB_LINE_MAX);
         if(!g_mc_line) {
             g_mc_usb = false;
             g_mc_len = 0;
             return;
         }
+    } else if(g_mc_usb) {
+        lz_svc_mc_companion_reset_session();
     }
     g_mc_usb = on;
     g_mc_len = 0;
@@ -60,6 +64,7 @@ static void mc_usb_handle_line(void)
     if(out[0]) Serial.print(out);
     g_mc_len = 0;
     if(exit_mode) {
+        lz_svc_mc_companion_reset_session();
         g_mc_usb = false;
         Serial.print("\nlz> ");
     }

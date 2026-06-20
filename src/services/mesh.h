@@ -382,7 +382,10 @@ int  lz_svc_mc_companion_threads(char *buf, int n);
 bool lz_svc_mc_companion_send_public(const char *text);
 bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
 int  lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_handle_line_for(const char *line, const char *bridge,
+                                         char *buf, int n, bool *exit_mode);
 int  lz_svc_mc_companion_drain_events(char *buf, int n);
+void lz_svc_mc_companion_reset_session(void);
 int  lz_svc_mc_companion_selftest(char *buf, int n);
 
 /* ---- radio stats (airtime accounting) ---- */
@@ -500,6 +503,12 @@ void lz_mcc_usb_set_active(bool on);
 void lz_mcc_usb_poll(void);
 int  lz_mcc_usb_status(char *buf, int n);
 int  lz_mcc_usb_selftest(char *buf, int n);
+bool lz_mcc_ble_enabled(void);
+bool lz_mcc_ble_connected(void);
+void lz_mcc_ble_set_enabled(bool on);
+void lz_mcc_ble_poll(void);
+int  lz_mcc_ble_status(char *buf, int n);
+int  lz_mcc_ble_selftest(char *buf, int n);
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);
