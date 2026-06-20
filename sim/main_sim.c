@@ -1412,6 +1412,21 @@ static int codec_selftest(void)
         CHECK(lz_store_discard_app_install("weather.mesh", err, sizeof err),
               "app install staging discard succeeds");
     }
+    /* 10b. app package installer: a stored-ZIP package verifies size/hash,
+     *      extracts into staging, promotes atomically, and rolls back on bad
+     *      packages without replacing the live app. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern int  lz_store_app_package_selftest(char *buf, int n);
+        sim_reset_dir("lzdata_apppackage");
+        lz_store_init("lzdata_apppackage");
+        char pkg[180];
+        lz_store_app_package_selftest(pkg, sizeof pkg);
+        CHECK(strstr(pkg, "PASS") != NULL,
+              "app package stored-ZIP transaction selftest");
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_apppackage");
+    }
     /* 10. local app uninstall: users can delete a package while either
      *     retaining scoped data for reinstall or deleting everything. */
     {

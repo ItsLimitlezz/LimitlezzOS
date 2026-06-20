@@ -706,7 +706,6 @@ static bool safe_entry(const char *s)
     return true;
 }
 
-#define LZ_APP_CATALOG_PACKAGE_MAX_BYTES (2u * 1024u * 1024u)
 #define LZ_APP_CATALOG_SCREENSHOT_MAX 4
 
 static bool catalog_fail(lz_app_catalog_report_t *r, const char *id, const char *msg)
@@ -857,7 +856,7 @@ static bool catalog_validate_app(const char *obj, lz_app_catalog_report_t *r)
     if(!catalog_sha256_ok(sha)) return catalog_fail(r, id, "bad sha256");
     if(!json_get_u32(obj, "size", &size))
         return catalog_fail(r, id, "missing size");
-    if(size == 0 || size > LZ_APP_CATALOG_PACKAGE_MAX_BYTES)
+    if(size == 0 || size > LZ_APP_PACKAGE_MAX_BYTES)
         return catalog_fail(r, id, "bad size");
     if(json_get_int(obj, "hue", &hue) && (hue < -1 || hue > 359))
         return catalog_fail(r, id, "bad hue");
@@ -1050,6 +1049,20 @@ static bool app_install_temp_name(const char *name)
 static bool app_retained_name(const char *name)
 {
     return name && strncmp(name, LZ_APP_RETAINED_PREFIX, strlen(LZ_APP_RETAINED_PREFIX)) == 0;
+}
+
+static bool app_install_root(char *root, size_t root_cap, char *err, int err_cap)
+{
+    if(g_persist) {
+        snprintf(root, root_cap, "%s", g_dir);
+        return true;
+    }
+    if(g_appfs_dir[0]) {
+        snprintf(root, root_cap, "%s", g_appfs_dir);
+        return true;
+    }
+    set_err(err, err_cap, "storage unavailable");
+    return false;
 }
 
 static bool app_retained_paths(const char *id, char *root, size_t root_cap,
@@ -1431,10 +1444,6 @@ static bool app_install_paths(const char *id, char *apps, size_t apps_cap,
                               char *backup, size_t backup_cap,
                               char *err, int err_cap)
 {
-    if(!g_persist) {
-        set_err(err, err_cap, "storage unavailable");
-        return false;
-    }
     if(!safe_id(id) || strlen(id) > LZ_APP_INSTALL_ID_MAX) {
         set_err(err, err_cap, "unsafe id");
         return false;
@@ -1449,7 +1458,9 @@ static bool app_install_paths(const char *id, char *apps, size_t apps_cap,
         return false;
     }
 
-    path_join(apps, apps_cap, g_dir, "apps");
+    char root[128];
+    if(!app_install_root(root, sizeof root, err, err_cap)) return false;
+    path_join(apps, apps_cap, root, "apps");
     path_join(live, live_cap, apps, id);
     path_join(staging, staging_cap, apps, staging_name);
     path_join(backup, backup_cap, apps, backup_name);
@@ -1555,6 +1566,533 @@ bool lz_store_promote_app_install(const char *id, char *err, int err_cap)
         remove_tree(backup, cleanup_err, sizeof cleanup_err);
     }
     return true;
+}
+
+#define LZ_ZIP_LOCAL_SIG 0x04034b50u
+#define LZ_ZIP_CENTRAL_SIG 0x02014b50u
+#define LZ_ZIP_EOCD_SIG 0x06054b50u
+#define LZ_ZIP_METHOD_STORED 0u
+#define LZ_ZIP_FLAG_ENCRYPTED 0x0001u
+#define LZ_ZIP_FLAG_DATA_DESCRIPTOR 0x0008u
+#define LZ_APP_PACKAGE_MAX_FILES 24
+#define LZ_APP_PACKAGE_MAX_FILE_BYTES (256u * 1024u)
+
+static bool app_package_file_path_ok(const char *path)
+{
+    if(!safe_entry(path)) return false;
+    if(path[0] == '.' || path[0] == 0) return false;
+    if(strcmp(path, "data") == 0 || strncmp(path, "data/", 5) == 0) return false;
+    const char *seg = path;
+    while(*seg) {
+        if(*seg == '/' || *seg == '.') return false;
+        const char *slash = strchr(seg, '/');
+        size_t len = slash ? (size_t)(slash - seg) : strlen(seg);
+        if(len == 0 || (len == 1 && seg[0] == '.')) return false;
+        seg = slash ? slash + 1 : seg + len;
+    }
+    return true;
+}
+
+static bool app_package_dir_path_ok(const char *path)
+{
+    if(!path || !path[0]) return false;
+    char tmp[80];
+    if(strlen(path) >= sizeof tmp) return false;
+    snprintf(tmp, sizeof tmp, "%s", path);
+    size_t len = strlen(tmp);
+    while(len > 0 && tmp[len - 1] == '/') tmp[--len] = 0;
+    return len > 0 && app_package_file_path_ok(tmp);
+}
+
+static uint16_t zip_u16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t zip_u32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static bool app_package_read_exact(FILE *f, void *dst, size_t len,
+                                   char *err, int err_cap)
+{
+    if(len == 0) return true;
+    if(!f || !dst || fread(dst, 1, len, f) != len) {
+        set_err(err, err_cap, "package read failed");
+        return false;
+    }
+    return true;
+}
+
+static bool app_package_skip_bytes(FILE *f, uint32_t bytes, char *err, int err_cap)
+{
+    uint8_t buf[128];
+    uint32_t left = bytes;
+    while(left > 0) {
+        size_t want = left < sizeof buf ? (size_t)left : sizeof buf;
+        if(fread(buf, 1, want, f) != want) {
+            set_err(err, err_cap, "package truncated");
+            return false;
+        }
+        left -= (uint32_t)want;
+    }
+    return true;
+}
+
+static bool app_package_mkdir_parents(const char *path, char *err, int err_cap)
+{
+    char tmp[180];
+    snprintf(tmp, sizeof tmp, "%s", path);
+    for(char *p = tmp; *p; p++) {
+        if(*p != '/' && *p != '\\') continue;
+        char saved = *p;
+        *p = 0;
+        if(tmp[0] && !path_mkdir(tmp)) {
+            set_err(err, err_cap, "mkdir failed");
+            return false;
+        }
+        *p = saved;
+    }
+    return true;
+}
+
+static bool app_package_copy_bytes(FILE *in, const char *dest, uint32_t bytes,
+                                   uint32_t *total, char *err, int err_cap)
+{
+    if(!app_package_mkdir_parents(dest, err, err_cap)) return false;
+    FILE *out = fopen(dest, "wb");
+    if(!out) {
+        set_err(err, err_cap, "file create failed");
+        return false;
+    }
+    uint8_t buf[256];
+    uint32_t left = bytes;
+    while(left > 0) {
+        size_t want = left < sizeof buf ? (size_t)left : sizeof buf;
+        size_t got = fread(buf, 1, want, in);
+        if(got != want) {
+            fclose(out);
+            set_err(err, err_cap, "package truncated");
+            return false;
+        }
+        if(fwrite(buf, 1, got, out) != got) {
+            fclose(out);
+            set_err(err, err_cap, "file write failed");
+            return false;
+        }
+        left -= (uint32_t)got;
+        if(total) *total += (uint32_t)got;
+    }
+    fclose(out);
+    return true;
+}
+
+static bool lz_store_extract_app_package(const char *package_path, const char *staging,
+                                         lz_app_package_install_t *out,
+                                         char *err, int err_cap)
+{
+    FILE *f = fopen(package_path, "rb");
+    if(!f) {
+        set_err(err, err_cap, "package missing");
+        return false;
+    }
+
+    int files = 0;
+    uint32_t total = 0;
+    bool saw_manifest = false;
+    for(;;) {
+        uint8_t sigb[4];
+        size_t got = fread(sigb, 1, sizeof sigb, f);
+        if(got == 0) break;
+        if(got != sizeof sigb) {
+            fclose(f);
+            set_err(err, err_cap, "package truncated");
+            return false;
+        }
+        uint32_t sig = zip_u32(sigb);
+        if(sig == LZ_ZIP_CENTRAL_SIG || sig == LZ_ZIP_EOCD_SIG) break;
+        if(sig != LZ_ZIP_LOCAL_SIG) {
+            fclose(f);
+            set_err(err, err_cap, "bad zip header");
+            return false;
+        }
+
+        uint8_t hdr[26];
+        if(!app_package_read_exact(f, hdr, sizeof hdr, err, err_cap)) {
+            fclose(f);
+            return false;
+        }
+        uint16_t flags = zip_u16(hdr + 2);
+        uint16_t method = zip_u16(hdr + 4);
+        uint32_t comp_size = zip_u32(hdr + 14);
+        uint32_t uncomp_size = zip_u32(hdr + 18);
+        uint16_t name_len = zip_u16(hdr + 22);
+        uint16_t extra_len = zip_u16(hdr + 24);
+
+        if((flags & (LZ_ZIP_FLAG_ENCRYPTED | LZ_ZIP_FLAG_DATA_DESCRIPTOR)) != 0) {
+            fclose(f);
+            set_err(err, err_cap, "unsupported zip flags");
+            return false;
+        }
+        if(method != LZ_ZIP_METHOD_STORED) {
+            fclose(f);
+            set_err(err, err_cap, "unsupported zip method");
+            return false;
+        }
+        if(comp_size != uncomp_size || uncomp_size > LZ_APP_PACKAGE_MAX_FILE_BYTES) {
+            fclose(f);
+            set_err(err, err_cap, "bad file size");
+            return false;
+        }
+        if(name_len == 0 || name_len >= 80 || extra_len > 1024) {
+            fclose(f);
+            set_err(err, err_cap, "bad zip name");
+            return false;
+        }
+
+        char rel[80];
+        if(!app_package_read_exact(f, rel, name_len, err, err_cap)) {
+            fclose(f);
+            return false;
+        }
+        rel[name_len] = 0;
+        if(!app_package_skip_bytes(f, extra_len, err, err_cap)) {
+            fclose(f);
+            return false;
+        }
+
+        bool is_dir = rel[name_len - 1] == '/';
+        if(is_dir) {
+            if(comp_size != 0 || !app_package_dir_path_ok(rel)) {
+                fclose(f);
+                set_err(err, err_cap, "bad file path");
+                return false;
+            }
+            char clean[80];
+            snprintf(clean, sizeof clean, "%s", rel);
+            size_t clen = strlen(clean);
+            while(clen > 0 && clean[clen - 1] == '/') clean[--clen] = 0;
+            char dir[180];
+            path_join(dir, sizeof dir, staging, clean);
+            if(!app_package_mkdir_parents(dir, err, err_cap) || !path_mkdir(dir)) {
+                fclose(f);
+                set_err(err, err_cap, "mkdir failed");
+                return false;
+            }
+            continue;
+        }
+
+        if(!app_package_file_path_ok(rel)) {
+            fclose(f);
+            set_err(err, err_cap, "bad file path");
+            return false;
+        }
+        if(++files > LZ_APP_PACKAGE_MAX_FILES) {
+            fclose(f);
+            set_err(err, err_cap, "too many files");
+            return false;
+        }
+        if(total > LZ_APP_PACKAGE_MAX_BYTES || comp_size > LZ_APP_PACKAGE_MAX_BYTES - total) {
+            fclose(f);
+            set_err(err, err_cap, "package too large");
+            return false;
+        }
+        char dest[180];
+        path_join(dest, sizeof dest, staging, rel);
+        if(!app_package_copy_bytes(f, dest, comp_size, &total, err, err_cap)) {
+            fclose(f);
+            return false;
+        }
+        if(strcmp(rel, "manifest.json") == 0) saw_manifest = true;
+    }
+    fclose(f);
+    if(!saw_manifest) {
+        set_err(err, err_cap, "missing manifest");
+        return false;
+    }
+    if(out) {
+        out->file_count = (uint16_t)files;
+        out->extracted_bytes = total;
+    }
+    return true;
+}
+
+bool lz_store_install_app_package(const char *id, const char *package_path,
+                                  const char *sha256, uint32_t package_bytes,
+                                  lz_app_package_install_t *out)
+{
+    lz_app_package_install_t r;
+    memset(&r, 0, sizeof r);
+    if(id) snprintf(r.id, sizeof r.id, "%s", id);
+    r.package_bytes = package_bytes;
+    char err[48] = "";
+
+    if(!id || !package_path || !sha256 || package_bytes == 0) {
+        set_err(err, sizeof err, "missing package args");
+        goto fail;
+    }
+    if(package_bytes > LZ_APP_PACKAGE_MAX_BYTES) {
+        set_err(err, sizeof err, "package too large");
+        goto fail;
+    }
+    struct stat st;
+    if(stat(package_path, &st) != 0 || S_ISDIR(st.st_mode)) {
+        set_err(err, sizeof err, "package missing");
+        goto fail;
+    }
+    if(st.st_size < 0 || (uint32_t)st.st_size != package_bytes) {
+        set_err(err, sizeof err, "size mismatch");
+        goto fail;
+    }
+    if(!lz_store_verify_file_sha256(package_path, sha256, err, sizeof err))
+        goto fail;
+
+    char staging[160], live[160];
+    if(!lz_store_prepare_app_install(id, staging, sizeof staging,
+                                     live, sizeof live, err, sizeof err))
+        goto fail;
+    if(!lz_store_extract_app_package(package_path, staging, &r, err, sizeof err)) {
+        char discard[32];
+        lz_store_discard_app_install(id, discard, sizeof discard);
+        goto fail;
+    }
+    if(!lz_store_promote_app_install(id, err, sizeof err)) {
+        char discard[32];
+        lz_store_discard_app_install(id, discard, sizeof discard);
+        goto fail;
+    }
+
+    lz_local_app_t app;
+    char reason[48] = "";
+    if(load_app_manifest(live, &app, reason, sizeof reason)) {
+        snprintf(r.version, sizeof r.version, "%s", app.version);
+    }
+    r.ok = true;
+    if(out) *out = r;
+    return true;
+
+fail:
+    snprintf(r.error, sizeof r.error, "%s", err[0] ? err : "install failed");
+    if(out) *out = r;
+    return false;
+}
+
+static bool app_package_write_u16(FILE *f, uint16_t v)
+{
+    return fputc(v & 0xff, f) != EOF && fputc((v >> 8) & 0xff, f) != EOF;
+}
+
+static bool app_package_write_u32(FILE *f, uint32_t v)
+{
+    return fputc(v & 0xff, f) != EOF && fputc((v >> 8) & 0xff, f) != EOF &&
+           fputc((v >> 16) & 0xff, f) != EOF && fputc((v >> 24) & 0xff, f) != EOF;
+}
+
+static bool app_package_write_local(FILE *f, const char *name, const char *body,
+                                    uint16_t method)
+{
+    size_t name_len = name ? strlen(name) : 0;
+    size_t body_len = body ? strlen(body) : 0;
+    if(!f || name_len == 0 || name_len > 0xffffu || body_len > 0xffffffffu) return false;
+    if(!app_package_write_u32(f, LZ_ZIP_LOCAL_SIG) ||
+       !app_package_write_u16(f, 20) || !app_package_write_u16(f, 0) ||
+       !app_package_write_u16(f, method) ||
+       !app_package_write_u16(f, 0) || !app_package_write_u16(f, 0) ||
+       !app_package_write_u32(f, 0) ||
+       !app_package_write_u32(f, (uint32_t)body_len) ||
+       !app_package_write_u32(f, (uint32_t)body_len) ||
+       !app_package_write_u16(f, (uint16_t)name_len) ||
+       !app_package_write_u16(f, 0))
+        return false;
+    if(fwrite(name, 1, name_len, f) != name_len) return false;
+    if(body_len > 0 && fwrite(body, 1, body_len, f) != body_len) return false;
+    return true;
+}
+
+static bool app_package_selftest_write_zip(const char *path, const char *id,
+                                           const char *version,
+                                           const char *extra_path,
+                                           uint16_t main_method)
+{
+    FILE *f = fopen(path, "wb");
+    if(!f) return false;
+    char manifest[360];
+    snprintf(manifest, sizeof manifest,
+             "{\"id\":\"%s\",\"name\":\"Package Selftest\",\"version\":\"%s\","
+             "\"author\":\"Limitless\",\"entry\":\"main.lua\","
+             "\"icon\":\"package\",\"hue\":84,\"api_version\":\"0.1\","
+             "\"permissions\":[\"display\"],\"summary\":\"Installer selftest\"}",
+             id, version);
+    bool ok = app_package_write_local(f, "manifest.json", manifest, LZ_ZIP_METHOD_STORED) &&
+              app_package_write_local(f, "main.lua",
+                                      "-- title: Package Selftest\n"
+                                      "-- body: Installed from package\n"
+                                      "return true\n",
+                                      main_method);
+    if(ok && extra_path) {
+        ok = app_package_write_local(f, extra_path, "extra package payload\n",
+                                     LZ_ZIP_METHOD_STORED);
+    }
+    ok = ok && app_package_write_u32(f, LZ_ZIP_EOCD_SIG) &&
+         app_package_write_u16(f, 0) && app_package_write_u16(f, 0) &&
+         app_package_write_u16(f, 0) && app_package_write_u16(f, 0) &&
+         app_package_write_u32(f, 0) && app_package_write_u32(f, 0) &&
+         app_package_write_u16(f, 0);
+    fclose(f);
+    if(!ok) remove(path);
+    return ok;
+}
+
+static bool app_package_file_size_u32(const char *path, uint32_t *out)
+{
+    struct stat st;
+    if(stat(path, &st) != 0 || S_ISDIR(st.st_mode) || st.st_size < 0 ||
+       st.st_size > (long)LZ_APP_PACKAGE_MAX_BYTES)
+        return false;
+    if(out) *out = (uint32_t)st.st_size;
+    return true;
+}
+
+static bool app_package_hash_and_size(const char *path, char *sha, int sha_cap,
+                                      uint32_t *bytes, char *err, int err_cap)
+{
+    if(!app_package_file_size_u32(path, bytes)) {
+        set_err(err, err_cap, "size failed");
+        return false;
+    }
+    return lz_store_file_sha256(path, sha, sha_cap, err, err_cap);
+}
+
+static bool app_package_selftest_live_version(const char *id, const char *version)
+{
+    char apps[128], live[160], staging[160], backup[160], err[48];
+    if(!app_install_paths(id, apps, sizeof apps, live, sizeof live,
+                          staging, sizeof staging, backup, sizeof backup,
+                          err, sizeof err))
+        return false;
+    lz_local_app_t app;
+    char reason[48];
+    return load_app_manifest(live, &app, reason, sizeof reason) &&
+           strcmp(app.id, id) == 0 && strcmp(app.version, version) == 0;
+}
+
+static void app_package_selftest_cleanup(const char *id, const char *package_path)
+{
+    if(package_path && package_path[0]) remove(package_path);
+    char apps[128], live[160], staging[160], backup[160], err[48];
+    if(app_install_paths(id, apps, sizeof apps, live, sizeof live,
+                         staging, sizeof staging, backup, sizeof backup,
+                         err, sizeof err)) {
+        remove_tree(staging, err, sizeof err);
+        remove_tree(backup, err, sizeof err);
+        remove_tree(live, err, sizeof err);
+    }
+}
+
+int lz_store_app_package_selftest(char *buf, int n)
+{
+    if(!buf || n <= 0) return 0;
+    const char *id = "lz.pkg.selftest";
+    char root[128], err[48] = "";
+    if(!app_install_root(root, sizeof root, err, sizeof err))
+        return snprintf(buf, (size_t)n, "App package selftest: SKIP %s\n",
+                        err[0] ? err : "storage unavailable");
+    if(!path_mkdir(root))
+        return snprintf(buf, (size_t)n, "App package selftest: SKIP root unavailable\n");
+
+    char package_path[160];
+    path_join(package_path, sizeof package_path, root, ".lz-pkg-selftest.zip");
+    app_package_selftest_cleanup(id, package_path);
+
+    bool ok = true;
+    char detail[64] = "";
+    char sha[65];
+    uint32_t bytes = 0;
+    lz_app_package_install_t r;
+
+    #define PKG_CHECK(cond, msg) do { \
+        if(ok && !(cond)) { ok = false; snprintf(detail, sizeof detail, "%s", msg); } \
+    } while(0)
+
+    PKG_CHECK(app_package_selftest_write_zip(package_path, id, "1.0.0", NULL,
+                                             LZ_ZIP_METHOD_STORED),
+              "write v1");
+    PKG_CHECK(app_package_hash_and_size(package_path, sha, sizeof sha, &bytes,
+                                        err, sizeof err),
+              "hash v1");
+    PKG_CHECK(lz_store_install_app_package(id, package_path, sha, bytes, &r) &&
+              r.ok && strcmp(r.version, "1.0.0") == 0 && r.file_count == 2,
+              "install v1");
+    PKG_CHECK(app_package_selftest_live_version(id, "1.0.0"),
+              "live v1");
+
+    static const char zero_sha[] =
+        "0000000000000000000000000000000000000000000000000000000000000000";
+    memset(&r, 0, sizeof r);
+    PKG_CHECK(!lz_store_install_app_package(id, package_path, zero_sha, bytes, &r) &&
+              strcmp(r.error, "sha mismatch") == 0 &&
+              app_package_selftest_live_version(id, "1.0.0"),
+              "bad hash rollback");
+
+    PKG_CHECK(app_package_selftest_write_zip(package_path, "lz.pkg.wrong", "9.9.9",
+                                             NULL, LZ_ZIP_METHOD_STORED),
+              "write wrong id");
+    PKG_CHECK(app_package_hash_and_size(package_path, sha, sizeof sha, &bytes,
+                                        err, sizeof err),
+              "hash wrong id");
+    memset(&r, 0, sizeof r);
+    PKG_CHECK(!lz_store_install_app_package(id, package_path, sha, bytes, &r) &&
+              strcmp(r.error, "id mismatch") == 0 &&
+              app_package_selftest_live_version(id, "1.0.0"),
+              "id mismatch rollback");
+
+    PKG_CHECK(app_package_selftest_write_zip(package_path, id, "1.1.0",
+                                             "data/cache.bin", LZ_ZIP_METHOD_STORED),
+              "write bad path");
+    PKG_CHECK(app_package_hash_and_size(package_path, sha, sizeof sha, &bytes,
+                                        err, sizeof err),
+              "hash bad path");
+    memset(&r, 0, sizeof r);
+    PKG_CHECK(!lz_store_install_app_package(id, package_path, sha, bytes, &r) &&
+              strcmp(r.error, "bad file path") == 0 &&
+              app_package_selftest_live_version(id, "1.0.0"),
+              "path rollback");
+
+    PKG_CHECK(app_package_selftest_write_zip(package_path, id, "1.2.0", NULL, 8),
+              "write deflated");
+    PKG_CHECK(app_package_hash_and_size(package_path, sha, sizeof sha, &bytes,
+                                        err, sizeof err),
+              "hash deflated");
+    memset(&r, 0, sizeof r);
+    PKG_CHECK(!lz_store_install_app_package(id, package_path, sha, bytes, &r) &&
+              strcmp(r.error, "unsupported zip method") == 0 &&
+              app_package_selftest_live_version(id, "1.0.0"),
+              "method rollback");
+
+    PKG_CHECK(app_package_selftest_write_zip(package_path, id, "2.0.0",
+                                             "assets/readme.txt", LZ_ZIP_METHOD_STORED),
+              "write v2");
+    PKG_CHECK(app_package_hash_and_size(package_path, sha, sizeof sha, &bytes,
+                                        err, sizeof err),
+              "hash v2");
+    memset(&r, 0, sizeof r);
+    PKG_CHECK(lz_store_install_app_package(id, package_path, sha, bytes, &r) &&
+              r.ok && strcmp(r.version, "2.0.0") == 0 && r.file_count == 3 &&
+              app_package_selftest_live_version(id, "2.0.0"),
+              "update v2");
+
+    #undef PKG_CHECK
+
+    app_package_selftest_cleanup(id, package_path);
+    return snprintf(buf, (size_t)n,
+                    "App package selftest: %s version=%s files=%u%s%s\n",
+                    ok ? "PASS" : "FAIL",
+                    ok ? "2.0.0" : "-",
+                    ok ? (unsigned)r.file_count : 0u,
+                    detail[0] ? " error=" : "",
+                    detail);
 }
 
 static void scan_app_root(const char *apps_dir, lz_local_app_t *out, int cap, int *count)

@@ -45,8 +45,9 @@ jobs:
 
       - name: Run Python tooling selftests
         run: |
-          python -m py_compile scripts/check_tdeck_budget.py scripts/fetch_tdeck_artifact.py scripts/serial_harness.py scripts/tdeck_smoke.py scripts/tdm_airtime_smoke.py
+          python -m py_compile scripts/build_app_package.py scripts/check_tdeck_budget.py scripts/fetch_tdeck_artifact.py scripts/serial_harness.py scripts/tdeck_smoke.py scripts/tdm_airtime_smoke.py
           python scripts/tdm_airtime_smoke.py --selftest
+          python scripts/build_app_package.py examples/local-apps/weather-mesh --out /tmp/weather.mesh.zip --device-path /sd/limitlezz/packages/weather.mesh.zip
       - name: Validate local app samples
         run: |
           python -m py_compile scripts/validate_local_app_samples.py

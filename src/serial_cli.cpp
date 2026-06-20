@@ -10,6 +10,7 @@
 #ifdef LZ_TARGET_TDECK
 
 #include <Arduino.h>
+#include <string.h>
 #include "services/emergency_guard.h"
 #include "services/mesh.h"
 #include "services/feedback.h"
@@ -77,6 +78,7 @@ static void cmd_help(void)
         "  feedback status|test  feedback/app-notification diagnostics\n"
         "  app notify test      request a test app notification\n"
         "  app catalog status|test  app catalog schema diagnostics\n"
+        "  app package test|install <id> <path> <sha256> <bytes>\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  feedback             show DND/priority feedback policy\n"
         "  emergency [arm|confirm|cancel]  diagnostic emergency trigger guard\n"
@@ -464,6 +466,33 @@ static void cmd_app(char *args)
         Serial.print(b);
         return;
     }
+    if(args && strcmp(args, "package test") == 0) {
+        char b[180];
+        lz_svc_app_package_selftest(b, sizeof b);
+        Serial.print(b);
+        return;
+    }
+    if(args && strncmp(args, "package install ", 16) == 0) {
+        char id[24] = {0}, path[80] = {0}, sha[65] = {0};
+        unsigned long bytes = 0;
+        if(sscanf(args + 16, "%23s %79s %64s %lu", id, path, sha, &bytes) != 4 ||
+           bytes == 0 || bytes > LZ_APP_PACKAGE_MAX_BYTES) {
+            Serial.println("usage: app package install <id> <path> <sha256> <bytes>");
+            return;
+        }
+        lz_app_package_install_t r;
+        memset(&r, 0, sizeof r);
+        if(lz_svc_install_app_package(id, path, sha, (uint32_t)bytes, &r)) {
+            Serial.printf("[ok] app package install id=%s version=%s files=%u package=%lu extracted=%lu\n",
+                          r.id, r.version, (unsigned)r.file_count,
+                          (unsigned long)r.package_bytes,
+                          (unsigned long)r.extracted_bytes);
+        } else {
+            Serial.printf("[err] app package install: %s\n",
+                          r.error[0] ? r.error : "install failed");
+        }
+        return;
+    }
     if(!args || !args[0] || strcmp(args, "catalog") == 0 ||
        strcmp(args, "catalog status") == 0) {
         char b[180];
@@ -471,7 +500,7 @@ static void cmd_app(char *args)
         Serial.print(b);
         return;
     }
-    Serial.println("usage: app notify test | app catalog status | app catalog test");
+    Serial.println("usage: app notify test | app catalog status | app catalog test | app package test");
 }
 
 static void cmd_nodes(char *args)
