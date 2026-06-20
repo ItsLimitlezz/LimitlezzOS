@@ -29,6 +29,9 @@ bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t
 bool lz_store_clear_app_data(const lz_local_app_t *app, char *err, int err_cap);
 bool lz_store_uninstall_local_app(const lz_local_app_t *app, bool keep_data,
                                   char *err, int err_cap);
+bool lz_store_save_app_catalog_cache(const char *json, int len, char *err, int err_cap);
+bool lz_store_load_app_catalog_cache(char *out, int cap, int *out_len, char *err, int err_cap);
+bool lz_store_clear_app_catalog_cache(char *err, int err_cap);
 bool lz_store_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_store_local_app_action(lz_local_app_session_t *session, int idx);
 void lz_store_stop_local_app(lz_local_app_session_t *session);
@@ -417,6 +420,20 @@ bool lz_svc_uninstall_local_app(const lz_local_app_t *app, bool keep_data,
                                 char *err, int err_cap)
 {
     return lz_store_uninstall_local_app(app, keep_data, err, err_cap);
+    }
+bool lz_svc_save_app_catalog_cache(const char *json, int len, char *err, int err_cap)
+{
+    return lz_store_save_app_catalog_cache(json, len, err, err_cap);
+}
+
+bool lz_svc_load_app_catalog_cache(char *out, int cap, int *out_len, char *err, int err_cap)
+{
+    return lz_store_load_app_catalog_cache(out, cap, out_len, err, err_cap);
+}
+
+bool lz_svc_clear_app_catalog_cache(char *err, int err_cap)
+{
+    return lz_store_clear_app_catalog_cache(err, err_cap);
 }
 
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out)
