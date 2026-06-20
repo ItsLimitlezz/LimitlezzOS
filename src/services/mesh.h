@@ -280,6 +280,22 @@ typedef struct {
 } lz_ota_manifest_t;
 
 typedef struct {
+    bool present;                 /* candidate firmware.bin exists in the OTA cache */
+    bool valid;                   /* present and matches the cached manifest size/hash */
+    bool manifest_found;
+    bool manifest_valid;
+    bool size_match;
+    bool sha_match;
+    char path[112];
+    char error[48];
+    char version[24];
+    char channel[16];
+    char sha256[65];
+    uint32_t size_bytes;
+    uint32_t expected_size_bytes;
+} lz_ota_candidate_t;
+
+typedef struct {
     bool configured;             /* a device PIN verifier exists */
     bool valid;                  /* false = security.cfg is corrupt/unsupported */
     uint32_t rounds;             /* verifier KDF work factor */
@@ -334,6 +350,11 @@ int  lz_svc_app_catalog_diag(char *buf, int n);
 int  lz_svc_app_catalog_selftest(char *buf, int n);
 bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out);
 int  lz_svc_ota_manifest_selftest(char *buf, int n);
+bool lz_svc_ota_candidate_status(lz_ota_candidate_t *out);
+bool lz_svc_ota_stage_candidate_file(const char *source_path, lz_ota_candidate_t *out,
+                                     char *err, int err_cap);
+bool lz_svc_ota_fetch_candidate(lz_ota_candidate_t *out, char *err, int err_cap);
+bool lz_svc_clear_ota_candidate(char *err, int err_cap);
 bool lz_svc_security_status(lz_security_status_t *out);
 bool lz_svc_security_set_pin(const char *pin, char *err, int err_cap);
 bool lz_svc_security_check_pin(const char *pin);

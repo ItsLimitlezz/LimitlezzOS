@@ -4,6 +4,7 @@
  * real SX1262 driver both call the lz_core_on_* hooks below.
  */
 #include "mesh.h"
+#include "ota_fetch.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -40,6 +41,13 @@ int  lz_store_app_catalog_diag(char *buf, int n);
 int  lz_store_app_catalog_selftest(char *buf, int n);
 bool lz_store_ota_manifest_status(lz_ota_manifest_t *out);
 int  lz_store_ota_manifest_selftest(char *buf, int n);
+bool lz_store_ota_candidate_status(lz_ota_candidate_t *out);
+bool lz_store_ota_candidate_tmp_path(char *out, int cap, char *err, int err_cap);
+bool lz_store_discard_ota_candidate_tmp(void);
+bool lz_store_commit_ota_candidate_tmp(lz_ota_candidate_t *out, char *err, int err_cap);
+bool lz_store_stage_ota_candidate_file(const char *source_path, lz_ota_candidate_t *out,
+                                       char *err, int err_cap);
+bool lz_store_clear_ota_candidate(char *err, int err_cap);
 bool lz_store_security_status(lz_security_status_t *out);
 bool lz_store_security_set_pin(const char *pin, char *err, int err_cap);
 bool lz_store_security_check_pin(const char *pin);
@@ -500,6 +508,57 @@ bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out)
 int lz_svc_ota_manifest_selftest(char *buf, int n)
 {
     return lz_store_ota_manifest_selftest(buf, n);
+}
+
+bool lz_svc_ota_candidate_status(lz_ota_candidate_t *out)
+{
+    return lz_store_ota_candidate_status(out);
+}
+
+bool lz_svc_ota_stage_candidate_file(const char *source_path,
+                                     lz_ota_candidate_t *out,
+                                     char *err, int err_cap)
+{
+    return lz_store_stage_ota_candidate_file(source_path, out, err, err_cap);
+}
+
+bool lz_svc_ota_fetch_candidate(lz_ota_candidate_t *out, char *err, int err_cap)
+{
+    if(err && err_cap > 0) err[0] = 0;
+    lz_ota_manifest_t manifest;
+    if(!lz_store_ota_manifest_status(&manifest) || !manifest.valid) {
+        if(err && err_cap > 0)
+            snprintf(err, (size_t)err_cap, "%s",
+                     manifest.error[0] ? manifest.error : "no valid manifest");
+        if(out) {
+            memset(out, 0, sizeof *out);
+            out->manifest_found = manifest.found;
+            out->manifest_valid = manifest.valid;
+            snprintf(out->error, sizeof out->error, "%s",
+                     manifest.error[0] ? manifest.error : "no valid manifest");
+        }
+        return false;
+    }
+
+    char tmp[128];
+    if(!lz_store_ota_candidate_tmp_path(tmp, sizeof tmp, err, err_cap))
+        return false;
+    if(!lz_ota_fetch_to_file(manifest.firmware_url, tmp, manifest.size_bytes,
+                             err, err_cap)) {
+        lz_store_discard_ota_candidate_tmp();
+        if(out) lz_store_ota_candidate_status(out);
+        return false;
+    }
+    if(!lz_store_commit_ota_candidate_tmp(out, err, err_cap)) {
+        lz_store_discard_ota_candidate_tmp();
+        return false;
+    }
+    return true;
+}
+
+bool lz_svc_clear_ota_candidate(char *err, int err_cap)
+{
+    return lz_store_clear_ota_candidate(err, err_cap);
 }
 
 bool lz_svc_security_status(lz_security_status_t *out)

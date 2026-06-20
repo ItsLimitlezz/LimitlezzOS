@@ -1,21 +1,27 @@
 # T-Deck OTA Firmware Manifest
 
-This is the first Phase 10 OTA increment: a bounded manifest contract and
-diagnostics path. It validates update metadata before any Wi-Fi downloader,
-inactive-slot writer, boot-partition switch, or rollback flow trusts it.
+This Phase 10 OTA slice defines a bounded manifest contract plus a verified
+candidate firmware cache. It validates update metadata and candidate binaries
+before any inactive-slot writer, boot-partition switch, or rollback flow trusts
+them.
 
 Implemented:
 
 - `ota status` over the USB serial console.
+- `ota fetch` over the USB serial console. This downloads the cached
+  manifest's `firmware_url` over Wi-Fi, writes a bounded temporary file, verifies
+  exact size and SHA-256, then atomically promotes it to the OTA cache.
+- `ota stage <path>` over the USB serial console. This verifies a local
+  candidate file against the cached manifest and promotes it to the same cache.
+- `ota clear` over the USB serial console.
 - `ota test` over the USB serial console.
-- Native simulator selftest coverage for valid and invalid manifests.
+- Native simulator selftest coverage for valid/invalid manifests, candidate
+  staging, size mismatch rejection, prior-candidate preservation, and clearing.
 - Cached manifest discovery from SD/local storage and the `appfs` partition.
 
 Still TODO:
 
 - fetch the manifest over Wi-Fi
-- download the firmware binary
-- verify the binary SHA-256 after download
 - write to the inactive OTA slot
 - set the OTA boot partition and mark the new firmware healthy
 - rollback UX and failure recovery
@@ -31,6 +37,17 @@ The firmware looks for one cached JSON manifest at the first matching path:
 
 The native simulator uses the same layout under its data directory, for example
 `lzdata/ota/manifest.json` and `lzdata/appfs/ota/manifest.json`.
+
+Verified candidates are cached under the primary data directory:
+
+```text
+/sd/limitlezz/ota/firmware.bin
+```
+
+Downloads and local staging first write `firmware.bin.tmp`. A candidate is
+promoted to `firmware.bin` only after exact byte-count and SHA-256 verification
+against the cached manifest. A failed stage/download removes only the temporary
+file and leaves any prior verified candidate intact.
 
 ## Schema
 
@@ -80,6 +97,7 @@ Fresh hardware with no cached manifest:
 ```text
 lz> ota status
 ota manifest: no cached manifest
+ota candidate: none (no candidate)
 ```
 
 Valid cached manifest:
@@ -88,6 +106,39 @@ Valid cached manifest:
 lz> ota status
 ota manifest: valid version=0.97.0 channel=beta board=tdeck size=1539920 source=/sd/limitlezz/ota/manifest.json
 firmware: https://updates.example/tdeck/0.97.0/firmware.bin
+ota candidate: none (no candidate)
+```
+
+Verified candidate ready:
+
+```text
+lz> ota status
+ota manifest: valid version=0.97.0 channel=beta board=tdeck size=1539920 source=/sd/limitlezz/ota/manifest.json
+firmware: https://updates.example/tdeck/0.97.0/firmware.bin
+ota candidate: ready version=0.97.0 channel=beta size=1539920 path=/sd/limitlezz/ota/firmware.bin sha=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+Fetch and verify the manifest's firmware URL:
+
+```text
+lz> ota fetch
+[ok] OTA candidate downloaded and verified
+ota candidate: ready version=0.97.0 channel=beta size=1539920 path=/sd/limitlezz/ota/firmware.bin sha=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+Stage and verify a local file:
+
+```text
+lz> ota stage /sd/limitlezz/ota/downloads/firmware.bin
+[ok] OTA candidate staged and verified
+ota candidate: ready version=0.97.0 channel=beta size=1539920 path=/sd/limitlezz/ota/firmware.bin sha=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+Clear the candidate cache:
+
+```text
+lz> ota clear
+[ok] OTA candidate cleared
 ```
 
 Built-in parser proof:

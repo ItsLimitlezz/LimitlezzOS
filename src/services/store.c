@@ -1793,6 +1793,268 @@ bool lz_store_ota_manifest_status(lz_ota_manifest_t *out)
     return false;
 }
 
+static void ota_candidate_paths(char *dir, size_t dir_n,
+                                char *live, size_t live_n,
+                                char *tmp, size_t tmp_n)
+{
+    if(dir && dir_n > 0) path_join(dir, dir_n, g_dir, "ota");
+    if(live && live_n > 0) {
+        char d[128];
+        path_join(d, sizeof d, g_dir, "ota");
+        path_join(live, live_n, d, "firmware.bin");
+    }
+    if(tmp && tmp_n > 0) {
+        char d[128];
+        path_join(d, sizeof d, g_dir, "ota");
+        path_join(tmp, tmp_n, d, "firmware.bin.tmp");
+    }
+}
+
+static bool ota_candidate_mkdir(char *dir, size_t dir_n, char *err, int err_cap)
+{
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    ota_candidate_paths(dir, dir_n, NULL, 0, NULL, 0);
+    if(!path_mkdir(dir) || !path_is_dir(dir)) {
+        set_err(err, err_cap, "ota mkdir failed");
+        return false;
+    }
+    return true;
+}
+
+static void ota_candidate_copy_manifest(lz_ota_candidate_t *out,
+                                        const lz_ota_manifest_t *manifest)
+{
+    if(!out || !manifest) return;
+    out->manifest_found = manifest->found;
+    out->manifest_valid = manifest->valid;
+    if(manifest->valid) {
+        snprintf(out->version, sizeof out->version, "%s", manifest->version);
+        snprintf(out->channel, sizeof out->channel, "%s", manifest->channel);
+        out->expected_size_bytes = manifest->size_bytes;
+    }
+}
+
+static bool ota_candidate_fail(lz_ota_candidate_t *out, char *err, int err_cap,
+                               const char *msg)
+{
+    char safe[48];
+    snprintf(safe, sizeof safe, "%s", msg ? msg : "candidate invalid");
+    if(out) {
+        out->valid = false;
+        snprintf(out->error, sizeof out->error, "%s", safe);
+    }
+    set_err(err, err_cap, safe);
+    return false;
+}
+
+static bool ota_candidate_check_file(const char *path,
+                                     const lz_ota_manifest_t *manifest,
+                                     lz_ota_candidate_t *out,
+                                     char *err, int err_cap)
+{
+    if(out) {
+        memset(out, 0, sizeof *out);
+        if(path) snprintf(out->path, sizeof out->path, "%s", path);
+        ota_candidate_copy_manifest(out, manifest);
+    }
+    set_err(err, err_cap, "");
+    if(!path || !path[0] || !path_is_file(path))
+        return ota_candidate_fail(out, err, err_cap, "no candidate");
+
+    if(out) out->present = true;
+    struct stat st;
+    if(stat(path, &st) != 0 || S_ISDIR(st.st_mode))
+        return ota_candidate_fail(out, err, err_cap, "candidate unreadable");
+    if(st.st_size < 0 || (unsigned long long)st.st_size > UINT32_MAX)
+        return ota_candidate_fail(out, err, err_cap, "candidate too large");
+    uint32_t size = (uint32_t)st.st_size;
+    if(out) out->size_bytes = size;
+
+    if(!manifest || !manifest->valid)
+        return ota_candidate_fail(out, err, err_cap, "no valid manifest");
+    if(size != manifest->size_bytes) {
+        if(out) out->size_match = false;
+        return ota_candidate_fail(out, err, err_cap, "size mismatch");
+    }
+    if(out) out->size_match = true;
+
+    char actual[LZ_SHA256_HEX_LEN + 1];
+    if(!lz_store_file_sha256(path, actual, sizeof actual, err, err_cap))
+        return ota_candidate_fail(out, err, err_cap, err && err[0] ? err : "hash failed");
+    if(out) snprintf(out->sha256, sizeof out->sha256, "%s", actual);
+    if(!sha256_hex_equal(actual, manifest->sha256)) {
+        if(out) out->sha_match = false;
+        return ota_candidate_fail(out, err, err_cap, "sha mismatch");
+    }
+    if(out) {
+        out->sha_match = true;
+        out->valid = true;
+        out->error[0] = 0;
+    }
+    return true;
+}
+
+bool lz_store_ota_candidate_status(lz_ota_candidate_t *out)
+{
+    if(!out) return false;
+    memset(out, 0, sizeof *out);
+    lz_ota_manifest_t manifest;
+    lz_store_ota_manifest_status(&manifest);
+    ota_candidate_copy_manifest(out, &manifest);
+
+    if(!g_persist)
+        return ota_candidate_fail(out, NULL, 0, "storage unavailable");
+    char live[128];
+    ota_candidate_paths(NULL, 0, live, sizeof live, NULL, 0);
+    return ota_candidate_check_file(live, &manifest, out, NULL, 0);
+}
+
+bool lz_store_ota_candidate_tmp_path(char *out, int cap, char *err, int err_cap)
+{
+    if(out && cap > 0) out[0] = 0;
+    set_err(err, err_cap, "");
+    if(!out || cap <= 0) {
+        set_err(err, err_cap, "path buffer small");
+        return false;
+    }
+    char dir[128], tmp[128];
+    if(!ota_candidate_mkdir(dir, sizeof dir, err, err_cap)) return false;
+    ota_candidate_paths(NULL, 0, NULL, 0, tmp, sizeof tmp);
+    remove(tmp);
+    snprintf(out, (size_t)cap, "%s", tmp);
+    return true;
+}
+
+bool lz_store_discard_ota_candidate_tmp(void)
+{
+    if(!g_persist) return false;
+    char tmp[128];
+    ota_candidate_paths(NULL, 0, NULL, 0, tmp, sizeof tmp);
+    remove(tmp);
+    return true;
+}
+
+bool lz_store_commit_ota_candidate_tmp(lz_ota_candidate_t *out, char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    lz_ota_manifest_t manifest;
+    if(!lz_store_ota_manifest_status(&manifest) || !manifest.valid) {
+        lz_store_discard_ota_candidate_tmp();
+        return ota_candidate_fail(out, err, err_cap,
+                                  manifest.error[0] ? manifest.error : "no valid manifest");
+    }
+
+    char live[128], tmp[128], backup[132];
+    ota_candidate_paths(NULL, 0, live, sizeof live, tmp, sizeof tmp);
+    snprintf(backup, sizeof backup, "%s.bak", live);
+    lz_ota_candidate_t staged;
+    if(!ota_candidate_check_file(tmp, &manifest, &staged, err, err_cap)) {
+        lz_store_discard_ota_candidate_tmp();
+        if(out) *out = staged;
+        return false;
+    }
+
+    bool had_live = path_is_file(live);
+    remove(backup);
+    if(had_live && rename(live, backup) != 0) {
+        lz_store_discard_ota_candidate_tmp();
+        return ota_candidate_fail(out, err, err_cap, "candidate commit failed");
+    }
+    if(rename(tmp, live) != 0) {
+        if(had_live) rename(backup, live);
+        lz_store_discard_ota_candidate_tmp();
+        return ota_candidate_fail(out, err, err_cap, "candidate commit failed");
+    }
+    if(had_live) remove(backup);
+    return lz_store_ota_candidate_status(out);
+}
+
+bool lz_store_stage_ota_candidate_file(const char *source_path,
+                                       lz_ota_candidate_t *out,
+                                       char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    if(!source_path || !source_path[0]) {
+        return ota_candidate_fail(out, err, err_cap, "missing source");
+    }
+    lz_ota_manifest_t manifest;
+    if(!lz_store_ota_manifest_status(&manifest) || !manifest.valid) {
+        return ota_candidate_fail(out, err, err_cap,
+                                  manifest.error[0] ? manifest.error : "no valid manifest");
+    }
+
+    char tmp[128];
+    if(!lz_store_ota_candidate_tmp_path(tmp, sizeof tmp, err, err_cap))
+        return ota_candidate_fail(out, err, err_cap, err && err[0] ? err : "candidate path failed");
+
+    FILE *src = fopen(source_path, "rb");
+    if(!src) {
+        lz_store_discard_ota_candidate_tmp();
+        return ota_candidate_fail(out, err, err_cap, "source missing");
+    }
+    FILE *dst = fopen(tmp, "wb");
+    if(!dst) {
+        fclose(src);
+        lz_store_discard_ota_candidate_tmp();
+        return ota_candidate_fail(out, err, err_cap, "candidate write failed");
+    }
+
+    uint8_t buf[512];
+    uint32_t total = 0;
+    bool ok = true;
+    size_t nread = 0;
+    while((nread = fread(buf, 1, sizeof buf, src)) > 0) {
+        if(UINT32_MAX - total < nread || total + (uint32_t)nread > manifest.size_bytes) {
+            ok = false;
+            set_err(err, err_cap, "candidate too large");
+            break;
+        }
+        if(fwrite(buf, 1, nread, dst) != nread) {
+            ok = false;
+            set_err(err, err_cap, "candidate write failed");
+            break;
+        }
+        total += (uint32_t)nread;
+    }
+    if(ferror(src) && ok) {
+        ok = false;
+        set_err(err, err_cap, "source read failed");
+    }
+    if(fclose(dst) != 0 && ok) {
+        ok = false;
+        set_err(err, err_cap, "candidate write failed");
+    }
+    fclose(src);
+    if(ok && total != manifest.size_bytes) {
+        ok = false;
+        set_err(err, err_cap, "size mismatch");
+    }
+    if(!ok) {
+        lz_store_discard_ota_candidate_tmp();
+        return ota_candidate_fail(out, err, err_cap, err && err[0] ? err : "candidate invalid");
+    }
+    return lz_store_commit_ota_candidate_tmp(out, err, err_cap);
+}
+
+bool lz_store_clear_ota_candidate(char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    char live[128], tmp[128], backup[132];
+    ota_candidate_paths(NULL, 0, live, sizeof live, tmp, sizeof tmp);
+    snprintf(backup, sizeof backup, "%s.bak", live);
+    remove(tmp);
+    remove(live);
+    remove(backup);
+    return true;
+}
+
 int lz_store_ota_manifest_selftest(char *buf, int n)
 {
     if(!buf || n <= 0) return 0;

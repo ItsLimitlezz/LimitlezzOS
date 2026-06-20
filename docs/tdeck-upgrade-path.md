@@ -3,7 +3,9 @@
 This guide documents the upgrade path that is available today. LimitlezzOS has
 an OTA-capable partition layout, but over-the-air firmware updates are still
 roadmap work. Current releases upgrade through a USB flash of an exact release
-or GitHub Actions artifact.
+or GitHub Actions artifact. The firmware can now verify and cache an OTA
+candidate binary, but it does not yet write that candidate to an inactive boot
+slot.
 
 ## Current Support
 
@@ -13,12 +15,12 @@ Supported today:
 - USB upgrade from an exact `Firmware CI` artifact
 - same-version reflash for recovery or validation
 - rollback by reflashing a previously saved known-good artifact
+- OTA manifest diagnostics plus verified candidate download/staging cache
 - persistent SD-backed user data when the SD card and store remain intact
 - persistent NVS-backed Wi-Fi credentials on T-Deck hardware
 
 Not supported yet:
 
-- downloading firmware over Wi-Fi
 - writing a candidate to the inactive OTA slot from the device UI
 - automatic rollback based on a firmware health marker
 - signed OTA manifests or release-channel selection
@@ -148,6 +150,24 @@ python scripts/tdeck_smoke.py --port COM8 --skip-upload --open-timeout 60 --boot
 If Windows loses `COM8` during the USB boot handoff, wait for the T-Deck to
 re-enumerate or reset/replug the device. Do not retarget the smoke test to
 another COM port unless that device's ownership has been confirmed.
+
+## OTA Candidate Cache
+
+This is a pre-install diagnostic path, not an upgrade path yet. With a cached
+manifest at `/sd/limitlezz/ota/manifest.json`, the device can download or stage
+a candidate firmware image, verify its exact byte count and SHA-256, and keep it
+at `/sd/limitlezz/ota/firmware.bin` for the future inactive-slot writer.
+
+```sh
+ota status
+ota fetch
+ota stage /sd/limitlezz/ota/downloads/firmware.bin
+ota clear
+```
+
+Do not claim an OTA upgrade from this evidence alone. A release still upgrades
+only after the candidate is written to an inactive OTA slot, selected for boot,
+confirmed healthy after reboot, and covered by rollback behavior.
 
 ## Rollback
 

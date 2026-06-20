@@ -86,11 +86,11 @@ static void cmd_help(void)
         "  nodes [test]         list heard nodes / test node DB schema\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
-        "  ota [status|test]    cached OTA firmware manifest diagnostics\n"
+        "  ota status|fetch|stage|clear|test  OTA manifest/candidate diagnostics\n"
         "  security [status|test|set <pin>|check <pin>|clear <pin>]\n"
         "  wifi [scan|on|off]   wifi status / control\n"
         "  settings [test]      persisted settings schema diagnostics\n"
-        "  ota boot-policy|boot-test  OTA rollback policy diagnostics\n"
+        "  ota boot-policy|boot-test          OTA rollback policy diagnostics\n"
         "  sys                  battery, uptime, memory\n"
         "  power                battery warning policy and current action\n"
         "  id                   this node's identity\n"
@@ -526,6 +526,26 @@ static void cmd_stats(void)
                   (unsigned)st.tx_count, (unsigned)st.rx_count, st.util_pct);
 }
 
+static void ota_print_candidate(void)
+{
+    lz_ota_candidate_t c;
+    lz_svc_ota_candidate_status(&c);
+    if(!c.present) {
+        Serial.printf("ota candidate: none");
+        if(c.error[0]) Serial.printf(" (%s)", c.error);
+        Serial.println();
+    } else if(!c.valid) {
+        Serial.printf("ota candidate: invalid path=%s size=%lu expected=%lu error=\"%s\"\n",
+                      c.path, (unsigned long)c.size_bytes,
+                      (unsigned long)c.expected_size_bytes,
+                      c.error[0] ? c.error : "invalid");
+    } else {
+        Serial.printf("ota candidate: ready version=%s channel=%s size=%lu path=%s sha=%s\n",
+                      c.version, c.channel, (unsigned long)c.size_bytes,
+                      c.path, c.sha256);
+    }
+}
+
 static void cmd_ota(char *args)
 {
     if(args && strcmp(args, "boot-test") == 0) {
@@ -563,8 +583,36 @@ static void cmd_ota(char *args)
         Serial.println(b);
         return;
     }
+    if(args && strcmp(args, "fetch") == 0) {
+        char err[64] = {0};
+        lz_ota_candidate_t c;
+        if(lz_svc_ota_fetch_candidate(&c, err, sizeof err))
+            Serial.println("[ok] OTA candidate downloaded and verified");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "OTA candidate fetch failed");
+        ota_print_candidate();
+        return;
+    }
+    if(args && strncmp(args, "stage ", 6) == 0) {
+        char err[64] = {0};
+        lz_ota_candidate_t c;
+        if(lz_svc_ota_stage_candidate_file(args + 6, &c, err, sizeof err))
+            Serial.println("[ok] OTA candidate staged and verified");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "OTA candidate stage failed");
+        ota_print_candidate();
+        return;
+    }
+    if(args && strcmp(args, "clear") == 0) {
+        char err[64] = {0};
+        if(lz_svc_clear_ota_candidate(err, sizeof err))
+            Serial.println("[ok] OTA candidate cleared");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "OTA candidate clear failed");
+        return;
+    }
     if(args && args[0] && strcmp(args, "status") != 0) {
-        Serial.println("usage: ota [status|test|boot-policy ...|boot-test]");
+        Serial.println("usage: ota [status|fetch|stage <path>|clear|test|boot-policy ...|boot-test]");
         return;
     }
 
@@ -581,7 +629,8 @@ static void cmd_ota(char *args)
                       (unsigned long)m.size_bytes, m.source);
         Serial.printf("firmware: %s\n", m.firmware_url);
     }
-    }
+    ota_print_candidate();
+}
 static void cmd_security(char *args)
 {
     if(args && strcmp(args, "test") == 0) {

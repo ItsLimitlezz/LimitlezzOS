@@ -1166,6 +1166,11 @@ static int codec_selftest(void)
     {
         extern void lz_store_init(const char *datadir);
         extern bool lz_store_ota_manifest_status(lz_ota_manifest_t *out);
+        extern bool lz_store_ota_candidate_status(lz_ota_candidate_t *out);
+        extern bool lz_store_stage_ota_candidate_file(const char *source_path,
+                                                      lz_ota_candidate_t *out,
+                                                      char *err, int err_cap);
+        extern bool lz_store_clear_ota_candidate(char *err, int err_cap);
         extern int  lz_store_ota_manifest_selftest(char *buf, int n);
         sim_reset_dir("lzdata_ota");
         sim_mkdirs("lzdata_ota/ota");
@@ -1174,16 +1179,50 @@ static int codec_selftest(void)
             fputs("{\"schema\":\"limitlezz.ota_manifest.v1\",\"version\":\"0.97.0\","
                   "\"channel\":\"beta\",\"board\":\"tdeck\","
                   "\"firmware_url\":\"https://updates.limitlezz.example/tdeck/0.97.0/firmware.bin\","
-                  "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
-                  "\"size\":1539920}", mf);
+                  "\"sha256\":\"8ec52e1da1f141ae5cae9272c4d3dc24bbca01238549c6d9231ff49c1c6dda65\","
+                  "\"size\":27}", mf);
             fclose(mf);
         }
         lz_store_init("lzdata_ota");
         lz_ota_manifest_t ota;
         CHECK(lz_store_ota_manifest_status(&ota) && ota.valid,
               "OTA manifest status accepts cached valid manifest");
-        CHECK(strcmp(ota.version, "0.97.0") == 0 && ota.size_bytes == 1539920u,
+        CHECK(strcmp(ota.version, "0.97.0") == 0 && ota.size_bytes == 27u,
               "OTA manifest status keeps version and size");
+        lz_ota_candidate_t cand;
+        CHECK(!lz_store_ota_candidate_status(&cand) && !cand.present &&
+                  strcmp(cand.error, "no candidate") == 0,
+              "OTA candidate status starts empty");
+        FILE *cf = fopen("lzdata_ota/candidate.bin", "wb");
+        if(cf) {
+            fputs("Limitlezz OTA candidate v1\n", cf);
+            fclose(cf);
+        }
+        char ota_err[64] = {0};
+        CHECK(lz_store_stage_ota_candidate_file("lzdata_ota/candidate.bin",
+                                                &cand, ota_err, sizeof ota_err) &&
+                  cand.present && cand.valid && cand.size_bytes == 27u &&
+                  cand.size_match && cand.sha_match &&
+                  strcmp(cand.version, "0.97.0") == 0,
+              "OTA candidate staging verifies size and SHA");
+        CHECK(lz_store_ota_candidate_status(&cand) && cand.valid &&
+                  strstr(cand.path, "ota/firmware.bin") != NULL,
+              "OTA candidate status reloads verified cache");
+        cf = fopen("lzdata_ota/bad-candidate.bin", "wb");
+        if(cf) {
+            fputs("bad firmware body\n", cf);
+            fclose(cf);
+        }
+        CHECK(!lz_store_stage_ota_candidate_file("lzdata_ota/bad-candidate.bin",
+                                                 &cand, ota_err, sizeof ota_err) &&
+                  strcmp(ota_err, "size mismatch") == 0,
+              "OTA candidate staging rejects wrong size before install");
+        CHECK(lz_store_ota_candidate_status(&cand) && cand.valid,
+              "OTA failed staging leaves prior candidate intact");
+        CHECK(lz_store_clear_ota_candidate(ota_err, sizeof ota_err),
+              "OTA candidate clear succeeds");
+        CHECK(!lz_store_ota_candidate_status(&cand) && !cand.present,
+              "OTA candidate clear removes cached firmware");
 
         mf = fopen("lzdata_ota/ota/manifest.json", "wb");
         if(mf) {
