@@ -18,6 +18,11 @@ from pathlib import Path
 REQUIRED_FLASH_FILES = ("bootloader.bin", "boot_app0.bin", "partitions.bin", "firmware.bin")
 
 
+def default_artifact_dir(env_name: str) -> Path:
+    leaf = "tdeck-meshcore" if env_name == "tdeck-meshcore" else "tdeck"
+    return Path(".pio") / "ci-artifacts" / leaf
+
+
 def run_text(cmd: list[str], cwd: Path, *, required: bool = False) -> str | None:
     try:
         return subprocess.check_output(cmd, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
@@ -143,7 +148,9 @@ def main() -> int:
     parser.add_argument("--workflow", default="Firmware CI")
     parser.add_argument("--branch", help="Branch name. Defaults to the current git branch.")
     parser.add_argument("--commit", help="Commit SHA. Defaults to HEAD.")
-    parser.add_argument("--artifact-dir", default=Path(".pio") / "ci-artifacts" / "tdeck")
+    parser.add_argument("--env", default="tdeck", choices=("tdeck", "tdeck-meshcore"),
+                        help="Firmware artifact environment.")
+    parser.add_argument("--artifact-dir", help="Downloaded artifact directory. Defaults from --env.")
     parser.add_argument("--port", default=default_port())
     args = parser.parse_args()
 
@@ -152,7 +159,7 @@ def main() -> int:
     commit = args.commit or git(project_dir, "rev-parse", "HEAD")
     short_commit = commit[:12]
     repo = args.repo or default_repo(project_dir)
-    artifact_dir = Path(args.artifact_dir)
+    artifact_dir = Path(args.artifact_dir) if args.artifact_dir else default_artifact_dir(args.env)
     if not artifact_dir.is_absolute():
         artifact_dir = (project_dir / artifact_dir).resolve()
 
@@ -160,19 +167,29 @@ def main() -> int:
     manifest_path = find_manifest(artifact_dir)
     manifest = parse_manifest(manifest_path)
     files = present_flash_files(artifact_dir)
+    manifest_env = manifest.get("env") or "tdeck"
+    manifest_sha = manifest.get("sha", "")
+    manifest_matches = (
+        bool(manifest_path) and
+        manifest_sha.lower() == commit.lower() and
+        manifest_env == args.env
+    )
     actions_status = "passed" if run and run.get("status") == "completed" and run.get("conclusion") == "success" else "pending"
-    artifact_status = "downloaded" if manifest_path and len(files) == len(REQUIRED_FLASH_FILES) else "pending"
+    artifact_status = "downloaded" if manifest_matches and len(files) == len(REQUIRED_FLASH_FILES) else "pending"
 
     print("## T-Deck Release Evidence")
     print()
     print(f"- Repository: {md_code(repo)}")
     print(f"- Branch: {md_code(branch)}")
     print(f"- Commit: {md_code(commit)}")
+    print(f"- Environment: {md_code(args.env)}")
     print(f"- Workflow: {md_code(args.workflow)}")
     print(f"- Actions run: {run_line(run, commit)}")
     print(f"- Artifact dir: {md_code(artifact_dir)}")
     print(f"- Artifact manifest: {md_code(manifest_path) if manifest_path else 'not downloaded yet'}")
-    print(f"- Manifest SHA: {md_code(manifest.get('sha', 'not recorded'))}")
+    print(f"- Manifest SHA: {md_code(manifest_sha or 'not recorded')}")
+    print(f"- Manifest env: {md_code(manifest_env)}")
+    print(f"- Manifest matches request: {md_code('yes' if manifest_matches else 'no')}")
     print(f"- Flash bundle files: {md_code(', '.join(files) if files else 'not downloaded yet')}")
     print(f"- Hardware port: {md_code(args.port)}")
     print()
@@ -189,19 +206,25 @@ def main() -> int:
     print(f"- [ ] Wait for exact-commit Actions success: `gh run watch --repo {repo} <run-id> --exit-status --interval 10`")
     print(
         "- [ ] Fetch exact artifact: "
-        f"`python scripts/fetch_tdeck_artifact.py --repo {repo} --branch {branch} --commit {commit} --out .pio/ci-artifacts/tdeck`"
+        f"`python scripts/fetch_tdeck_artifact.py --env {args.env} --repo {repo} --branch {branch} --commit {commit} --out {artifact_dir}`"
     )
     print("- [ ] Confirm `FLASH_MANIFEST.txt` `sha=` matches the PR head commit.")
+    if args.env == "tdeck-meshcore":
+        print("- [ ] Confirm `FLASH_MANIFEST.txt` has `env=tdeck-meshcore` and `meshcore_enabled=1`.")
     print()
     print("### COM8 Hardware Smoke")
     print()
     print(
         "- [ ] Flash exact artifact: "
-        f"`python scripts/tdeck_smoke.py --port {args.port} --no-stub-upload --skip-build "
-        "--artifact-dir .pio/ci-artifacts/tdeck --open-timeout 60 --boot-timeout 60 --timeout 30`"
+        f"`python scripts/tdeck_smoke.py --port {args.port} --env {args.env} --no-stub-upload --skip-build "
+        f"--artifact-dir {artifact_dir} --open-timeout 60 --boot-timeout 60 --timeout 30`"
     )
     print("- [ ] Record flash chip, MAC, byte counts, and hash verification.")
     print("- [ ] Record serial `id`, `sys`, `net`, `rf`, `stats`, `wifi`, and `companion test` output.")
+    if args.env == "tdeck-meshcore":
+        print("- [ ] Run split-airtime smoke: "
+              f"`python scripts/tdm_airtime_smoke.py --port {args.port} --open-timeout 60 --boot-timeout 60 --timeout 30`")
+        print("- [ ] Record 60/40, 50/50, 40/60 dwell checks and switch-count motion.")
     print("- [ ] Manually verify display, touch, keyboard, trackball, SD/appfs browsing, Wi-Fi state, and sleep/wake.")
     print()
     print("### PR Evidence Snippet")

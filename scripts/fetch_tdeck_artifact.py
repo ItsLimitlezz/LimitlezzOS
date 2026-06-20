@@ -15,6 +15,22 @@ import sys
 from pathlib import Path
 
 
+ARTIFACT_BUNDLE_FILES = (
+    "bootloader.bin",
+    "boot_app0.bin",
+    "firmware.bin",
+    "firmware.elf",
+    "firmware.map",
+    "partitions.bin",
+    "FLASH_MANIFEST.txt",
+    "SIZE_BUDGET.md",
+    "SIZE_BUDGET.txt",
+    "size-budget.json",
+    "tdeck-build.txt",
+    "tdeck-size.txt",
+)
+
+
 def run_text(cmd: list[str], cwd: Path) -> str:
     try:
         return subprocess.check_output(cmd, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
@@ -106,6 +122,26 @@ def load_artifacts(project_dir: Path, repo: str, run_id: int) -> list[dict]:
     return json.loads(data).get("artifacts", [])
 
 
+def artifact_prefix(env_name: str) -> str:
+    if env_name == "tdeck":
+        return "tdeck-firmware"
+    if env_name == "tdeck-meshcore":
+        return "tdeck-meshcore-firmware"
+    raise SystemExit(f"Unsupported artifact environment: {env_name}")
+
+
+def default_out_dir(env_name: str) -> Path:
+    leaf = "tdeck-meshcore" if env_name == "tdeck-meshcore" else "tdeck"
+    return Path(".pio") / "ci-artifacts" / leaf
+
+
+def clear_existing_bundle(out_dir: Path) -> None:
+    for name in ARTIFACT_BUNDLE_FILES:
+        path = out_dir / name
+        if path.is_file():
+            path.unlink()
+
+
 def choose_run(runs: list[dict], commit: str, allow_latest_success: bool) -> dict:
     successful = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") == "success"]
     for run in successful:
@@ -157,10 +193,11 @@ def load_flash_manifest(bundle: Path) -> dict[str, str]:
     return values
 
 
-def validate_flash_manifest(bundle: Path, expected_sha: str, expected_run_id: int) -> dict[str, str]:
+def validate_flash_manifest(bundle: Path, expected_sha: str, expected_run_id: int, expected_env: str) -> dict[str, str]:
     values = load_flash_manifest(bundle)
     actual_sha = values.get("sha", "")
     actual_run_id = values.get("run_id", "")
+    actual_env = values.get("env") or "tdeck"
     if actual_sha.lower() != expected_sha.lower():
         raise SystemExit(
             f"Downloaded artifact SHA mismatch: manifest has {actual_sha or '<missing>'}, "
@@ -176,19 +213,26 @@ def validate_flash_manifest(bundle: Path, expected_sha: str, expected_run_id: in
             f"Downloaded artifact did not pass the T-Deck budget gate: "
             f"{values.get('budget_status', '<missing>')}"
         )
+    if actual_env != expected_env:
+        raise SystemExit(
+            f"Downloaded artifact environment mismatch: manifest has {actual_env}, "
+            f"expected {expected_env}."
+        )
     return values
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Download the current branch T-Deck firmware artifact.")
     parser.add_argument("--project-dir", default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--env", default="tdeck", choices=("tdeck", "tdeck-meshcore"),
+                        help="Firmware environment artifact to download.")
     parser.add_argument("--repo", help="GitHub repo to read Actions artifacts from, e.g. ItsLimitlezz/LimitlezzOS.")
     parser.add_argument("--workflow", default="Firmware CI")
     parser.add_argument("--branch", help="Branch name. Defaults to the current git branch.")
     parser.add_argument("--commit", help="Commit SHA. Defaults to HEAD.")
     parser.add_argument("--run-id", type=int, help="Download a specific run instead of searching.")
-    parser.add_argument("--artifact-name", help="Artifact name. Defaults to tdeck-firmware-<sha>.")
-    parser.add_argument("--out", default=Path(".pio") / "ci-artifacts" / "tdeck")
+    parser.add_argument("--artifact-name", help="Artifact name. Defaults from --env and SHA.")
+    parser.add_argument("--out", help="Output directory. Defaults from --env.")
     parser.add_argument("--allow-latest-success", action="store_true", help="Allow newest successful run if HEAD has none.")
     args = parser.parse_args()
 
@@ -196,7 +240,8 @@ def main() -> int:
     repo = args.repo or default_repo(project_dir)
     branch = args.branch or current_branch(project_dir)
     commit = args.commit or current_commit(project_dir)
-    out_dir = (project_dir / args.out).resolve() if not Path(args.out).is_absolute() else Path(args.out)
+    out_arg = Path(args.out) if args.out else default_out_dir(args.env)
+    out_dir = (project_dir / out_arg).resolve() if not out_arg.is_absolute() else out_arg
 
     if args.run_id is not None:
         run_id = args.run_id
@@ -209,18 +254,19 @@ def main() -> int:
         artifact_sha = chosen["headSha"]
         run_url = chosen["url"]
 
-    artifact_name = args.artifact_name or f"tdeck-firmware-{artifact_sha}"
+    prefix = artifact_prefix(args.env)
+    artifact_name = args.artifact_name or f"{prefix}-{artifact_sha}"
     if args.artifact_name is None:
         artifacts = load_artifacts(project_dir, repo, run_id)
         names = [a.get("name", "") for a in artifacts]
         if artifact_name not in names:
-            tdeck_names = [name for name in names if name.startswith("tdeck-firmware-")]
-            if len(tdeck_names) == 1:
+            env_names = [name for name in names if name.startswith(f"{prefix}-")]
+            if len(env_names) == 1:
                 print(
-                    f"[artifact] expected {artifact_name}, using run artifact {tdeck_names[0]}",
+                    f"[artifact] expected {artifact_name}, using run artifact {env_names[0]}",
                     file=sys.stderr,
                 )
-                artifact_name = tdeck_names[0]
+                artifact_name = env_names[0]
             else:
                 available = "\n".join(f"  {name}" for name in names)
                 raise SystemExit(
@@ -228,6 +274,7 @@ def main() -> int:
                     f"Available artifacts:\n{available}"
                 )
     out_dir.mkdir(parents=True, exist_ok=True)
+    clear_existing_bundle(out_dir)
 
     run_text(
         [
@@ -246,16 +293,16 @@ def main() -> int:
     )
 
     bundle = bundle_dir(out_dir)
-    manifest = validate_flash_manifest(bundle, artifact_sha, run_id)
+    manifest = validate_flash_manifest(bundle, artifact_sha, run_id, args.env)
     print(f"[artifact] run: {run_url}")
     print(f"[artifact] name: {artifact_name}")
     print(f"[artifact] dir: {bundle}")
     print(
         f"[artifact] manifest: sha={manifest.get('sha')} run_id={manifest.get('run_id')} "
-        f"budget={manifest.get('budget_status')}"
+        f"env={manifest.get('env') or 'tdeck'} budget={manifest.get('budget_status')}"
     )
     print("[artifact] flash:")
-    print(f"  python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir {bundle}")
+    print(f"  python scripts/tdeck_smoke.py --port COM8 --env {args.env} --no-stub-upload --skip-build --artifact-dir {bundle}")
     return 0
 
 

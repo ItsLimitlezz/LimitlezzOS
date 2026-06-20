@@ -11,9 +11,10 @@ Release binaries must come from the `Firmware CI` workflow for the exact commit
 being released. Do not attach locally built firmware as the release binary
 unless GitHub Actions is unavailable and the release notes explicitly say so.
 
-The workflow uploads two artifact families:
+The workflow uploads three artifact families:
 
 - `tdeck-firmware-<sha>`
+- `tdeck-meshcore-firmware-<sha>` for opt-in Phase 3 split-airtime validation
 - `native-screenshots-<sha>`
 
 For pull requests, `<sha>` is the PR head SHA. The workflow also records the
@@ -21,7 +22,7 @@ GitHub pull-request merge SHA in `FLASH_MANIFEST.txt` as `github_sha`.
 
 ## Firmware Bundle Contents
 
-The T-Deck firmware artifact must include:
+The T-Deck firmware artifacts must include:
 
 - `bootloader.bin`
 - `boot_app0.bin`
@@ -48,6 +49,9 @@ The T-Deck firmware artifact must include:
 - OTA slot size and percentage
 - static RAM size
 - budget status
+
+The MeshCore-enabled artifact manifest must also include `env=tdeck-meshcore`
+and `meshcore_enabled=1`.
 
 ## Release Candidate Checklist
 
@@ -78,6 +82,12 @@ For an explicit release candidate:
 
 ```sh
 python scripts/fetch_tdeck_artifact.py --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha> --out .pio/ci-artifacts/<release>
+```
+
+For the opt-in MeshCore TDM validation bundle:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha>
 ```
 
 To inspect the manifest:
@@ -134,6 +144,14 @@ For the maintainer Windows host, flash the release artifact on `COM8`:
 
 ```sh
 python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/<release>
+```
+
+For Phase 3 MeshCore TDM validation, flash the opt-in artifact and then run
+the split-airtime probe:
+
+```sh
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+python scripts/tdm_airtime_smoke.py --port COM8
 ```
 
 If the first serial attach times out after a verified flash, retry without

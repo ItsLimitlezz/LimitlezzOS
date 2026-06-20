@@ -74,6 +74,14 @@ python scripts/fetch_tdeck_artifact.py --repo ItsLimitlezz/LimitlezzOS --branch 
 python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck
 ```
 
+For the MeshCore-enabled Phase 3 bundle, use the artifact environment so the
+downloaded manifest is checked against `env=tdeck-meshcore`:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha>
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+```
+
 ## Flash Succeeds But Smoke Times Out
 
 USB CDC may disconnect briefly during boot. If flashing completed and all hashes

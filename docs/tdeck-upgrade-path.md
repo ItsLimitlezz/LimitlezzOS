@@ -96,6 +96,14 @@ python scripts/fetch_tdeck_artifact.py --repo ItsLimitlezz/LimitlezzOS --branch 
 python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/<name>
 ```
 
+For the opt-in MeshCore TDM validation image:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha>
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore
+python scripts/tdm_airtime_smoke.py --port COM8
+```
+
 The artifact fetch is strict by default. It refuses to download an artifact when
 there is no successful `Firmware CI` run for the requested commit.
 

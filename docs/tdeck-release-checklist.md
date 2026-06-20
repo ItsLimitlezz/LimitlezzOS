@@ -52,6 +52,12 @@ gh run watch --repo ItsLimitlezz/LimitlezzOS <run-id> --exit-status --interval 1
 python scripts/fetch_tdeck_artifact.py --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha> --out .pio/ci-artifacts/tdeck
 ```
 
+For Phase 3 MeshCore TDM validation, fetch the opt-in build instead:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha>
+```
+
 Confirm `FLASH_MANIFEST.txt` contains the expected `repo=`, `sha=`,
 `workflow=`, `run_id=`, `flash_offsets=`, and size-budget lines.
 
@@ -64,6 +70,14 @@ Flash the downloaded Actions artifact:
 
 ```sh
 python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck --open-timeout 60 --boot-timeout 60 --timeout 30
+```
+
+For the MeshCore-enabled artifact, pass the matching environment and then run
+the TDM probe:
+
+```sh
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore --open-timeout 60 --boot-timeout 60 --timeout 30
+python scripts/tdm_airtime_smoke.py --port COM8 --open-timeout 60 --boot-timeout 60 --timeout 30
 ```
 
 Capture:

@@ -48,6 +48,12 @@ Download the artifact for the exact commit:
 python scripts/fetch_tdeck_artifact.py --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha> --out .pio/ci-artifacts/tdeck
 ```
 
+For the MeshCore-enabled Phase 3 validation artifact:
+
+```sh
+python scripts/fetch_tdeck_artifact.py --env tdeck-meshcore --repo ItsLimitlezz/LimitlezzOS --branch <branch> --commit <sha>
+```
+
 Check `FLASH_MANIFEST.txt` before flashing:
 
 ```powershell
@@ -61,6 +67,14 @@ Flash and run the standard serial smoke:
 
 ```sh
 python scripts/tdeck_smoke.py --port COM8 --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck --open-timeout 60 --boot-timeout 60 --timeout 30
+```
+
+For a MeshCore-enabled TDM run, use the matching environment and artifact
+directory:
+
+```sh
+python scripts/tdeck_smoke.py --port COM8 --env tdeck-meshcore --no-stub-upload --skip-build --artifact-dir .pio/ci-artifacts/tdeck-meshcore --open-timeout 60 --boot-timeout 60 --timeout 30
+python scripts/tdm_airtime_smoke.py --port COM8 --open-timeout 60 --boot-timeout 60 --timeout 30
 ```
 
 Use `/dev/ttyACM0` or `/dev/ttyUSB0` instead of `COM8` on non-Windows hosts.
