@@ -1848,30 +1848,60 @@ static int codec_selftest(void)
      *     before fetch/download/install code trusts them. */
     {
         static const char valid_catalog[] =
-            "{\"schema\":\"limitlezz.app_catalog.v1\",\"updated\":\"2026-06-18T00:00:00Z\","
+            "{\"schema\":\"limitlezz.app.catalog.v1\",\"generated_at\":\"2026-06-18T00:00:00Z\","
             "\"apps\":["
             "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
-            "\"author\":\"Limitless\",\"description\":\"Local weather reports\","
+            "\"author\":\"Limitless\",\"summary\":\"Local weather reports\","
+            "\"description\":\"Local weather reports from nearby mesh stations\","
             "\"icon\":\"weather\",\"hue\":48,\"api_version\":\"0.1\","
-            "\"compatibility\":\"tdeck\",\"permissions\":[\"display\",\"network_wifi\"],"
-            "\"download_url\":\"https://apps.example.invalid/weather.mesh.zip\","
-            "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
-            "\"size\":32768,\"screenshots\":[\"https://apps.example.invalid/weather.bmp\"]},"
+            "\"compatibility\":{\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\",\"sim\"],"
+            "\"min_os\":\"0.95.0\"},"
+            "\"permissions\":[\"display\",\"network_wifi\"],"
+            "\"package_url\":\"https://apps.example.invalid/weather.mesh.zip\","
+            "\"package_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+            "\"package_bytes\":32768,"
+            "\"screenshots\":[{\"url\":\"https://apps.example.invalid/weather.bmp\","
+            "\"width\":320,\"height\":240}]},"
             "{\"id\":\"notes.local\",\"name\":\"Field Notes\",\"version\":\"0.1.0\","
-            "\"author\":\"Limitless\",\"description\":\"Simple local notes\","
-            "\"icon\":\"notes\",\"api_version\":\"0.1\",\"compatibility\":\"tdeck\","
+            "\"author\":\"Limitless\",\"summary\":\"Simple local notes\","
+            "\"description\":\"Simple local notes with scoped storage\","
+            "\"icon\":\"notes\",\"hue\":95,\"api_version\":\"0.1\","
+            "\"compatibility\":{\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\"]},"
             "\"permissions\":[\"display\",\"input\",\"storage\"],"
-            "\"download_url\":\"https://apps.example.invalid/notes.local.zip\","
-            "\"sha256\":\"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd\","
-            "\"size\":49152}]}";
+            "\"package_url\":\"https://apps.example.invalid/notes.local.zip\","
+            "\"package_sha256\":\"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd\","
+            "\"package_bytes\":49152}]}";
         static const char bad_catalog[] =
-            "{\"schema\":\"limitlezz.app_catalog.v1\",\"apps\":["
+            "{\"schema\":\"limitlezz.app.catalog.v1\",\"apps\":["
             "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
-            "\"author\":\"Limitless\",\"description\":\"Bad catalog\",\"icon\":\"weather\","
-            "\"api_version\":\"0.1\",\"compatibility\":\"tdeck\","
+            "\"author\":\"Limitless\",\"summary\":\"Bad catalog\","
+            "\"description\":\"Bad catalog\",\"icon\":\"weather\",\"hue\":48,"
+            "\"api_version\":\"0.1\","
+            "\"compatibility\":{\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\"]},"
             "\"permissions\":[\"display\",\"raw_radio\"],"
-            "\"download_url\":\"file:///sd/apps/weather.zip\","
-            "\"sha256\":\"bad\",\"size\":0}]}";
+            "\"package_url\":\"https://apps.example.invalid/weather.zip\","
+            "\"package_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+            "\"package_bytes\":1024}]}";
+        static const char duplicate_catalog[] =
+            "{\"schema\":\"limitlezz.app.catalog.v1\",\"apps\":["
+            "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
+            "\"author\":\"Limitless\",\"summary\":\"Weather\","
+            "\"description\":\"Weather\",\"icon\":\"weather\",\"hue\":48,"
+            "\"api_version\":\"0.1\","
+            "\"compatibility\":{\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\"]},"
+            "\"permissions\":[\"display\"],"
+            "\"package_url\":\"https://apps.example.invalid/weather.mesh.zip\","
+            "\"package_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+            "\"package_bytes\":1024},"
+            "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh 2\",\"version\":\"0.1.1\","
+            "\"author\":\"Limitless\",\"summary\":\"Weather\","
+            "\"description\":\"Weather\",\"icon\":\"weather\",\"hue\":48,"
+            "\"api_version\":\"0.1\","
+            "\"compatibility\":{\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\"]},"
+            "\"permissions\":[\"display\"],"
+            "\"package_url\":\"https://apps.example.invalid/weather2.zip\","
+            "\"package_sha256\":\"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd\","
+            "\"package_bytes\":1024}]}";
 
         lz_app_catalog_report_t report;
         CHECK(lz_svc_validate_app_catalog_json(valid_catalog, &report) &&
@@ -1879,8 +1909,19 @@ static int codec_selftest(void)
               "app catalog schema accepts valid bounded index");
         CHECK(!lz_svc_validate_app_catalog_json(bad_catalog, &report) &&
               !report.ok && report.rejected_count == 1 &&
-              strcmp(report.first_error, "bad download_url") == 0,
-              "app catalog schema rejects unsafe download URL");
+              strcmp(report.first_error, "bad permissions") == 0,
+              "app catalog schema rejects unsupported permissions");
+        CHECK(!lz_svc_validate_app_catalog_json(duplicate_catalog, &report) &&
+              !report.ok && report.rejected_count == 1 &&
+              strcmp(report.first_error, "duplicate id") == 0,
+              "app catalog schema rejects duplicate app ids");
+        lz_app_catalog_entry_t parsed[4];
+        CHECK(lz_svc_parse_app_catalog_json(valid_catalog, parsed, 4, &report) &&
+              report.ok && report.app_count == 2 &&
+              strcmp(parsed[0].package_url, "https://apps.example.invalid/weather.mesh.zip") == 0 &&
+              parsed[0].target_tdeck && parsed[0].target_sim &&
+              parsed[0].package_bytes == 32768,
+              "app catalog parser extracts typed package metadata");
         char self[160];
         lz_svc_app_catalog_selftest(self, sizeof self);
         CHECK(strstr(self, "PASS") != NULL,
@@ -1888,14 +1929,16 @@ static int codec_selftest(void)
 
         extern void lz_store_init(const char *datadir);
         sim_reset_dir("lzdata_catalog");
-        sim_mkdirs("lzdata_catalog/catalog");
-        FILE *cf = fopen("lzdata_catalog/catalog/index.json", "wb");
+        FILE *cf = fopen("lzdata_catalog/app_catalog.json", "wb");
         if(cf) { fputs(valid_catalog, cf); fclose(cf); }
         lz_store_init("lzdata_catalog");
         char diag[160];
         lz_svc_app_catalog_diag(diag, sizeof diag);
         CHECK(strstr(diag, "ready apps=2") != NULL,
               "app catalog diagnostics report cached index");
+        CHECK(lz_svc_load_app_catalog(parsed, 4, &report) == 2 &&
+              report.ok && strcmp(parsed[1].id, "notes.local") == 0,
+              "app catalog cache loads typed entries");
         lz_store_init(NULL);
         sim_reset_dir("lzdata_catalog");
     }

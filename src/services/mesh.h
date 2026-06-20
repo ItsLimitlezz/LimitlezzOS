@@ -40,6 +40,9 @@ extern "C" {
 #define LZ_FEEDBACK_BODY_MAX 96
 #define LZ_APP_CATALOG_JSON_MAX 4096u
 #define LZ_APP_CATALOG_MAX_APPS 24
+#define LZ_APP_CATALOG_SCHEMA "limitlezz.app.catalog.v1"
+#define LZ_APP_CATALOG_PACKAGE_MAX_BYTES (2u * 1024u * 1024u)
+#define LZ_APP_CATALOG_SCREENSHOT_MAX 4
 #define LZ_OTA_MANIFEST_SCHEMA "limitlezz.ota_manifest.v1"
 #define LZ_OTA_BOARD_TDECK "tdeck"
 #define LZ_OTA_SLOT_MAX_BYTES 0x500000u
@@ -238,6 +241,25 @@ typedef struct {
 } lz_app_catalog_report_t;
 
 typedef struct {
+    char id[24];                 /* canonical package id */
+    char name[32];
+    char version[16];
+    char author[28];
+    char summary[72];
+    char api_version[12];
+    char icon[20];
+    char package_url[181];
+    char package_sha256[65];
+    char min_os[16];
+    uint32_t package_bytes;
+    uint16_t permissions;
+    int hue;
+    uint8_t screenshot_count;
+    bool target_tdeck;
+    bool target_sim;
+} lz_app_catalog_entry_t;
+
+typedef struct {
     char label[24];              /* app-provided foreground control label */
     char status[48];             /* bounded status shown after activation */
     char effect[LZ_LOCAL_APP_ACTION_EFFECT_MAX]; /* optional safe SDK effect */
@@ -307,6 +329,10 @@ bool lz_svc_uninstall_local_app(const lz_local_app_t *app, bool keep_data,
 bool lz_svc_save_app_catalog_cache(const char *json, int len, char *err, int err_cap);
 bool lz_svc_load_app_catalog_cache(char *out, int cap, int *out_len, char *err, int err_cap);
 bool lz_svc_clear_app_catalog_cache(char *err, int err_cap);
+bool lz_svc_parse_app_catalog_json(const char *json, lz_app_catalog_entry_t *out,
+                                   int cap, lz_app_catalog_report_t *report);
+int  lz_svc_load_app_catalog(lz_app_catalog_entry_t *out, int cap,
+                             lz_app_catalog_report_t *report);
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out);
 bool lz_svc_local_app_action(lz_local_app_session_t *session, int idx);
 void lz_svc_stop_local_app(lz_local_app_session_t *session);
