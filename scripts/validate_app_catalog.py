@@ -24,6 +24,8 @@ SUPPORTED_PERMISSIONS = {
     "network_wifi",
 }
 TARGETS = {"tdeck", "sim"}
+MAX_PACKAGE_BYTES = 2 * 1024 * 1024
+MAX_SCREENSHOTS = 4
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,23}$")
 SAFE_VERSION = re.compile(r"^[0-9][0-9A-Za-z_.+-]{0,15}$")
@@ -119,6 +121,8 @@ def validate_screenshots(app: dict, path: str, errors: list[str]) -> None:
     if not isinstance(screenshots, list):
         add_error(errors, f"{path}.screenshots", "must be an array")
         return
+    if len(screenshots) > MAX_SCREENSHOTS:
+        add_error(errors, f"{path}.screenshots", f"too many screenshots (max {MAX_SCREENSHOTS})")
     for i, shot in enumerate(screenshots):
         spath = f"{path}.screenshots[{i}]"
         if not isinstance(shot, dict):
@@ -146,7 +150,7 @@ def validate_app(app: object, index: int, ids: set[str], errors: list[str]) -> N
 
     app_id = require_string(app, "id", path, errors, 23)
     if app_id:
-        if not SAFE_ID.match(app_id):
+        if not SAFE_ID.match(app_id) or app_id == "." or ".." in app_id:
             add_error(errors, f"{path}.id", "unsafe id")
         if app_id in ids:
             add_error(errors, f"{path}.id", f"duplicate id {app_id!r}")
@@ -181,6 +185,8 @@ def validate_app(app: object, index: int, ids: set[str], errors: list[str]) -> N
     package_size = require_int(app, "package_bytes", path, errors)
     if package_size is not None and package_size <= 0:
         add_error(errors, f"{path}.package_bytes", "must be positive")
+    if package_size is not None and package_size > MAX_PACKAGE_BYTES:
+        add_error(errors, f"{path}.package_bytes", f"must be <= {MAX_PACKAGE_BYTES}")
 
     validate_compat(app, path, api_version, errors)
     validate_screenshots(app, path, errors)

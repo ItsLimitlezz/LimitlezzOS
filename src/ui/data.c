@@ -8,7 +8,7 @@ const lz_app_t LZ_APPS[8] = {
     { "meshtastic", "Meshtastic", LZ_I_HUB,        "JESS - 7 nodes",    205 },
     { "meshcore",   "MeshCore",   LZ_I_LAN,        "Companion - 5",     72  },
     { "contacts",   "Contacts",   LZ_I_GROUP,      "9 nodes",           318 },
-    { "appstore",   "App Store",  LZ_I_STOREFRONT, "4 updates",         280 },
+    { "appstore",   "App Store",  LZ_I_STOREFRONT, "Local & catalog",   280 },
     { "terminal",   "Terminal",   LZ_I_TERMINAL,   "115200 baud",       -1  },
     { "files",      "Files",      LZ_I_FOLDER,     "/sd",               242 },
     { "settings",   "Settings",   LZ_I_SETTINGS,   "Networks - Radio",  -1  },
@@ -54,17 +54,6 @@ const lz_node_t LZ_NODES[9] = {
     { "Dmitri K",       "DMI", LZ_NET_MC, "MC-4f8e",   "Chat",     -9.0f,  54,  "-9.0",  "1h",  "T-Deck",      "2.6 km"  },
     { "Base Camp",      "BCR", LZ_NET_MC, "MC-room",   "Room",     NAN,    -1,  "-",     "5m",  "Room Server", "3.1 km"  },
     { "Weather-Sensor", "WX",  LZ_NET_MC, "MC-sens",   "Sensor",   1.2f,   88,  "+1.2",  "1m",  "RAK Sensor",  "3.0 km"  },
-};
-
-lz_store_app_t LZ_STORE[8] = {
-    { "calc",    "Calculator",   "0.1.0", "Utilities",    "0.1 MB", "4.5", LZ_I_CALCULATE,  40,  LZ_ST_GET    },
-    { "notes",   "Notes",        "0.2.0", "Productivity", "0.2 MB", "4.4", LZ_I_NOTE,       95,  LZ_ST_GET    },
-    { "aprs",    "APRS Bridge",  "0.1.0", "Connectivity", "0.4 MB", "4.6", LZ_I_SATELLITE,  200, LZ_ST_GET    },
-    { "weather", "Weather Mesh", "0.2.0", "Sensors",      "0.6 MB", "4.3", LZ_I_THERMOSTAT, 48,  LZ_ST_GET    },
-    { "bbs",     "Mesh BBS",     "0.2.0", "Messaging",    "0.3 MB", "4.1", LZ_I_DNS,        280, LZ_ST_UPDATE },
-    { "scope",   "Signal Scope", "0.2.0", "Utilities",    "0.9 MB", "4.7", LZ_I_GRAPHIC_EQ, 330, LZ_ST_GET    },
-    { "chess",   "LoRa Chess",   "0.1.0", "Games",        "0.5 MB", "4.2", LZ_I_GAMEPAD,    18,  LZ_ST_GET    },
-    { "maps",    "Offline Maps", "0.2.0", "Navigation",   "1.2 MB", "4.8", LZ_I_MAP,        150, LZ_ST_GET    },
 };
 
 const char *LZ_TERM_LINES[12] = {

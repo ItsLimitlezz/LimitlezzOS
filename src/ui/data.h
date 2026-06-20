@@ -49,14 +49,6 @@ typedef struct {
 } lz_node_t;
 
 typedef struct {
-    const char *id, *name, *version, *cat, *size, *rating, *icon;
-    int hue;
-    int state;               /* see LZ_ST_* */
-} lz_store_app_t;
-
-enum { LZ_ST_GET, LZ_ST_UPDATE, LZ_ST_INSTALLING, LZ_ST_OPEN };
-
-typedef struct {
     const char *label, *value;
     int pct;                 /* bar fill %; bar color chosen by row index */
 } lz_sys_stat_t;
@@ -67,7 +59,6 @@ extern const lz_msg_t       LZ_MSGS_AVA[5];
 extern const lz_msg_t       LZ_MSGS_DMITRI[4];
 extern const lz_chan_t      LZ_CHANS[4];
 extern const lz_node_t      LZ_NODES[9];
-extern lz_store_app_t       LZ_STORE[8];     /* mutable: install state */
 extern const char          *LZ_TERM_LINES[12];
 extern const int            LZ_TERM_KIND[12]; /* 0 dim, 1 cmd, 2 out */
 extern const lz_sys_stat_t  LZ_SYS_STATS[5];

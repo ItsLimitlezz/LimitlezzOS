@@ -30,7 +30,7 @@ Not implemented yet:
 - arbitrary Lua/script execution
 - background tasks
 - network catalog download/update
-- app package signatures or SHA verification
+- app package signatures
 - mesh send/receive APIs
 - notifications API behavior
 - raw hardware, radio, filesystem, or kernel access
@@ -60,6 +60,23 @@ manifest.json
 data/              optional; prepared automatically for storage apps
 assets/            optional; reserved for later richer runtimes
 ```
+
+Installable archive packages use a stored-only `.zip` subset for the first
+firmware installer:
+
+```sh
+python scripts/build_app_package.py examples/local-apps/weather-mesh \
+  --out weather.mesh.zip --device-path /sd/limitlezz/packages/weather.mesh.zip
+```
+
+The script prints the exact package byte count and SHA256 digest for:
+
+```text
+app package install <id> <path> <sha256> <bytes>
+```
+
+Archives must include root `manifest.json`, use relative file paths only, avoid
+hidden path segments and top-level `data/`, and store entries uncompressed.
 
 ## Minimal App
 
@@ -259,6 +276,7 @@ The native selftest creates sample local app packages and checks:
 - over-quota blocking
 - token permission gating
 - appfs-only discovery
+- stored-ZIP package install/update rollback
 
 For release or PR validation, use the project workflow:
 

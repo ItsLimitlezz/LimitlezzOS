@@ -142,24 +142,18 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   terminates on exit. Storage-enabled actions can increment a safe counter in
   the app's scoped `data/` directory, unsupported action effects fail closed,
   and apps with matching permissions can use read-only `{time}` / `{battery}`
-  tokens in foreground text. Loaded entry source plus app-controlled foreground
-  metadata are charged against a 704-byte resident runtime budget. SDK
-  apps with matching permissions can use read-only `{time}` / `{battery}`
-  tokens in foreground text, and apps with `notifications` can request a
-  feedback-service notification through a bounded `notify:` action effect. SDK
+  tokens in foreground text. Apps with `notifications` can request a
+  feedback-service notification through a bounded `notify:` action effect.
+  Loaded entry source plus app-controlled foreground metadata are charged
+  against a 704-byte resident runtime budget. SDK
   `api_version` and permission metadata are parsed fail-closed, with rejected
   package diagnostics visible in Developer Mode. Apps that request `storage`
   get a scoped package `data/` directory prepared with a 64 KB launch-time quota
   guard, and the App Store detail screen can clear only that app's scoped data.
-  Script execution, richer API injection, downloads, and updates are still TODO.
-  tokens in foreground text. SDK `api_version` and permission metadata are
-  parsed fail-closed, with rejected package diagnostics visible in Developer
-  Mode. Apps that request `storage` get a scoped package `data/` directory
-  prepared with a 64 KB launch-time quota guard, and the App Store detail screen
-  can clear only that app's scoped data. The future network catalog now has a
-  bounded `index.json` schema validator and serial `app catalog status|test`
-  diagnostics. Script execution, richer API injection, catalog fetch, downloads,
-  and updates are still TODO.
+  The network catalog path validates cached `limitlezz.app.catalog.v1` rows and
+  can install/update verified stored-ZIP packages from catalog metadata. Script
+  execution, richer API injection, signatures, and polished async progress are
+  still TODO.
 - **App flash (`appfs`)** - T-Deck builds mount the FAT `appfs` partition at
   `/appfs` without formatting, expose it beside SD/local storage in Files, and
   scan `/appfs/apps` even when the SD card is absent.
@@ -399,23 +393,14 @@ for local apps and read-only inspection when present.
   local apps into the SDK 0.1 foreground shell with bounded app-provided actions
   and scoped storage counters plus read-only `{time}` / `{battery}` tokens;
   Close/Esc terminates the foreground session instead of leaving it resident;
-  unsupported action effects launch-block instead of being ignored; the static
-  catalog remains a prototype (GET -> "..." -> OPEN).
+  unsupported action effects launch-block instead of being ignored; cached
+  catalog rows now show real GET/UPDATE/OPEN state and route installs/updates
+  through the verified package transaction.
 - **Local app sample pack** - `examples/local-apps/` contains copyable SDK 0.1
   packages for Calculator, Field Notes, Offline Maps, Weather Mesh, Mesh BBS,
   Signal Scope, LoRa Chess, and APRS Bridge; CI validates that each package
   stays inside the firmware's bounded manifest, permission, token, action, and
   scoped-storage rules.
-  and scoped storage counters plus read-only `{time}` / `{battery}` tokens. The
-  foreground shell reports and enforces the 704-byte resident runtime metadata
-  budget; unsupported action effects launch-block instead of being ignored; the
-  static catalog remains a prototype (GET -> "..." -> OPEN).
-  unsupported action effects launch-block instead of being ignored; network
-  catalog schema validation exists, while fetch/download/install remains ahead;
-  the static catalog remains a prototype (GET -> "..." -> OPEN).
-  unsupported action effects launch-block instead of being ignored; the network
-  catalog has a CI-validated `index.json` schema, while fetch/download/install
-  are still prototype/future work (GET -> "..." -> OPEN).
 - **Contacts / detail** — unified directory with network dots; detail page
   with Message (jumps into the bound conversation) and spec table.
 - **Settings** — airtime scheduler bar that rebalances live when the

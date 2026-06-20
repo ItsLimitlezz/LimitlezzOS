@@ -1,9 +1,9 @@
 # Network App Catalog
 
 This is the V0.95/V0.96 bridge contract for turning the App Store from local
-manifest scanning into a downloadable catalog. It defines the first
-`index.json` shape only; firmware download, install, update, and rollback are
-still later work.
+manifest scanning into a downloadable catalog. Firmware now validates cached
+catalog rows, renders them in App Store, and can install or update a catalog
+entry through the verified stored-ZIP package transaction.
 
 The catalog is intentionally stricter than a web store feed. Every app entry
 must expose enough metadata for the T-Deck to show permissions, check SDK
@@ -33,9 +33,10 @@ Each app entry must include:
 - `hue`: tile hue hint, `-1` for neutral or `0..359`
 - `package_url`: HTTPS URL for the app package
 - `package_sha256`: lowercase 64-character SHA256 digest of the package
-- `package_bytes`: positive package size in bytes
+- `package_bytes`: positive package size in bytes, no more than `2 MB` for
+  the first firmware install path
 - `compatibility`: object with `api_versions`, `targets`, and optional `min_os`
-- `screenshots`: optional array of HTTPS screenshot metadata
+- `screenshots`: optional array of up to `4` HTTPS screenshot metadata objects
 
 The firmware should treat unknown fields as forward-compatible display metadata
 only after the required fields pass validation. Required-field failures,
@@ -77,12 +78,22 @@ field, but when present it must be a compact version string such as `0.95.0`.
 
 ## Package Rules
 
-The package URL must be HTTPS. The future installer should download to a staging
-directory, verify `package_sha256` and `package_bytes`, extract the package,
-validate its embedded `manifest.json` with the local manifest rules, and then
-atomically promote the staged package into the app directory. Any failed
-download, hash mismatch, manifest rejection, or extraction error must leave the
-previous installed package intact.
+The package URL must be HTTPS. On T-Deck builds, catalog installs stream the
+package URL to a bounded temp file under local storage when Wi-Fi is connected;
+serial diagnostics may also provide an already-copied package path for
+deterministic smoke tests. In both cases the installer verifies
+`package_sha256` and `package_bytes`, extracts a stored-only `.zip` package into
+a hidden staging directory, validates its embedded `manifest.json` with the
+local manifest rules, and then atomically promotes the staged package into the
+app directory. Any download, hash, manifest, unsupported compression, unsafe
+path, or extraction error leaves the previous installed package intact.
+
+The first firmware package subset deliberately avoids a decompressor: ZIP
+method `0` is accepted, and compressed ZIP entries are rejected until flash/RAM
+budget work says otherwise. Packages may contain up to 24 files, each file may
+be up to 256 KB, and the complete archive must fit in the catalog's 2 MB
+package limit. Packages must not ship a top-level `data/` tree; runtime data is
+prepared by the OS for apps that request the `storage` permission.
 
 ## Validation
 
@@ -94,3 +105,16 @@ python scripts/validate_app_catalog.py docs/examples/app-catalog-index.json
 
 Firmware CI runs the same validator against the checked-in example catalog so
 schema drift is caught with the normal simulator and T-Deck build gates.
+
+Serial hardware diagnostics:
+
+```text
+app catalog status
+app catalog test
+app catalog install-test
+app catalog install <id> [package_path]
+```
+
+`app catalog install-test` creates a synthetic catalog and stored-ZIP package on
+device, proves install/update, and proves a bad catalog hash preserves the
+previous live app.

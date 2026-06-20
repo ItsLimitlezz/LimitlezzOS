@@ -364,37 +364,38 @@ Goal: let users install and update apps from a repository.
 
 Deliverables:
 
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired. Implemented: a bounded `limitlezz.app_catalog.v1` validator rejects unsafe IDs, unsupported permissions/SDK versions, non-HTTP package URLs, bad SHA256 values, oversize packages, and malformed optional screenshots; serial `app catalog status|test` exposes the result without requiring Wi-Fi.
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired. Implemented in `docs/tdeck-network-app-catalog.md` with `docs/examples/app-catalog-index.json`, `scripts/validate_app_catalog.py`, and a Firmware CI validation step.
-- Fetch catalog over Wi-Fi.
-- Cache catalog for offline browsing. Initial implementation: bounded atomic
-  catalog JSON cache save/load/clear service APIs with native simulator coverage.
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired.
+- Define catalog `index.json` schema: app id, name, version, author, summary/description, icon id/color, permissions, package URL, SHA256, size, compatibility, and screenshots. Implemented in `docs/tdeck-network-app-catalog.md` as `limitlezz.app.catalog.v1`, with `docs/examples/app-catalog-index.json`, `scripts/validate_app_catalog.py`, and a Firmware CI validation step.
 - Fetch catalog over Wi-Fi. Initial implementation: bounded T-Deck HTTP/HTTPS
   catalog fetch transport gated on connected Wi-Fi, with native simulator stub
   coverage for URL/buffer errors.
-- Cache catalog for offline browsing.
-- Download app zip/package.
+- Cache catalog for offline browsing. Initial implementation: bounded atomic
+  catalog JSON cache save/load/clear service APIs with native simulator coverage;
+  canonical cached entries are parsed into typed firmware rows and rendered in
+  App Store browsing/update metadata.
+- Download app zip/package. Initial implementation: catalog installs stream
+  HTTPS package URLs to a bounded temp file on T-Deck when Wi-Fi is connected,
+  with a serial local-package override for deterministic smoke tests.
 - Verify SHA256 before install. Initial foundation: reusable package-file SHA256
   hashing and expected-hash verification helpers with native simulator coverage.
+  Package install now requires exact expected hash and byte count before any
+  extraction.
 - Extract to app staging directory, then atomically promote to installed directory.
   Initial foundation: hidden staging directories, manifest-id validation, live
-  app backup/rollback promotion, and staging discard helpers.
-- Show update badges on installed apps.
-- Show update badges on installed apps. Initial implementation: local App Store
-  rows compare manifest versions with catalog metadata and display update chips
-  plus detail status when a newer catalog version exists.
-- Support uninstall/delete with data retention choice.
+  app backup/rollback promotion, and staging discard helpers. Package install
+  now extracts stored-only ZIP entries into staging, rejects unsafe paths and
+  unsupported compression, validates the embedded manifest before promotion, and
+  selftests rollback/update behavior through serial `app package test`.
+- Show update badges on installed apps. Initial implementation: App Store rows
+  compare installed manifest versions with catalog metadata, display
+  GET/UPDATE/OPEN states, and route GET/UPDATE through the verified catalog
+  install transaction.
+- Support uninstall/delete with data retention choice. Initial implementation:
+  local App Store details expose keep-data and delete-data removal paths; retained
+  data is hidden from app scanning and restored on reinstall.
 - Add plain-language permission prompts. Initial implementation: local app
   detail and foreground metadata now show a bounded `Access` summary generated
   from the manifest permission bits, while keeping raw permission IDs visible
   for diagnostics.
-- Support uninstall/delete with data retention choice. Initial implementation:
-  local App Store details expose keep-data and delete-data removal paths; retained
-  data is hidden from app scanning and restored on reinstall.
-- Add plain-language permission prompts.
-- Add catalog/source settings suitable for community repos without confusing first-time users.
-- Add plain-language permission prompts.
 - Add catalog/source settings suitable for community repos without confusing
   first-time users. Initial implementation: Settings persists an App source
   selector with `Official`, `Community`, and `Local only`; App Store reflects
