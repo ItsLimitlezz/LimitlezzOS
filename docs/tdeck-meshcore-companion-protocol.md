@@ -1,10 +1,11 @@
 # T-Deck MeshCore Companion V0 Protocol
 
-Status: Phase 5 / V0.8 protocol foundation plus an initial firmware serial
-smoke surface. The current firmware exposes `companion mc hello`, `status`,
-`nodes`, `threads`, `send`, `dm`, and `test` for USB console validation; the
-formal `MC0` request/response bridge, live events, BLE transport, and external
-app compatibility are still planned.
+Status: Phase 5 / V0.8 USB-first protocol foundation. The firmware exposes
+`companion mc hello`, `status`, `nodes`, `threads`, `send`, `dm`, and `test`
+for USB console validation, plus formal `companion mc usb on` MC0 mode for
+`HELLO`, `IDENTITY`, `STATUS`, `NODES`, `THREADS`, `SEND_PUBLIC`, `SEND_DM`,
+`EVENTS`, and `EXIT`. Snapshot revision counters and a bounded event drain are
+implemented; BLE transport and external app compatibility are still planned.
 
 ## Goal
 
@@ -49,8 +50,12 @@ the normal console prompt. The firmware enters MC0 mode with:
 ```text
 companion mc usb on
 MC0 1 HELLO proto=0 app=limitlezz-smoke host=windows want=none
-MC0 2 STATUS
-MC0 3 NODES since=0 limit=5
+MC0 2 IDENTITY
+MC0 3 STATUS
+MC0 4 NODES since=0 limit=5
+MC0 5 THREADS since=0 limit=5
+MC0 6 EVENTS mode=on types=nodes,messages,tx,status
+MC0 7 EVENTS mode=off
 MC0 99 EXIT
 ```
 
@@ -373,12 +378,14 @@ Rules:
 2. Add an initial USB serial-console smoke surface for `hello`, `status`,
    `nodes`, `threads`, Public send, DM send, and self-test.
 3. Add a USB-only MeshCore companion mode with `HELLO`, `IDENTITY`, `STATUS`,
-   and `NODES`.
+   and `NODES`. Implemented.
 4. Add `SEND_PUBLIC` and `SEND_DM` using the existing firmware-owned MeshCore
-   send paths.
+   send paths. Implemented.
 5. Add event streaming for receive, send-status, node-change, and status
-   changes.
-6. Add snapshot revision counters and reconnect/resync behavior.
+   changes. In progress: event controls and a bounded event drain are
+   implemented for node, message, and TX events.
+6. Add snapshot revision counters and reconnect/resync behavior. Implemented
+   for node/thread snapshots and `STATUS`/`HELLO` resync.
 7. Mirror the same logical protocol over BLE only after USB behavior is stable.
 8. Revisit external-app compatibility only after the real MeshCore app protocol
    is confirmed.
@@ -390,9 +397,9 @@ Rules:
   `companion mc test`.
 - Formal USB MC0 smoke is opt-in:
   `python scripts/mc_companion_usb_smoke.py --mc0-usb` enters the configured
-  USB mode, sends `HELLO`, `STATUS`, and `NODES`, asserts `MC0 ... OK`,
-  `BEGIN`, and `END` response markers, then exits through the configured
-  `MC0 <id> EXIT` line.
+  USB mode, sends `HELLO`, `IDENTITY`, `STATUS`, `NODES`, `THREADS`, and
+  `EVENTS` on/off, asserts `MC0 ... OK`, revision, `BEGIN`, and `END`
+  response markers, then exits through the configured `MC0 <id> EXIT` line.
 - If firmware lands different command names, use the smoke helper's
   `--mc0-enter-command`, `--mc0-*-template`, `--mc0-*-marker`, and
   `--mc0-exit-template` flags instead of editing firmware or weakening the

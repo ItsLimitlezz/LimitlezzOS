@@ -380,6 +380,7 @@ int  lz_svc_mc_companion_threads(char *buf, int n);
 bool lz_svc_mc_companion_send_public(const char *text);
 bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
 int  lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_drain_events(char *buf, int n);
 int  lz_svc_mc_companion_selftest(char *buf, int n);
 
 /* ---- radio stats (airtime accounting) ---- */

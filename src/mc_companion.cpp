@@ -87,6 +87,9 @@ extern "C" void lz_mcc_usb_poll(void)
             g_mc_len = 0;
         }
     }
+    char events[700];
+    if(lz_svc_mc_companion_drain_events(events, sizeof events) > 0)
+        Serial.print(events);
 }
 
 #endif /* LZ_TARGET_TDECK */
