@@ -33,9 +33,10 @@ Each app entry must include:
 - `hue`: tile hue hint, `-1` for neutral or `0..359`
 - `package_url`: HTTPS URL for the app package
 - `package_sha256`: lowercase 64-character SHA256 digest of the package
-- `package_bytes`: positive package size in bytes
+- `package_bytes`: positive package size in bytes, no more than `2 MB` for
+  the first firmware install path
 - `compatibility`: object with `api_versions`, `targets`, and optional `min_os`
-- `screenshots`: optional array of HTTPS screenshot metadata
+- `screenshots`: optional array of up to `4` HTTPS screenshot metadata objects
 
 The firmware should treat unknown fields as forward-compatible display metadata
 only after the required fields pass validation. Required-field failures,

@@ -47,9 +47,11 @@ static void fmt_telemetry(const lz_node_rt *n, char *out, size_t cap)
 
 #define STORE_LOCAL_MAX LZ_MAX_LOCAL_APPS   /* match Home; was 4 — hid local apps 5..12 */
 #define STORE_ISSUE_MAX LZ_MAX_LOCAL_APP_ISSUES
+#define STORE_CATALOG_MAX LZ_APP_CATALOG_MAX_APPS
 
 static int store_local_n;
 static int store_issue_n;
+static int store_catalog_n;
 static char local_app_note_id[24];
 static char local_app_note[64];
 
@@ -96,34 +98,34 @@ static int app_version_cmp(const char *a, const char *b)
     return 0;
 }
 
-static bool catalog_matches_local(const lz_store_app_t *cat, const lz_local_app_t *app)
+static bool catalog_matches_local(const lz_app_catalog_entry_t *cat, const lz_local_app_t *app)
 {
-    if(!cat || !app || !cat->id || !app->id[0]) return false;
-    char local_id[24];
-    size_t n = 0;
-    while(app->id[n] && app->id[n] != '.' && n + 1 < sizeof local_id) {
-        local_id[n] = app->id[n];
-        n++;
-    }
-    local_id[n] = 0;
-    return local_id[0] && strcmp(cat->id, local_id) == 0;
+    return cat && app && cat->id[0] && app->id[0] && strcmp(cat->id, app->id) == 0;
 }
 
-static const lz_store_app_t *local_app_update_for(const lz_local_app_t *app)
+static const lz_app_catalog_entry_t *local_app_update_for(const lz_local_app_t *app,
+                                                          const lz_app_catalog_entry_t *catalog,
+                                                          int catalog_n)
 {
-    for(int i = 0; i < 8; i++) {
-        if(catalog_matches_local(&LZ_STORE[i], app) &&
-           app_version_cmp(LZ_STORE[i].version, app->version) > 0)
-            return &LZ_STORE[i];
+    for(int i = 0; i < catalog_n; i++) {
+        if(catalog_matches_local(&catalog[i], app) &&
+           app_version_cmp(catalog[i].version, app->version) > 0)
+            return &catalog[i];
     }
     return NULL;
 }
 
-static void store_timer_cb(lv_timer_t *tm)
+static void catalog_size_label(uint32_t bytes, char *out, size_t cap)
 {
-    int idx = (int)(intptr_t)tm->user_data;
-    LZ_STORE[idx].state = LZ_ST_OPEN;
-    if(S.view == LZ_V_APPSTORE) lz_rebuild();
+    if(!out || cap == 0) return;
+    if(bytes < 1024u) {
+        snprintf(out, cap, "%lu B", (unsigned long)bytes);
+    } else if(bytes < 1024u * 1024u) {
+        snprintf(out, cap, "%lu KB", (unsigned long)((bytes + 512u) / 1024u));
+    } else {
+        unsigned long mb10 = ((unsigned long)bytes * 10u + 524288u) / (1024u * 1024u);
+        snprintf(out, cap, "%lu.%lu MB", mb10 / 10u, mb10 % 10u);
+    }
 }
 
 static void store_activate(int idx)
@@ -142,12 +144,7 @@ static void store_activate(int idx)
     }
     idx -= store_local_n;
     if(!show_catalog) return;
-    if(idx >= 8) return;
-    if(LZ_STORE[idx].state == LZ_ST_OPEN || LZ_STORE[idx].state == LZ_ST_INSTALLING) return;
-    LZ_STORE[idx].state = LZ_ST_INSTALLING;
-    lv_timer_t *tm = lv_timer_create(store_timer_cb, 1100, (void *)(intptr_t)idx);
-    lv_timer_set_repeat_count(tm, 1);
-    lz_rebuild();
+    if(idx >= store_catalog_n) return;
 }
 
 void lz_scr_appstore(lv_obj_t *root)
@@ -156,6 +153,12 @@ void lz_scr_appstore(lv_obj_t *root)
     store_local_n = lz_svc_scan_apps(local, STORE_LOCAL_MAX);
     lz_local_app_issue_t issues[STORE_ISSUE_MAX];
     store_issue_n = S.settings.developer ? lz_svc_scan_app_issues(issues, STORE_ISSUE_MAX) : 0;
+    bool show_catalog = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY;
+    lz_app_catalog_entry_t catalog[STORE_CATALOG_MAX];
+    lz_app_catalog_report_t catalog_report;
+    memset(&catalog_report, 0, sizeof catalog_report);
+    store_catalog_n = show_catalog ? lz_svc_load_app_catalog(catalog, STORE_CATALOG_MAX,
+                                                             &catalog_report) : 0;
 
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
     lv_obj_t *bar = lz_navbar(root, "App Store", NULL);
@@ -169,14 +172,14 @@ void lz_scr_appstore(lv_obj_t *root)
     lv_obj_set_style_pad_row(body, 3, 0);
     lz_nav_set_scroll(body);
 
-    bool show_catalog = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY;
     char source_line[48];
     snprintf(source_line, sizeof source_line, "Source: %s", lz_app_source_label(S.settings.app_source));
     lv_obj_t *src = lz_text(body, source_line, LZ_F_SMALL, LZ_TEXT_META);
     lv_obj_set_style_pad_left(src, 4, 0);
     lv_obj_set_style_pad_bottom(src, 3, 0);
 
-    if(show_catalog) {
+    if(show_catalog && store_catalog_n > 0) {
+        const lz_app_catalog_entry_t *featured = &catalog[0];
         /* featured card (flattened to solid fill per rendering constraints) */
         lv_obj_t *feat = lz_box(body);
         lv_obj_set_width(feat, lv_pct(100));
@@ -197,18 +200,17 @@ void lz_scr_appstore(lv_obj_t *root)
         lv_obj_t *ftile = lz_box(frow);
         lv_obj_set_size(ftile, 42, 42);
         lv_obj_set_style_radius(ftile, 11, 0);
-        lv_obj_set_style_bg_color(ftile, lz_tile_color(150), 0);
+        lv_obj_set_style_bg_color(ftile, lz_tile_color(featured->hue), 0);
         lv_obj_set_style_bg_opa(ftile, LV_OPA_COVER, 0);
-        lv_obj_t *fic = lz_icon(ftile, LZ_I_MAP, &lz_icons_24, lv_color_white());
+        lv_obj_t *fic = lz_icon(ftile, lz_app_icon_glyph(featured->icon), &lz_icons_24, lv_color_white());
         lv_obj_center(fic);
         lv_obj_t *fcol = lz_box(frow);
         lv_obj_set_flex_grow(fcol, 1);
         lv_obj_set_height(fcol, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(fcol, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(fcol, 1, 0);
-        lz_text(fcol, "Node Mapper", LZ_F_HEAD, lv_color_white());
-        lv_obj_t *fd = lz_text(fcol, "Live mesh topology & GPS positions on an offline map",
-                               LZ_F_SMALL, lv_color_hex(0xCFD0E4));
+        lz_text(fcol, featured->name, LZ_F_HEAD, lv_color_white());
+        lv_obj_t *fd = lz_text(fcol, featured->summary, LZ_F_SMALL, lv_color_hex(0xCFD0E4));
         lv_label_set_long_mode(fd, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(fd, lv_pct(100));
     }
@@ -220,7 +222,7 @@ void lz_scr_appstore(lv_obj_t *root)
 
         for(int i = 0; i < store_local_n; i++) {
             lz_local_app_t *a = &local[i];
-            const lz_store_app_t *update = local_app_update_for(a);
+            const lz_app_catalog_entry_t *update = local_app_update_for(a, catalog, store_catalog_n);
             lv_obj_t *row = lz_row(body, i == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
 
@@ -303,13 +305,22 @@ void lz_scr_appstore(lv_obj_t *root)
     }
 
     if(show_catalog) {
-        lv_obj_t *hd = lz_text(body, store_local_n > 0 ? "Catalog examples" : "Apps & utilities",
+        lv_obj_t *hd = lz_text(body, store_local_n > 0 ? "Catalog" : "Apps & utilities",
                                LZ_F_BODY, lv_color_hex(0xCFD4DA));
         lv_obj_set_style_pad_bottom(hd, 3, 0);
 
-        for(int i = 0; i < 8; i++) {
+        if(store_catalog_n == 0) {
+            const char *empty = catalog_report.first_error[0] &&
+                                strcmp(catalog_report.first_error, "catalog missing") != 0
+                              ? "Catalog unavailable" : "No catalog cache";
+            lv_obj_t *msg = lz_text(body, empty, LZ_F_SMALL, LZ_TEXT_META);
+            lv_obj_set_width(msg, lv_pct(100));
+            lv_obj_set_style_pad_left(msg, 4, 0);
+        }
+
+        for(int i = 0; i < store_catalog_n; i++) {
             int nav_idx = store_local_n + i;
-            lz_store_app_t *a = &LZ_STORE[i];
+            lz_app_catalog_entry_t *a = &catalog[i];
             lv_obj_t *row = lz_row(body, nav_idx == S.focus);
             lv_obj_set_style_radius(row, 11, 0);
 
@@ -318,7 +329,7 @@ void lz_scr_appstore(lv_obj_t *root)
             lv_obj_set_style_radius(tile, 10, 0);
             lv_obj_set_style_bg_color(tile, lz_tile_color(a->hue), 0);
             lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
-            lv_obj_t *ic = lz_icon(tile, a->icon, &lz_icons_18, lv_color_white());
+            lv_obj_t *ic = lz_icon(tile, lz_app_icon_glyph(a->icon), &lz_icons_18, lv_color_white());
             lv_obj_center(ic);
 
             lv_obj_t *cl = lz_box(row);
@@ -326,39 +337,35 @@ void lz_scr_appstore(lv_obj_t *root)
             lv_obj_set_height(cl, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(cl, LV_FLEX_FLOW_COLUMN);
             lv_obj_set_style_pad_row(cl, 1, 0);
-            lz_text(cl, a->name, LZ_F_BODY, LZ_TEXT);
+            lv_obj_t *nm = lz_text(cl, a->name, LZ_F_BODY, LZ_TEXT);
+            lv_obj_set_width(nm, 156);
+            lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
             lv_obj_t *meta = lz_box(cl);
             lv_obj_set_size(meta, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(meta, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(meta, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             lv_obj_set_style_pad_column(meta, 4, 0);
-            lz_icon(meta, LZ_I_STAR, &lz_icons_14, LZ_SNR_MID);
-            lz_text(meta, a->rating, LZ_F_SMALL, LZ_TEXT_VALUE);
-            char cs[44]; snprintf(cs, sizeof cs, "- v%s - %s - %s", a->version, a->cat, a->size);
+            lz_icon(meta, LZ_I_DESCRIPTION, &lz_icons_14, LZ_TEXT_3);
+            char size[16];
+            catalog_size_label(a->package_bytes, size, sizeof size);
+            char cs[72]; snprintf(cs, sizeof cs, "v%s - %s - %s", a->version, a->author, size);
             lz_text(meta, cs, LZ_F_SMALL, LZ_TEXT_3);
 
-            const char *lbl = a->state == LZ_ST_INSTALLING ? "..."
-                            : a->state == LZ_ST_OPEN       ? "OPEN"
-                            : a->state == LZ_ST_UPDATE     ? "UPDATE" : "GET";
-            bool open = a->state == LZ_ST_OPEN;
             lv_obj_t *btn = lz_box(row);
             lv_obj_set_size(btn, LV_SIZE_CONTENT, 21);
             lv_obj_set_style_min_width(btn, 52, 0);
             lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_bg_color(btn, open ? lv_color_hex(0x222A33) : LZ_STORE_BTN, 0);
+            lv_obj_set_style_bg_color(btn, lv_color_hex(0x222A33), 0);
             lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-            if(open) {
-                lv_obj_set_style_border_width(btn, 1, 0);
-                lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
-            }
+            lv_obj_set_style_border_width(btn, 1, 0);
+            lv_obj_set_style_border_color(btn, lv_color_hex(0x3A414B), 0);
             lv_obj_set_style_pad_hor(btn, 11, 0);
-            lv_obj_t *bl = lz_text(btn, lbl, LZ_F_SMALL,
-                                   open ? lv_color_hex(0xCFD4DA) : LZ_ON_MINT);
+            lv_obj_t *bl = lz_text(btn, "INFO", LZ_F_SMALL, lv_color_hex(0xCFD4DA));
             lv_obj_center(bl);
             lz_nav_track(row, nav_idx);
         }
     }
-    lz_nav_set(1, store_local_n + (show_catalog ? 8 : 0), store_activate);
+    lz_nav_set(1, store_local_n + (show_catalog ? store_catalog_n : 0), store_activate);
 }
 
 static void app_data_quota_label(uint32_t used, uint32_t quota, char *out, size_t cap)
@@ -539,7 +546,13 @@ void lz_scr_local_app(lv_obj_t *root)
     snprintf(api, sizeof api, "SDK %s", a->api_version);
     lz_app_permissions_list(a->permissions, perms, sizeof perms);
     lz_app_permissions_summary(a->permissions, access, sizeof access);
-    const lz_store_app_t *update = local_app_update_for(a);
+    lz_app_catalog_entry_t catalog[STORE_CATALOG_MAX];
+    lz_app_catalog_report_t catalog_report;
+    memset(&catalog_report, 0, sizeof catalog_report);
+    int catalog_n = S.settings.app_source != LZ_APP_SOURCE_LOCAL_ONLY
+                  ? lz_svc_load_app_catalog(catalog, STORE_CATALOG_MAX, &catalog_report)
+                  : 0;
+    const lz_app_catalog_entry_t *update = local_app_update_for(a, catalog, catalog_n);
     if(update) snprintf(status, sizeof status, "Update available: v%s", update->version);
     else snprintf(status, sizeof status, "Manifest ready");
     if(a->permissions & LZ_APP_PERM_STORAGE) {
