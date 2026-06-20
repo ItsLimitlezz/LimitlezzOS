@@ -142,6 +142,105 @@ static void set_err(char *err, int err_cap, const char *msg)
     if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "%s", msg);
 }
 
+#define LZ_SHA256_HEX_LEN 64
+
+static int sha256_hex_val(char c)
+{
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if(c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+static bool sha256_expected_valid(const char *hex)
+{
+    if(!hex) return false;
+    for(int i = 0; i < LZ_SHA256_HEX_LEN; i++) {
+        if(sha256_hex_val(hex[i]) < 0) return false;
+    }
+    return hex[LZ_SHA256_HEX_LEN] == 0;
+}
+
+static void sha256_to_hex(const uint8_t digest[32], char *out, int out_cap)
+{
+    static const char H[] = "0123456789abcdef";
+    if(!out || out_cap <= 0) return;
+    out[0] = 0;
+    if(out_cap < LZ_SHA256_HEX_LEN + 1) return;
+    for(int i = 0; i < 32; i++) {
+        out[i * 2] = H[digest[i] >> 4];
+        out[i * 2 + 1] = H[digest[i] & 0x0f];
+    }
+    out[LZ_SHA256_HEX_LEN] = 0;
+}
+
+static bool sha256_hex_equal(const char *a, const char *b)
+{
+    if(!a || !b) return false;
+    for(int i = 0; i < LZ_SHA256_HEX_LEN; i++) {
+        if(sha256_hex_val(a[i]) != sha256_hex_val(b[i])) return false;
+    }
+    return a[LZ_SHA256_HEX_LEN] == 0 && b[LZ_SHA256_HEX_LEN] == 0;
+}
+
+bool lz_store_file_sha256(const char *path, char *out_hex, int out_cap,
+                          char *err, int err_cap)
+{
+    if(out_hex && out_cap > 0) out_hex[0] = 0;
+    set_err(err, err_cap, "");
+    if(!out_hex || out_cap < LZ_SHA256_HEX_LEN + 1) {
+        set_err(err, err_cap, "hash buffer small");
+        return false;
+    }
+    if(!path || !path[0]) {
+        set_err(err, err_cap, "missing path");
+        return false;
+    }
+
+    FILE *f = fopen(path, "rb");
+    if(!f) {
+        set_err(err, err_cap, "package missing");
+        return false;
+    }
+
+    lz_sha256_ctx ctx;
+    lz_sha256_init(&ctx);
+    uint8_t buf[256];
+    size_t n = 0;
+    while((n = fread(buf, 1, sizeof buf, f)) > 0) {
+        lz_sha256_update(&ctx, buf, n);
+    }
+    if(ferror(f)) {
+        fclose(f);
+        set_err(err, err_cap, "package read failed");
+        return false;
+    }
+    fclose(f);
+
+    uint8_t digest[32];
+    lz_sha256_final(&ctx, digest);
+    sha256_to_hex(digest, out_hex, out_cap);
+    return true;
+}
+
+bool lz_store_verify_file_sha256(const char *path, const char *expected_hex,
+                                 char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    if(!sha256_expected_valid(expected_hex)) {
+        set_err(err, err_cap, "bad sha256");
+        return false;
+    }
+
+    char actual[LZ_SHA256_HEX_LEN + 1];
+    if(!lz_store_file_sha256(path, actual, sizeof actual, err, err_cap)) return false;
+    if(!sha256_hex_equal(actual, expected_hex)) {
+        set_err(err, err_cap, "sha mismatch");
+        return false;
+    }
+    return true;
+}
+
 static bool app_data_usage_walk(const char *dir, int depth, int *entries,
                                 uint32_t *used, char *err, int err_cap)
 {

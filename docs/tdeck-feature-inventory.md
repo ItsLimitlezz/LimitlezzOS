@@ -111,6 +111,7 @@ Status labels:
 | Network app catalog | Partial | `docs/tdeck-app-catalog-schema.md`; bounded `limitlezz.app_catalog.v1` validator plus serial `app catalog status\|test` diagnostics | Fetch `index.json` over Wi-Fi, verify TLS/source metadata, cache results, and feed validated entries into App Store state. |
 | Network app catalog | Planned/Partial | Wi-Fi service notes; design spec; Settings persists an App source selector with Official, Community, and Local only modes, and App Store reflects the selected source while keeping catalog examples hidden in local-only mode. | Fetch `index.json`, verify TLS/metadata, cache results. |
 | App download/install/update | Planned | App Store prototype only | SHA256 verify, extract, version updates, rollback failed installs. |
+| App download/install/update | Planned/Partial | App Store prototype plus bounded package-file SHA256 helper | Wire the verifier into download/staging, then extract, version updates, and rollback failed installs. |
 | Optional map app | Planned | Store data includes maps; maintainer notes prefer maps as optional | Keep maps out of the base firmware. |
 | APRS/weather/BBS/scope/game apps | Planned/Prototype catalog entries | Static `LZ_STORE` rows | Implement as sandboxed apps once runtime exists. |
 

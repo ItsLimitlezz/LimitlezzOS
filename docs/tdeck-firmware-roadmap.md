@@ -365,7 +365,8 @@ Deliverables:
 - Fetch catalog over Wi-Fi.
 - Cache catalog for offline browsing.
 - Download app zip/package.
-- Verify SHA256 before install.
+- Verify SHA256 before install. Initial foundation: reusable package-file SHA256
+  hashing and expected-hash verification helpers with native simulator coverage.
 - Extract to app staging directory, then atomically promote to installed directory.
 - Show update badges on installed apps.
 - Support uninstall/delete with data retention choice.
