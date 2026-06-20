@@ -42,6 +42,8 @@ static char    g_line[160];
 static uint8_t g_len;
 static lz_emergency_guard_t g_emergency_guard;
 
+static void cmd_feedback(char *args);   /* cmd_app's "notify test" echoes feedback status */
+
 static void prompt(void) { Serial.print("\nlz> "); }
 
 static void cmd_help(void)
@@ -443,9 +445,14 @@ static void cmd_companion(char *args)
     if(lz_mtc_ble_status) { char b[240]; lz_mtc_ble_status(b, sizeof b); Serial.println(b); }
 }
 
-static void cmd_nodes(char *args)
 static void cmd_app(char *args)
 {
+    if(args && strcmp(args, "notify test") == 0) {
+        lz_svc_feedback_notify("serial-app", "App notification", "SDK notify smoke");
+        Serial.println("[ok] app notification requested");
+        cmd_feedback((char *)"status");
+        return;
+    }
     if(args && strcmp(args, "catalog test") == 0) {
         char b[180];
         lz_svc_app_catalog_selftest(b, sizeof b);
@@ -459,10 +466,10 @@ static void cmd_app(char *args)
         Serial.print(b);
         return;
     }
-    Serial.println("usage: app catalog status | app catalog test");
+    Serial.println("usage: app notify test | app catalog status | app catalog test");
 }
 
-static void cmd_nodes(void)
+static void cmd_nodes(char *args)
 {
     if(args && strcmp(args, "test") == 0) {
         char err[64];
@@ -654,17 +661,6 @@ static void cmd_feedback(char *args)
     Serial.print(b);
     lz_feedback_policy_diag(b, sizeof b);
     Serial.print(b);
-}
-
-static void cmd_app(char *args)
-{
-    if(args && strcmp(args, "notify test") == 0) {
-        lz_svc_feedback_notify("serial-app", "App notification", "SDK notify smoke");
-        Serial.println("[ok] app notification requested");
-        cmd_feedback((char *)"status");
-        return;
-    }
-    Serial.println("usage: app notify test");
 }
 
 static void cmd_sys(void)
