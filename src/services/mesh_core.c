@@ -4,6 +4,7 @@
  * real SX1262 driver both call the lz_core_on_* hooks below.
  */
 #include "mesh.h"
+#include "app_catalog_fetch.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -434,6 +435,31 @@ bool lz_svc_load_app_catalog_cache(char *out, int cap, int *out_len, char *err, 
 bool lz_svc_clear_app_catalog_cache(char *err, int err_cap)
 {
     return lz_store_clear_app_catalog_cache(err, err_cap);
+}
+
+bool lz_svc_fetch_app_catalog(const char *url, lz_app_catalog_report_t *out,
+                              char *err, int err_cap)
+{
+    if(out) memset(out, 0, sizeof *out);
+    if(err && err_cap > 0) err[0] = 0;
+    static char json[LZ_APP_CATALOG_FETCH_MAX + 1];
+    int len = 0;
+    if(!lz_app_catalog_fetch(url, json, sizeof json, &len, err, err_cap))
+        return false;
+
+    lz_app_catalog_report_t report;
+    if(!lz_store_validate_app_catalog_json(json, &report)) {
+        if(out) *out = report;
+        if(err && err_cap > 0)
+            snprintf(err, (size_t)err_cap, "%s", report.first_error[0] ? report.first_error : "invalid catalog");
+        return false;
+    }
+    if(!lz_store_save_app_catalog_cache(json, len, err, err_cap)) {
+        if(out) *out = report;
+        return false;
+    }
+    if(out) *out = report;
+    return true;
 }
 
 bool lz_svc_start_local_app(const lz_local_app_t *app, lz_local_app_session_t *out)

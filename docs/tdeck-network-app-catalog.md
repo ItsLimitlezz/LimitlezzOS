@@ -2,8 +2,8 @@
 
 This is the V0.95/V0.96 bridge contract for turning the App Store from local
 manifest scanning into a downloadable catalog. It defines the first
-`index.json` shape only; firmware download, install, update, and rollback are
-still later work.
+`index.json` shape and the firmware can refresh a validated cache over Wi-Fi;
+package download, install, update, and rollback are still later work.
 
 The catalog is intentionally stricter than a web store feed. Every app entry
 must expose enough metadata for the T-Deck to show permissions, check SDK
@@ -94,3 +94,16 @@ python scripts/validate_app_catalog.py docs/examples/app-catalog-index.json
 
 Firmware CI runs the same validator against the checked-in example catalog so
 schema drift is caught with the normal simulator and T-Deck build gates.
+
+On device, the serial console exposes the first refresh path:
+
+```text
+app catalog fetch https://example.invalid/limitlezz/catalog/index.json
+app catalog status
+app catalog clear
+```
+
+The refresh command fetches a bounded JSON body, runs the same fail-closed
+firmware validator, and saves the cache only after validation succeeds. The
+cache is for browsing metadata; package download and installation remain future
+work.

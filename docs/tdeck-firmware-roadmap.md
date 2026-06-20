@@ -364,16 +364,18 @@ Goal: let users install and update apps from a repository.
 
 Deliverables:
 
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired. Implemented: a bounded `limitlezz.app_catalog.v1` validator rejects unsafe IDs, unsupported permissions/SDK versions, non-HTTP package URLs, bad SHA256 values, oversize packages, and malformed optional screenshots; serial `app catalog status|test` exposes the result without requiring Wi-Fi.
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired. Implemented in `docs/tdeck-network-app-catalog.md` with `docs/examples/app-catalog-index.json`, `scripts/validate_app_catalog.py`, and a Firmware CI validation step.
-- Fetch catalog over Wi-Fi.
-- Cache catalog for offline browsing. Initial implementation: bounded atomic
-  catalog JSON cache save/load/clear service APIs with native simulator coverage.
-- Define catalog `index.json` schema: app id, name, version, author, description, icon id/color, permissions, download URL, SHA256, size, compatibility, screenshots if desired.
+- Define catalog `index.json` schema: app id, name, version, author,
+  description, icon id/color, permissions, package URL, SHA256, size,
+  compatibility, screenshots if desired. Implemented in
+  `docs/tdeck-network-app-catalog.md` with `docs/examples/app-catalog-index.json`,
+  `scripts/validate_app_catalog.py`, Firmware CI validation, and matching
+  firmware validation for `limitlezz.app.catalog.v1`.
 - Fetch catalog over Wi-Fi. Initial implementation: bounded T-Deck HTTP/HTTPS
-  catalog fetch transport gated on connected Wi-Fi, with native simulator stub
-  coverage for URL/buffer errors.
-- Cache catalog for offline browsing.
+  catalog fetch transport gated on connected Wi-Fi, plus serial
+  `app catalog fetch <url>` / `refresh <url>`.
+- Cache catalog for offline browsing. Implemented: validated refresh writes a
+  bounded atomic metadata cache, `app catalog status` validates that refreshed
+  cache first, and `app catalog clear` removes it.
 - Download app zip/package.
 - Verify SHA256 before install. Initial foundation: reusable package-file SHA256
   hashing and expected-hash verification helpers with native simulator coverage.
