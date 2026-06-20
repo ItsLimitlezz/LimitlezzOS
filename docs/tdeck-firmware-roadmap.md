@@ -47,7 +47,7 @@ These maintainer-provided beta labels are the canonical near-term sequence. The 
 | V0.6 | MeshCore public chat and split airtime config | 🚧 Public chat send/receive hardware-verified; **split airtime may not be working — needs re-verification**; config UI still TODO |
 | V0.6 | MeshCore public chat and split airtime config | In progress - public chat send/receive hardware-verified; split-airtime serial dwell/switch smoke passed on COM8; packet-loss, latency, and real dual-network traffic soak still open |
 | V0.7 | MeshCore DMs and private chats | ✅ Encrypted DMs (X25519 ECDH + AES) send/receive hardware-verified against a real MeshCore peer |
-| V0.8 | MeshCore USB companion and MeshCore BLE companion | ⬜ Not started |
+| V0.8 | MeshCore USB companion and MeshCore BLE companion | 🚧 Protocol foundation drafted; USB/BLE implementation still planned and not external-app compatible yet |
 | V0.9 | Code review, optimization, and emoji polish | ⬜ Not started |
 | V0.95 | Basic app SDK and infrastructure; Home UI supports adding apps and multiple home screens | 🚧 Local manifest scanner, Home paging, and detail shell started; runtime/catalog still TODO |
 | V0.96 | Upgraded Wi-Fi password storage | ✅ Implemented on T-Deck hardware: credentials use ESP32 NVS, legacy `wifi.cfg` migrates/removes, and diagnostics do not print passwords |
@@ -188,18 +188,27 @@ Exit criteria:
 
 Goal: expose MeshCore companion functionality only after native MeshCore messaging is stable.
 
+**Status:** protocol foundation in progress with an initial USB serial-console
+smoke surface. `companion mc hello|status|nodes|threads|send|dm|test` now
+exercises the firmware-owned MeshCore snapshots and send boundaries for COM8
+validation, while the formal `MC0` bridge, BLE transport, events, and real
+external MeshCore app compatibility are still planned work.
+
 Deliverables:
 
-- Define the MeshCore companion protocol surface for node DB, public chat, private chats, and send/receive forwarding.
+- Define the MeshCore companion protocol surface for node DB, public chat, private chats, and send/receive forwarding. Drafted as `docs/tdeck-meshcore-companion-protocol.md`.
+- Add a USB serial-console smoke surface that reports MeshCore companion status, nodes, threads, Public send, DM send, and self-test.
 - Implement MeshCore USB companion mode.
 - Implement MeshCore BLE companion mode.
 - Add UI and serial commands that distinguish Meshtastic companion from MeshCore companion.
 - Decide whether one companion session or one network can own the external-app bridge at a time.
+- Confirm the real MeshCore app protocol before claiming compatibility with existing external MeshCore apps.
 - Hardware-test pairing, reconnect, send, receive, and disconnect flows.
 
 Exit criteria:
 
 - MeshCore companion works over USB and BLE without breaking on-device messaging or Meshtastic companion behavior.
+- Existing MeshCore apps are only called compatible after their real app protocol is confirmed and mapped.
 
 ## Phase 6 - V0.9 Code Review, Optimization, And Emoji Polish
 

@@ -128,7 +128,11 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   enabling one frees the other.
 
 ### 🔭 Later
-- **MeshCore companion bridge** — let the companion app speak MeshCore too (Public + DMs are already on-device).
+- **MeshCore companion bridge** — V0 protocol foundation is drafted, and an
+  initial `companion mc ...` USB serial-console smoke surface can report
+  snapshots and exercise send boundaries; the formal USB/BLE bridge remains
+  planned, and it is not official MeshCore app compatible unless the real
+  MeshCore app protocol is confirmed.
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps
@@ -160,6 +164,7 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
 - [`docs/tdeck-firmware-audit.md`](docs/tdeck-firmware-audit.md) - current firmware audit and risk list.
 - [`docs/tdeck-feature-inventory.md`](docs/tdeck-feature-inventory.md) - feature-by-feature implementation inventory.
 - [`docs/tdeck-firmware-roadmap.md`](docs/tdeck-firmware-roadmap.md) - roadmap to a complete T-Deck firmware.
+- [`docs/tdeck-meshcore-companion-protocol.md`](docs/tdeck-meshcore-companion-protocol.md) - draft Phase 5/V0.8 MeshCore companion line protocol.
 - [`docs/tdeck-hardware-dogfood-checklist.md`](docs/tdeck-hardware-dogfood-checklist.md) - stock-device hardware proof checklist.
 - [`docs/tdeck-release-checklist.md`](docs/tdeck-release-checklist.md) - slow-host Actions artifact and COM8 release evidence checklist.
 - [`docs/tdeck-troubleshooting.md`](docs/tdeck-troubleshooting.md) - build, flash, boot, radio, storage, Wi-Fi, and companion troubleshooting.

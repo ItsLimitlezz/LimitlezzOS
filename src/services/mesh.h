@@ -275,6 +275,17 @@ bool lz_svc_resend(int tail_idx);     /* retry a failed sent DM (long-press) */
 const char *lz_svc_delivery_fail_label(uint8_t reason);
 int  lz_svc_delivery_diag(char *buf, int n);  /* serial: pending DM ACK state */
 
+/* MeshCore companion v0: line-oriented snapshot/send surface for USB smoke and
+ * future external bridge work. This is not an external app compatibility claim. */
+int  lz_svc_mc_companion_hello(char *buf, int n);
+int  lz_svc_mc_companion_status(char *buf, int n);
+int  lz_svc_mc_companion_nodes(char *buf, int n);
+int  lz_svc_mc_companion_threads(char *buf, int n);
+bool lz_svc_mc_companion_send_public(const char *text);
+bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
+int  lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_selftest(char *buf, int n);
+
 /* ---- radio stats (airtime accounting) ---- */
 typedef struct { uint32_t tx_count, rx_count; float util_pct; } lz_radio_stats_t;
 void lz_svc_radio_stats(lz_radio_stats_t *out);
@@ -379,6 +390,13 @@ bool lz_mtc_ble_connected(void);
 void lz_mtc_ble_set_enabled(bool on);
 int  lz_mtc_ble_status(char *buf, int n);
 int  lz_mtc_ble_selftest(char *buf, int n);
+
+/* MeshCore companion bridge: USB serial speaks the MC0 line protocol when active. */
+bool lz_mcc_usb_active(void);
+void lz_mcc_usb_set_active(bool on);
+void lz_mcc_usb_poll(void);
+int  lz_mcc_usb_status(char *buf, int n);
+int  lz_mcc_usb_selftest(char *buf, int n);
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);

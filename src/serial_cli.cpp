@@ -66,6 +66,8 @@ static void cmd_help(void)
         "  mc test              build+verify our advert (proves nodes will accept it)\n"
         "  companion on|off     USB acts as a Meshtastic-app companion radio\n"
         "  companion ble on|off|test  BLE Meshtastic-app companion advertising\n"
+        "  companion mc hello|status|nodes|threads|send|dm|test  MeshCore companion v0\n"
+        "  companion mc usb on|off|status|test  USB speaks MeshCore MC0\n"
         "  companion test       loopback-verify the companion protocol\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  feedback             show DND/priority feedback policy\n"
@@ -329,10 +331,92 @@ static void cmd_emergency(char *args)
 
 static void cmd_companion(char *args)
 {
+    if(args && strncmp(args, "mc", 2) == 0 && (args[2] == 0 || args[2] == ' ')) {
+        char *sub = args + 2;
+        while(*sub == ' ') sub++;
+        if(strncmp(sub, "usb", 3) == 0 && (sub[3] == 0 || sub[3] == ' ')) {
+            char *state = sub + 3;
+            while(*state == ' ') state++;
+            if(!state[0] || strcmp(state, "status") == 0) {
+                char b[140]; lz_mcc_usb_status(b, sizeof b); Serial.println(b);
+                return;
+            }
+            if(strcmp(state, "test") == 0) {
+                char b[180]; lz_mcc_usb_selftest(b, sizeof b); Serial.println(b);
+                return;
+            }
+            if(strcmp(state, "on") == 0) {
+                lz_mcc_usb_set_active(true);
+                if(lz_mcc_usb_active()) {
+                    Serial.println("[ok] MeshCore MC0 USB companion mode ON");
+                    Serial.println("     send 'MC0 1 EXIT' to return to the text console");
+                } else {
+                    Serial.println("[err] MeshCore MC0 USB companion could not allocate line buffer");
+                }
+                return;
+            }
+            if(strcmp(state, "off") == 0) {
+                lz_mcc_usb_set_active(false);
+                Serial.println("[ok] MeshCore MC0 USB companion mode OFF");
+                return;
+            }
+            Serial.println("usage: companion mc usb on|off|status|test");
+            return;
+        }
+        if(!sub[0] || strcmp(sub, "status") == 0) {
+            char b[220]; lz_svc_mc_companion_status(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "hello") == 0) {
+            char b[220]; lz_svc_mc_companion_hello(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "nodes") == 0) {
+            char b[760]; lz_svc_mc_companion_nodes(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "threads") == 0) {
+            char b[760]; lz_svc_mc_companion_threads(b, sizeof b); Serial.print(b);
+            return;
+        }
+        if(strcmp(sub, "test") == 0) {
+            char h[220], st[220], nodes[220];
+            char proto[120];
+            lz_svc_mc_companion_hello(h, sizeof h);
+            lz_svc_mc_companion_status(st, sizeof st);
+            lz_svc_mc_companion_nodes(nodes, sizeof nodes);
+            lz_svc_mc_companion_selftest(proto, sizeof proto);
+            bool ok = strstr(h, "mccomp: hello") && strstr(st, "mccomp: status") &&
+                      strstr(nodes, "mccomp-node:") && strstr(proto, "PASS");
+            Serial.printf("MeshCore companion v0 selftest: %s\n", ok ? "PASS" : "FAIL");
+            Serial.println(proto);
+            return;
+        }
+        if(strncmp(sub, "send ", 5) == 0) {
+            const char *text = sub + 5;
+            if(lz_svc_mc_companion_send_public(text))
+                Serial.println("[ok] mc companion public send queued");
+            else
+                Serial.println("[err] mc companion public send failed");
+            return;
+        }
+        if(strncmp(sub, "dm ", 3) == 0) {
+            char *p = sub + 3; char *sp = strchr(p, ' ');
+            if(!sp) { Serial.println("usage: companion mc dm <peer-name> <text>"); return; }
+            *sp = 0; const char *text = sp + 1;
+            if(lz_svc_mc_companion_send_dm(p, text))
+                Serial.printf("[ok] mc companion DM queued to %s\n", p);
+            else
+                Serial.println("[err] mc companion DM failed");
+            return;
+        }
+        Serial.println("usage: companion mc hello|status|nodes|threads|send <text>|dm <peer> <text>|test|usb on|off|status|test");
+        return;
+    }
     if(args && strncmp(args, "ble", 3) == 0) {
         char state[8] = {0};
         if(sscanf(args, "ble %7s", state) == 1) {
-            if(strcmp(state, "on") == 0)  lz_mtc_ble_set_enabled(true);
+            if(strcmp(state, "on") == 0)  { lz_mcc_usb_set_active(false); lz_mtc_ble_set_enabled(true); }
             if(strcmp(state, "off") == 0) lz_mtc_ble_set_enabled(false);
             if(strcmp(state, "test") == 0 && lz_mtc_ble_selftest) {
                 char b[120]; lz_mtc_ble_selftest(b, sizeof b); Serial.println(b);
@@ -350,6 +434,7 @@ static void cmd_companion(char *args)
         return;
     }
     if(args && strcmp(args, "on") == 0) {
+        lz_mcc_usb_set_active(false);
         Serial.println("[ok] companion mode ON - USB now speaks the Meshtastic app protocol");
         Serial.println("     (text console returns after 'companion off' or reboot)");
         lz_mtc_set_active(true);
