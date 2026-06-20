@@ -420,7 +420,9 @@ Deliverables:
 - Verify SHA256 before writing.
 - Write to inactive OTA partition.
 - Set OTA boot partition and reboot.
-- Support rollback if new firmware fails to mark itself healthy.
+- Support rollback if new firmware fails to mark itself healthy. Initial
+  implementation: a native-tested OTA boot policy chooses clean, pending
+  verification, mark-valid, and rollback actions before partition/API wiring.
 - Add update UI with simple confirmation language.
 - Route OTA progress and failure state through Feedback Manager.
 

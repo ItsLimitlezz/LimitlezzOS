@@ -14,6 +14,7 @@
 #include "services/mesh.h"
 #include "services/feedback.h"
 #include "services/power_policy.h"
+#include "services/ota_boot.h"
 #include "services/wifi.h"
 #include "ui/ui.h"
 
@@ -43,6 +44,7 @@ static uint8_t g_len;
 static lz_emergency_guard_t g_emergency_guard;
 
 static void cmd_feedback(char *args);   /* cmd_app's "notify test" echoes feedback status */
+static void ota_print_decision(const lz_ota_boot_signals_t *s);  /* defined below cmd_ota */
 
 static void prompt(void) { Serial.print("\nlz> "); }
 
@@ -86,6 +88,7 @@ static void cmd_help(void)
         "  security [status|test|set <pin>|check <pin>|clear <pin>]\n"
         "  wifi [scan|on|off]   wifi status / control\n"
         "  settings [test]      persisted settings schema diagnostics\n"
+        "  ota boot-policy|boot-test  OTA rollback policy diagnostics\n"
         "  sys                  battery, uptime, memory\n"
         "  power                battery warning policy and current action\n"
         "  id                   this node's identity\n"
@@ -523,6 +526,35 @@ static void cmd_stats(void)
 
 static void cmd_ota(char *args)
 {
+    if(args && strcmp(args, "boot-test") == 0) {
+        char err[64];
+        bool ok = lz_ota_boot_selftest(err, sizeof err);
+        Serial.printf("OTA boot policy selftest: %s", ok ? "PASS" : "FAIL");
+        if(err[0]) Serial.printf(" %s", err);
+        Serial.println();
+        return;
+    }
+    if(args && strncmp(args, "boot-policy", 11) == 0) {
+        char *mode = args + 11;
+        while(*mode == ' ') mode++;
+        lz_ota_boot_signals_t s = {0};
+        if(strcmp(mode, "pending") == 0) {
+            s.pending_verify = true;
+            s.boot_selftest_passed = true;
+        } else if(strcmp(mode, "confirmed") == 0) {
+            s.pending_verify = true;
+            s.boot_selftest_passed = true;
+            s.user_confirmed = true;
+        } else if(strcmp(mode, "fault") == 0) {
+            s.pending_verify = true;
+            s.boot_selftest_passed = true;
+            s.critical_fault = true;
+        } else if(strcmp(mode, "selftest-fail") == 0) {
+            s.pending_verify = true;
+        }
+        ota_print_decision(&s);
+        return;
+    }
     if(args && strcmp(args, "test") == 0) {
         char b[160];
         lz_svc_ota_manifest_selftest(b, sizeof b);
@@ -530,7 +562,7 @@ static void cmd_ota(char *args)
         return;
     }
     if(args && args[0] && strcmp(args, "status") != 0) {
-        Serial.println("usage: ota [status|test]");
+        Serial.println("usage: ota [status|test|boot-policy ...|boot-test]");
         return;
     }
 
@@ -681,6 +713,16 @@ static void cmd_power(void)
     char b[360];
     lz_power_policy_diag(b, sizeof b, si.battery_pct, mv, si.charging, si.usb);
     Serial.print(b);
+    }
+static void ota_print_decision(const lz_ota_boot_signals_t *s)
+{
+    lz_ota_boot_decision_t d;
+    lz_ota_boot_decide(s, &d);
+    Serial.printf("ota boot policy: action=%s apps=%s updates=%s reason=\"%s\"\n",
+                  lz_ota_boot_action_name(d.action),
+                  d.allow_app_launch ? "allow" : "hold",
+                  d.allow_new_update ? "allow" : "hold",
+                  d.reason);
 }
 
 static void cmd_id(void)

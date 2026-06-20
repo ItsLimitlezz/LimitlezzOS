@@ -36,6 +36,7 @@
 #include "services/power_policy.h"
 #include "services/emergency_guard.h"
 #include "services/app_catalog_fetch.h"
+#include "services/ota_boot.h"
 #include "services/mtproto.h"
 #include "services/mcproto.h"
 #include "services/mc_x25519.h"
@@ -1289,6 +1290,12 @@ static int codec_selftest(void)
                                     &body_len, err, sizeof err) &&
                   body_len == 0 && strcmp(err, "fetch unavailable") == 0,
               "app catalog fetch native stub is explicit");
+    }
+    /* 10. OTA boot policy: fail closed while a new image is pending verify. */
+    {
+        char err[64];
+        CHECK(lz_ota_boot_selftest(err, sizeof err),
+              "OTA boot policy selftest");
     }
 
     /* 11. local app scanner: valid manifests become local apps; broken packages
