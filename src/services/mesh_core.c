@@ -33,6 +33,8 @@ void lz_store_stop_local_app(lz_local_app_session_t *session);
 bool lz_store_validate_app_catalog_json(const char *json, lz_app_catalog_report_t *out);
 int  lz_store_app_catalog_diag(char *buf, int n);
 int  lz_store_app_catalog_selftest(char *buf, int n);
+bool lz_store_ota_manifest_status(lz_ota_manifest_t *out);
+int  lz_store_ota_manifest_selftest(char *buf, int n);
 void lz_store_append(const char *addr, const lz_msg_rt *m);
 int  lz_store_load_tail(const char *addr, lz_msg_rt *ring, int cap);
 bool lz_store_find_delivery(const char *addr, uint32_t pkt_id, lz_msg_rt *out);
@@ -458,6 +460,16 @@ int lz_svc_app_catalog_diag(char *buf, int n)
 int lz_svc_app_catalog_selftest(char *buf, int n)
 {
     return lz_store_app_catalog_selftest(buf, n);
+}
+
+bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out)
+{
+    return lz_store_ota_manifest_status(out);
+}
+
+int lz_svc_ota_manifest_selftest(char *buf, int n)
+{
+    return lz_store_ota_manifest_selftest(buf, n);
 }
 
 const char *lz_fmt_ago(uint32_t ts, char *buf, size_t n)

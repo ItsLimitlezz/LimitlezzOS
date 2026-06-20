@@ -40,6 +40,9 @@ extern "C" {
 #define LZ_FEEDBACK_BODY_MAX 96
 #define LZ_APP_CATALOG_JSON_MAX 4096u
 #define LZ_APP_CATALOG_MAX_APPS 24
+#define LZ_OTA_MANIFEST_SCHEMA "limitlezz.ota_manifest.v1"
+#define LZ_OTA_BOARD_TDECK "tdeck"
+#define LZ_OTA_SLOT_MAX_BYTES 0x500000u
 
 #define LZ_APP_PERM_DISPLAY       0x0001u
 #define LZ_APP_PERM_INPUT         0x0002u
@@ -236,6 +239,21 @@ typedef struct {
     lz_local_app_action_t actions[LZ_LOCAL_APP_ACTION_MAX];
 } lz_local_app_session_t;
 
+typedef struct {
+    bool found;
+    bool valid;
+    char source[112];            /* cached manifest file path */
+    char error[48];              /* plain-language rejection reason */
+    char version[24];
+    char channel[16];
+    char board[16];
+    char firmware_url[128];
+    char sha256[65];
+    uint32_t size_bytes;
+    char min_version[24];
+    char notes_url[96];
+} lz_ota_manifest_t;
+
 /* ---- lifecycle ---- */
 void lz_svc_init(const char *datadir, bool seed_demo);  /* datadir NULL = RAM only */
 void lz_svc_loop(void);                                 /* pump backend + timers   */
@@ -275,6 +293,8 @@ int  lz_svc_feedback_selftest(char *buf, int n);
 bool lz_svc_validate_app_catalog_json(const char *json, lz_app_catalog_report_t *out);
 int  lz_svc_app_catalog_diag(char *buf, int n);
 int  lz_svc_app_catalog_selftest(char *buf, int n);
+bool lz_svc_ota_manifest_status(lz_ota_manifest_t *out);
+int  lz_svc_ota_manifest_selftest(char *buf, int n);
 
 /* ---- nodes ---- */
 int  lz_svc_nodes(const lz_node_rt **out);              /* all heard nodes */

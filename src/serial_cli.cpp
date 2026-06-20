@@ -80,6 +80,7 @@ static void cmd_help(void)
         "  nodes [test]         list heard nodes / test node DB schema\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
+        "  ota [status|test]    cached OTA firmware manifest diagnostics\n"
         "  wifi [scan|on|off]   wifi status / control\n"
         "  settings [test]      persisted settings schema diagnostics\n"
         "  sys                  battery, uptime, memory\n"
@@ -512,6 +513,34 @@ static void cmd_stats(void)
                   (unsigned)st.tx_count, (unsigned)st.rx_count, st.util_pct);
 }
 
+static void cmd_ota(char *args)
+{
+    if(args && strcmp(args, "test") == 0) {
+        char b[160];
+        lz_svc_ota_manifest_selftest(b, sizeof b);
+        Serial.println(b);
+        return;
+    }
+    if(args && args[0] && strcmp(args, "status") != 0) {
+        Serial.println("usage: ota [status|test]");
+        return;
+    }
+
+    lz_ota_manifest_t m;
+    lz_svc_ota_manifest_status(&m);
+    if(!m.found) {
+        Serial.println("ota manifest: no cached manifest");
+    } else if(!m.valid) {
+        Serial.printf("ota manifest: invalid source=%s error=\"%s\"\n",
+                      m.source, m.error);
+    } else {
+        Serial.printf("ota manifest: valid version=%s channel=%s board=%s size=%lu source=%s\n",
+                      m.version, m.channel, m.board,
+                      (unsigned long)m.size_bytes, m.source);
+        Serial.printf("firmware: %s\n", m.firmware_url);
+    }
+}
+
 static void print_wifi_text(const char *text)
 {
     if(!text || !text[0]) { Serial.print("(none)"); return; }
@@ -649,6 +678,7 @@ static void dispatch(char *line)
     else if(!strcmp(line, "nodes"))   cmd_nodes(args);
     else if(!strcmp(line, "send"))    cmd_send(args);
     else if(!strcmp(line, "stats"))   cmd_stats();
+    else if(!strcmp(line, "ota"))     cmd_ota(args);
     else if(!strcmp(line, "wifi"))    cmd_wifi(args);
     else if(!strcmp(line, "settings")) cmd_settings(args);
     else if(!strcmp(line, "sys"))     cmd_sys();

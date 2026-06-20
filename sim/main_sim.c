@@ -948,6 +948,50 @@ static int codec_selftest(void)
         lz_store_init(NULL);
     }
 
+    /* 10. OTA manifest diagnostics: cached metadata is bounded and fail-closed
+     *     before any downloader or inactive-slot writer trusts it. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern bool lz_store_ota_manifest_status(lz_ota_manifest_t *out);
+        extern int  lz_store_ota_manifest_selftest(char *buf, int n);
+        sim_reset_dir("lzdata_ota");
+        sim_mkdirs("lzdata_ota/ota");
+        FILE *mf = fopen("lzdata_ota/ota/manifest.json", "wb");
+        if(mf) {
+            fputs("{\"schema\":\"limitlezz.ota_manifest.v1\",\"version\":\"0.97.0\","
+                  "\"channel\":\"beta\",\"board\":\"tdeck\","
+                  "\"firmware_url\":\"https://updates.limitlezz.example/tdeck/0.97.0/firmware.bin\","
+                  "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+                  "\"size\":1539920}", mf);
+            fclose(mf);
+        }
+        lz_store_init("lzdata_ota");
+        lz_ota_manifest_t ota;
+        CHECK(lz_store_ota_manifest_status(&ota) && ota.valid,
+              "OTA manifest status accepts cached valid manifest");
+        CHECK(strcmp(ota.version, "0.97.0") == 0 && ota.size_bytes == 1539920u,
+              "OTA manifest status keeps version and size");
+
+        mf = fopen("lzdata_ota/ota/manifest.json", "wb");
+        if(mf) {
+            fputs("{\"schema\":\"limitlezz.ota_manifest.v1\",\"version\":\"0.97.0\","
+                  "\"channel\":\"beta\",\"board\":\"tdeck\","
+                  "\"firmware_url\":\"ftp://updates.example/fw.bin\","
+                  "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+                  "\"size\":1539920}", mf);
+            fclose(mf);
+        }
+        CHECK(!lz_store_ota_manifest_status(&ota) && ota.found && !ota.valid &&
+              strcmp(ota.error, "bad firmware_url") == 0,
+              "OTA manifest status rejects unsafe firmware URL");
+        char diag[160];
+        lz_store_ota_manifest_selftest(diag, sizeof diag);
+        CHECK(strstr(diag, "PASS") != NULL && strstr(diag, "bad sha256") != NULL,
+              "OTA manifest selftest reports parser pass");
+        lz_store_init(NULL);
+        sim_reset_dir("lzdata_ota");
+    }
+
     /* 11. local app scanner: valid manifests become local apps; broken packages
      *    are ignored before they can reach Home/App Store. */
     {
