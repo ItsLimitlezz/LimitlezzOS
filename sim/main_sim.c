@@ -62,6 +62,15 @@ static SDL_Window *win;
 static SDL_Renderer *ren;
 static SDL_Texture *tex;
 
+extern void sim_backend_mc_clear_last_dm(void);
+extern bool sim_backend_mc_last_dm(uint8_t out32[32], char *name, int name_cap,
+                                   char *text, int text_cap);
+extern lz_node_rt *lz_seed_node(uint32_t num, const char *id, lz_net_t net,
+                                const char *name, const char *sc,
+                                const char *role, float snr, int batt,
+                                const char *hw, const char *dist,
+                                uint32_t ago_s, bool contact);
+
 uint32_t lz_tick_ms(void) { return SDL_GetTicks(); }
 
 /* sim_reset_dir() lives in sim_fs.c (recursive, Windows-safe) — included via sim_fs.h */
@@ -2063,10 +2072,12 @@ static int codec_selftest(void)
         lz_svc_init(NULL, false);
         uint8_t pub[32] = {0};
         pub[0] = 0x42;
+        char pub_addr[65];
+        for(int i = 0; i < 32; i++) sprintf(pub_addr + i * 2, "%02x", pub[i]);
         lz_core_on_mc_node(pub, "CompanionPeer", 1, -7.5f);
         lz_core_on_mc_channel_text("CompanionPeer", "public hello", -7.5f);
         lz_core_on_mc_dm(pub, "CompanionPeer", "dm hello", -7.5f);
-        char hello[180], status[220], nodes[420], threads[520];
+        char hello[240], status[280], nodes[700], threads[520];
         lz_svc_mc_companion_hello(hello, sizeof hello);
         lz_svc_mc_companion_status(status, sizeof status);
         lz_svc_mc_companion_nodes(nodes, sizeof nodes);
@@ -2075,14 +2086,26 @@ static int codec_selftest(void)
               "MeshCore companion v0 hello reports protocol");
         CHECK(strstr(status, "nodes=1") != NULL && strstr(status, "threads=2") != NULL,
               "MeshCore companion v0 status counts snapshots");
-        CHECK(strstr(nodes, "CompanionPeer") != NULL && strstr(nodes, "dm=yes") != NULL,
-              "MeshCore companion v0 node snapshot lists messageable peer");
+        CHECK(strstr(nodes, "CompanionPeer") != NULL &&
+              strstr(nodes, pub_addr) != NULL &&
+              strstr(nodes, "short_id=MC-42000000") != NULL &&
+              strstr(nodes, "public_key=present") != NULL &&
+              strstr(nodes, "dm=yes") != NULL,
+              "MeshCore companion v0 node snapshot lists exact-address peer");
         CHECK(strstr(threads, "public hello") != NULL && strstr(threads, "dm hello") != NULL,
               "MeshCore companion v0 thread snapshot lists public and DM threads");
         CHECK(lz_svc_mc_companion_send_public("public from companion"),
               "MeshCore companion v0 public send uses service boundary");
+        sim_backend_mc_clear_last_dm();
         CHECK(lz_svc_mc_companion_send_dm("CompanionPeer", "dm from companion"),
               "MeshCore companion v0 DM send uses service boundary");
+        uint8_t last_key[32]; char last_name[28], last_text[160];
+        CHECK(sim_backend_mc_last_dm(last_key, last_name, sizeof last_name,
+                                     last_text, sizeof last_text) &&
+              memcmp(last_key, pub, 32) == 0 &&
+              strcmp(last_name, "CompanionPeer") == 0 &&
+              strcmp(last_text, "dm from companion") == 0,
+              "MeshCore companion v0 DM sends exact public key");
         char mc0[900], proto[120];
         bool mc0_exit = false;
         lz_svc_mc_companion_handle_line("MC0 1 HELLO proto=0 app=selftest", mc0, sizeof mc0, &mc0_exit);
@@ -2094,9 +2117,13 @@ static int codec_selftest(void)
               "MeshCore MC0 STATUS counts snapshots");
         lz_svc_mc_companion_handle_line("MC0 3 NODES since=0 limit=5", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "MC0 3 BEGIN type=nodes") != NULL &&
+              strstr(mc0, pub_addr) != NULL &&
+              strstr(mc0, "short_id=MC-42000000") != NULL &&
+              strstr(mc0, "public_key=present") != NULL &&
+              strstr(mc0, "dm=ready") != NULL &&
               strstr(mc0, "name=CompanionPeer") != NULL &&
               strstr(mc0, "MC0 3 END type=nodes") != NULL,
-              "MeshCore MC0 NODES snapshot lists peer");
+              "MeshCore MC0 NODES snapshot lists full-address peer");
         lz_svc_mc_companion_handle_line("MC0 4 THREADS", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "MC0 4 BEGIN type=threads") != NULL &&
               strstr(mc0, "text=CompanionPeer%3A%20public%20hello") != NULL &&
@@ -2105,10 +2132,42 @@ static int codec_selftest(void)
         lz_svc_mc_companion_handle_line("MC0 5 SEND_PUBLIC text=mc0%20public", mc0, sizeof mc0, &mc0_exit);
         CHECK(strstr(mc0, "MC0 5 OK accepted=1") != NULL,
               "MeshCore MC0 SEND_PUBLIC uses service boundary");
-        lz_svc_mc_companion_handle_line("MC0 6 SEND_DM to_name=companionpeer text=mc0%20dm", mc0, sizeof mc0, &mc0_exit);
-        CHECK(strstr(mc0, "MC0 6 OK accepted=1") != NULL,
-              "MeshCore MC0 SEND_DM uses service boundary");
-        lz_svc_mc_companion_handle_line("MC0 7 EXIT", mc0, sizeof mc0, &mc0_exit);
+        sim_backend_mc_clear_last_dm();
+        char mc0_cmd[180];
+        snprintf(mc0_cmd, sizeof mc0_cmd, "MC0 6 SEND_DM to_addr=%s text=mc0%%20dm", pub_addr);
+        lz_svc_mc_companion_handle_line(mc0_cmd, mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 6 OK accepted=1") != NULL &&
+              strstr(mc0, pub_addr) != NULL,
+              "MeshCore MC0 SEND_DM accepts exact public-key address");
+        CHECK(sim_backend_mc_last_dm(last_key, last_name, sizeof last_name,
+                                     last_text, sizeof last_text) &&
+              memcmp(last_key, pub, 32) == 0 &&
+              strcmp(last_text, "mc0 dm") == 0,
+              "MeshCore MC0 SEND_DM routes by exact public key");
+        lz_svc_mc_companion_handle_line("MC0 7 SEND_DM to_name=companionpeer text=mc0%20dm%20name", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "MC0 7 OK accepted=1") != NULL,
+              "MeshCore MC0 SEND_DM keeps unambiguous name fallback");
+        lz_seed_node(0x00009999u, "MC-nokey", LZ_NET_MC, "NoKey", "NOK",
+                     "Chat", -5.0f, 90, "MeshCore", "1.0 km", 10, false);
+        lz_svc_mc_companion_handle_line("MC0 8 SEND_DM to_name=NoKey text=x", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "ERR code=no_key") != NULL,
+              "MeshCore MC0 SEND_DM rejects chat nodes without a key");
+        uint8_t other[32] = {0};
+        other[0] = 0x44; other[3] = 0x01;
+        lz_core_on_mc_node(other, "OtherPeer", 1, -7.5f);
+        lz_svc_mc_companion_handle_line("MC0 9 SEND_DM to_addr=4200000000000000000000000000000000000000000000000000000000000000 to_name=OtherPeer text=x",
+                                        mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "ERR code=target_mismatch") != NULL,
+              "MeshCore MC0 SEND_DM rejects mismatched address/name targets");
+        uint8_t dup1[32] = {0}, dup2[32] = {0};
+        dup1[0] = 0x50; dup1[3] = 0x01;
+        dup2[0] = 0x51; dup2[3] = 0x02;
+        lz_core_on_mc_node(dup1, "DupePeer", 1, -7.5f);
+        lz_core_on_mc_node(dup2, "DupePeer", 1, -7.5f);
+        lz_svc_mc_companion_handle_line("MC0 10 SEND_DM to_name=dupepeer text=x", mc0, sizeof mc0, &mc0_exit);
+        CHECK(strstr(mc0, "ERR code=ambiguous_name") != NULL,
+              "MeshCore MC0 SEND_DM rejects duplicate display names");
+        lz_svc_mc_companion_handle_line("MC0 11 EXIT", mc0, sizeof mc0, &mc0_exit);
         CHECK(mc0_exit && strstr(mc0, "state=detached") != NULL,
               "MeshCore MC0 EXIT returns to console");
         lz_svc_mc_companion_selftest(proto, sizeof proto);

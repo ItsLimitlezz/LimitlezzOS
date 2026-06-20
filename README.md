@@ -128,11 +128,11 @@ iPhone-style dark look (status bar, battery glyph, grouped settings cards).
   enabling one frees the other.
 
 ### 🔭 Later
-- **MeshCore companion bridge** — V0 protocol foundation is drafted, and an
-  initial `companion mc ...` USB serial-console smoke surface can report
-  snapshots and exercise send boundaries; the formal USB/BLE bridge remains
-  planned, and it is not official MeshCore app compatible unless the real
-  MeshCore app protocol is confirmed.
+- **MeshCore companion bridge** - V0 protocol foundation is drafted, with
+  `companion mc ...` diagnostics and formal USB `MC0` mode for snapshots,
+  public send, private send, and exact public-key DM routing. BLE transport,
+  live events, and official MeshCore app compatibility remain planned until the
+  real MeshCore app protocol is confirmed.
 - **Roll the iPhone look everywhere** — grouped cards / dividers across Messages, Nodes, Contacts.
 - **Local app platform** - scan local app manifests from `/sd/limitlezz/apps`,
   `/sd/apps`, `/appfs/apps`, and simulator data dirs, then show accepted apps

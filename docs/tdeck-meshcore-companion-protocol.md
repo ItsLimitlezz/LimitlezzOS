@@ -140,14 +140,16 @@ MC0 2 IDENTITY
 Response:
 
 ```text
-MC0 2 OK enabled=1 name=Jess addr=4f8e21a0 role=chat pubkey=6b1d... addr_format=meshcore-hex advert_ready=1
+MC0 2 OK enabled=1 name=Jess addr=6b1d000000000000000000000000000000000000000000000000000000000000 short_id=MC-6b1d0000 role=chat pubkey=6b1d000000000000000000000000000000000000000000000000000000000000 addr_format=meshcore-pubkey-hex advert_ready=1
 ```
 
 Required fields:
 
 - `enabled`: whether MeshCore is currently enabled.
 - `name`: percent-encoded local display name.
-- `addr`: local MeshCore address, lowercase hex, opaque to the host.
+- `addr`: local MeshCore address, lowercase 64-hex MeshCore public key, opaque
+  to the host except for exact equality.
+- `short_id`: optional display-only short identifier. Hosts must not route by it.
 - `role`: current local MeshCore role, such as `chat`, `router`, or
   `unknown`.
 - `addr_format`: the address encoding advertised for this session.
@@ -197,8 +199,8 @@ Response:
 
 ```text
 MC0 4 BEGIN type=nodes rev=42 count=2 more=0 cursor=end
-MC0 4 NODE addr=4f8e21a0 name=Limitlezz role=chat seen_ms=12000 snr=-9 rssi=-112 public_key=present dm=ready
-MC0 4 NODE addr=12ab9001 name=Hilltop role=router seen_ms=180000 snr=-14 rssi=-118 public_key=missing dm=not_messageable
+MC0 4 NODE addr=4f8e21a000000000000000000000000000000000000000000000000000000000 short_id=MC-4f8e21a0 name=Limitlezz role=chat seen_ms=12000 snr=-9 rssi=-112 public_key=present dm=ready
+MC0 4 NODE addr=- short_id=MC-12ab9001 name=Hilltop role=router seen_ms=180000 snr=-14 rssi=-118 public_key=missing dm=not_messageable
 MC0 4 END type=nodes rev=42 count=2 more=0 cursor=end
 ```
 
@@ -206,12 +208,15 @@ Request fields:
 
 - `since`: last `nodes_rev` known by the host, or `0` for a full snapshot.
 - `limit`: maximum rows requested. Firmware may cap this below the requested
-  value.
+  value; V0 USB mode caps node snapshots at five rows to keep line responses
+  bounded.
 - `cursor`: optional opaque cursor from a previous `NODES` response.
 
 Node fields:
 
-- `addr`: MeshCore address, lowercase hex, opaque to the host.
+- `addr`: MeshCore address, lowercase 64-hex public key when known. `-` means
+  the firmware has no usable key yet, so `SEND_DM to_addr=...` is impossible.
+- `short_id`: display-only short identifier for compact UI labels.
 - `name`: percent-encoded display name, if known.
 - `role`: `chat`, `router`, `repeater`, `sensor`, or `unknown`.
 - `seen_ms`: milliseconds since last heard, or `-1` if unknown.
@@ -263,7 +268,7 @@ name. Address is preferred because display names can collide.
 By address:
 
 ```text
-MC0 6 SEND_DM to_addr=4f8e21a0 text=Meet%20at%20camp client_mid=pc-0002
+MC0 6 SEND_DM to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 text=Meet%20at%20camp client_mid=pc-0002
 ```
 
 By known name:
@@ -275,13 +280,13 @@ MC0 7 SEND_DM to_name=Limitlezz text=Copy%20that client_mid=pc-0003
 Immediate response:
 
 ```text
-MC0 6 OK accepted=1 msg_id=mc-805 to_addr=4f8e21a0 status=queued
+MC0 6 OK accepted=1 msg_id=mc-805 to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 status=queued
 ```
 
 Later event:
 
 ```text
-MC0 EVT 123 tx_status client_mid=pc-0002 msg_id=mc-805 kind=dm to_addr=4f8e21a0 status=delivered
+MC0 EVT 123 tx_status client_mid=pc-0002 msg_id=mc-805 kind=dm to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 status=delivered
 ```
 
 V0 name matching rules:
@@ -292,6 +297,8 @@ V0 name matching rules:
 - If more than one node matches, return `ERR code=ambiguous_name`.
 - If the matching node lacks a usable session/key, return `ERR code=no_key`.
 - If the node role is not messageable, return `ERR code=not_messageable`.
+- If both `to_addr` and `to_name` are supplied, they must identify the same
+  node or firmware returns `ERR code=target_mismatch`.
 
 The host does not manage MeshCore private keys or sessions in V0.
 
@@ -315,10 +322,10 @@ MC0 8 OK events=on types=nodes,messages,tx,status event_seq=123
 Supported event types:
 
 ```text
-MC0 EVT 124 node_upsert addr=4f8e21a0 nodes_rev=43
+MC0 EVT 124 node_upsert addr=4f8e21a000000000000000000000000000000000000000000000000000000000 nodes_rev=43
 MC0 EVT 125 snapshot_dirty type=nodes rev=43 reason=node_upsert
-MC0 EVT 126 rx_public msg_id=mc-806 from_addr=4f8e21a0 from_name=Limitlezz room=public text=Copy%20CH0.
-MC0 EVT 127 rx_dm msg_id=mc-807 from_addr=4f8e21a0 from_name=Limitlezz text=Direct%20copy.
+MC0 EVT 126 rx_public msg_id=mc-806 from_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 from_name=Limitlezz room=public text=Copy%20CH0.
+MC0 EVT 127 rx_dm msg_id=mc-807 from_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 from_name=Limitlezz text=Direct%20copy.
 MC0 EVT 128 tx_status client_mid=pc-0002 msg_id=mc-805 kind=dm status=failed reason=ack_timeout retry=1
 MC0 EVT 129 status mc=on tdm=active airtime=balanced queue=0
 ```
@@ -390,9 +397,9 @@ Rules:
   `companion mc test`.
 - Formal USB MC0 smoke is opt-in:
   `python scripts/mc_companion_usb_smoke.py --mc0-usb` enters the configured
-  USB mode, sends `HELLO`, `STATUS`, and `NODES`, asserts `MC0 ... OK`,
-  `BEGIN`, and `END` response markers, then exits through the configured
-  `MC0 <id> EXIT` line.
+  USB mode, sends `HELLO`, `IDENTITY`, `STATUS`, and `NODES`, asserts
+  `MC0 ... OK`, the public-key address format, `BEGIN`, and `END` response
+  markers, then exits through the configured `MC0 <id> EXIT` line.
 - If firmware lands different command names, use the smoke helper's
   `--mc0-enter-command`, `--mc0-*-template`, `--mc0-*-marker`, and
   `--mc0-exit-template` flags instead of editing firmware or weakening the
