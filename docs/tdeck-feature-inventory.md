@@ -52,6 +52,7 @@ Status labels:
 | Node table persistence | Functional | `nodes.db` save/load with schema header v2, legacy-row migration selftest, serial `nodes test`, and position/telemetry round-trip coverage | Add future migrations as the node schema grows. |
 | Node discovery | Functional, needs validation | NodeInfo parse, heard-node table, 250-node cap, Meshtastic role/hardware enum labels in native scenario coverage | Add stock-device role/hardware validation beyond simulator fixtures. |
 | Node table persistence | Functional | `nodes.db` save/load | Add versioning/migration for future schema changes. |
+| Node table persistence | Functional | `nodes.db` save/load now writes schema-tagged v2 rows and selftests v2 plus legacy untagged row loading | Add future migrations as the node schema grows. |
 | Direct messages | Functional, needs validation | DM threads, `lz_svc_send_text`, PKI path | Add stock-device interop validation. |
 | PKI encrypted DMs | Functional, needs validation | `mtpki.cpp`, NodeInfo public key capture | Add test vectors or a deterministic host test. |
 | Routing ACK/delivery status | Partial | `send_routing_ack`, `lz_core_on_ack`, persisted sent-DM status metadata, failure reasons, bubble status colors, serial `dm status` | Add ACK/retransmit tests and hardware interop coverage. |

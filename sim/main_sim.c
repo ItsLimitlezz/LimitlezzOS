@@ -926,6 +926,98 @@ static int codec_selftest(void)
         lz_store_init(NULL);              /* back to RAM-only */
     }
 
+    /* 9. node DB schema regression: new rows carry an explicit schema tag, while
+     * untagged legacy rows still load for field-preserving upgrades. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern void lz_store_save_nodes(const lz_node_rt *nodes, int n);
+        extern int  lz_store_load_nodes(lz_node_rt *out, int cap);
+        sim_reset_dir("lzdata_nodeschema");
+        lz_store_init("lzdata_nodeschema");
+
+        lz_node_rt nd; memset(&nd, 0, sizeof nd);
+        nd.num = 0x7c3af1d0u;
+        snprintf(nd.id, sizeof nd.id, "!7c3af1d0");
+        snprintf(nd.name, sizeof nd.name, "Ava Reyes");
+        snprintf(nd.shortcode, sizeof nd.shortcode, "AVA");
+        nd.net = LZ_NET_MT;
+        snprintf(nd.role, sizeof nd.role, "Router");
+        snprintf(nd.hw, sizeof nd.hw, "T-Beam");
+        snprintf(nd.dist, sizeof nd.dist, "4.2 km");
+        nd.snr = -7.5f; nd.batt = 87; nd.contact = true; nd.last_heard = 1781274000;
+        nd.has_key = true;
+        for(int i = 0; i < 32; i++) nd.pubkey[i] = (uint8_t)(i + 1);
+        nd.pos_flags = LZ_NODE_POS_VALID | LZ_NODE_POS_ALT | LZ_NODE_POS_PREC;
+        nd.lat_i = 451234567; nd.lon_i = -751234567; nd.alt_m = 320;
+        nd.pos_time = 1781273900; nd.precision_bits = 28;
+        nd.telem_flags = LZ_NODE_TEL_VOLT | LZ_NODE_TEL_TEMP | LZ_NODE_TEL_HUM |
+                         LZ_NODE_TEL_PRESS | LZ_NODE_TEL_UPTIME;
+        nd.voltage_mv = 4100; nd.temp_c10 = -35; nd.humidity10 = 650;
+        nd.pressure10 = 10132; nd.uptime_s = 3600;
+        lz_store_save_nodes(&nd, 1);
+
+        lz_node_rt loaded[2];
+        int ln = lz_store_load_nodes(loaded, 2);
+        CHECK(ln == 1, "store: node DB v2 reload count");
+        CHECK(ln == 1 && loaded[0].num == nd.num &&
+              strcmp(loaded[0].id, nd.id) == 0 &&
+              strcmp(loaded[0].name, nd.name) == 0 &&
+              strcmp(loaded[0].shortcode, nd.shortcode) == 0 &&
+              loaded[0].net == nd.net && strcmp(loaded[0].role, nd.role) == 0 &&
+              strcmp(loaded[0].hw, nd.hw) == 0 && loaded[0].batt == nd.batt &&
+              loaded[0].contact == nd.contact && loaded[0].last_heard == nd.last_heard,
+              "store: node DB v2 identity fields round-trip");
+        CHECK(ln == 1 && loaded[0].has_key && loaded[0].pubkey[0] == 1 &&
+              loaded[0].pubkey[31] == 32 &&
+              loaded[0].pos_flags == nd.pos_flags && loaded[0].lat_i == nd.lat_i &&
+              loaded[0].lon_i == nd.lon_i && loaded[0].alt_m == nd.alt_m &&
+              loaded[0].pos_time == nd.pos_time &&
+              loaded[0].precision_bits == nd.precision_bits,
+              "store: node DB v2 key/position fields round-trip");
+        CHECK(ln == 1 && loaded[0].telem_flags == nd.telem_flags &&
+              loaded[0].voltage_mv == nd.voltage_mv &&
+              loaded[0].temp_c10 == nd.temp_c10 &&
+              loaded[0].humidity10 == nd.humidity10 &&
+              loaded[0].pressure10 == nd.pressure10 &&
+              loaded[0].uptime_s == nd.uptime_s,
+              "store: node DB v2 telemetry fields round-trip");
+
+        FILE *nf = fopen("lzdata_nodeschema/nodes.db", "rb");
+        char line[640] = {0};
+        bool line_ok = nf && fgets(line, sizeof line, nf) != NULL;
+        if(nf) fclose(nf);
+        CHECK(line_ok && strncmp(line, "v2|", 3) == 0,
+              "store: node DB save writes schema v2");
+
+        nf = fopen("lzdata_nodeschema/nodes.db", "wb");
+        if(nf) {
+            fputs("305419896|!12345678|0|Client|Heltec V3|55|0|1781274000|-3.5|2.0 km|H3|Legacy Node|-|0|0|0|0|0|0|0|0|0|0|0|0\n", nf);
+            fclose(nf);
+        }
+        memset(loaded, 0, sizeof loaded);
+        ln = lz_store_load_nodes(loaded, 2);
+        CHECK(ln == 1 && loaded[0].num == 305419896u &&
+              strcmp(loaded[0].name, "Legacy Node") == 0 &&
+              strcmp(loaded[0].hw, "Heltec V3") == 0 &&
+              !loaded[0].has_key && loaded[0].batt == 55,
+              "store: legacy untagged node DB row loads");
+
+        nf = fopen("lzdata_nodeschema/nodes.db", "wb");
+        if(nf) {
+            fputs("2271560481|!87654321|1|Chat|T-Deck|-1|1|1781274100|4.0|-|MC1|MeshCore Peer\n", nf);
+            fclose(nf);
+        }
+        memset(loaded, 0, sizeof loaded);
+        ln = lz_store_load_nodes(loaded, 2);
+        CHECK(ln == 1 && loaded[0].net == LZ_NET_MC &&
+              strcmp(loaded[0].name, "MeshCore Peer") == 0 &&
+              loaded[0].contact && loaded[0].pos_flags == 0 &&
+              loaded[0].telem_flags == 0,
+              "store: short legacy node DB row defaults optional fields");
+
+        lz_store_init(NULL);
+    }
+
     /* 10. Wi-Fi credential store round-trip. T-Deck uses an NVS backend under the
      * same API; native keeps the file path for simulator repeatability. */
     {
@@ -993,9 +1085,9 @@ static int codec_selftest(void)
         FILE *nf = fopen("./nodes.db", "r");
         char hdr[32] = {0};
         bool header_ok = nf && fgets(hdr, sizeof hdr, nf) &&
-                         strstr(hdr, "# lz_nodes 2") != NULL;
+                         strncmp(hdr, "v2|", 3) == 0;
         if(nf) fclose(nf);
-        CHECK(header_ok, "store: node DB writes schema header");
+        CHECK(header_ok, "store: node DB writes schema v2 tag");
         lz_node_rt loaded_node[2];
         memset(loaded_node, 0, sizeof loaded_node);
         int loaded_n = lz_store_load_nodes(loaded_node, 2);
@@ -1148,8 +1240,8 @@ static int codec_selftest(void)
         char line[160] = {0};
         bool line_ok = sf && fgets(line, sizeof line, sf) != NULL;
         if(sf) fclose(sf);
-        CHECK(line_ok && strncmp(line, "3 ", 2) == 0,
-              "store: settings save writes schema v3");
+        CHECK(line_ok && strncmp(line, "4 ", 2) == 0,
+              "store: settings save writes schema v4");
 
         sf = fopen("./settings.cfg", "wb");
         if(sf) { fputs("1 1 0 2 1 66 3 2 4 1 1\n", sf); fclose(sf); }
