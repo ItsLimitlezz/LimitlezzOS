@@ -63,7 +63,10 @@ extern uint32_t lz_tick_ms(void);
 
 /* MeshCore TX (real backend on the T-Deck; absent in the sim -> weak/NULL) */
 extern bool lz_backend_mc_send_public(const char *text) __attribute__((weak));
-extern bool lz_backend_mc_dm(const char *name, const char *text) __attribute__((weak));
+extern bool lz_backend_mc_dm_key(const uint8_t peer_pub[32],
+                                 const char *name_hint,
+                                 const char *text) __attribute__((weak));
+extern bool lz_backend_mc_pubkey(uint8_t out32[32]) __attribute__((weak));
 
 static lz_node_rt   *g_nodes;     /* 45 KB node DB — PSRAM-backed on T-Deck (alloc in lz_svc_init) */
 static int           g_node_count;
@@ -77,6 +80,16 @@ static void        (*g_dirty)(void);
 static uint32_t      g_pkt_seq;
 static bool          g_nodes_dirty;        /* node DB has unsaved high-freq fields */
 static uint32_t      g_nodes_dirty_ms;     /* tick when it first became dirty */
+static uint32_t      g_mc_event_seq;       /* MC0 companion resync/event anchor */
+static uint32_t      g_mc_nodes_rev;       /* MeshCore node snapshot revision */
+static uint32_t      g_mc_messages_rev;    /* MeshCore thread/message snapshot revision */
+static bool          g_mc_events_enabled;
+static char          g_mc_event_types[40] = "none";
+#define MC0_EVENT_QUEUE 6
+#define MC0_EVENT_LINE  512
+static char          g_mc_events[MC0_EVENT_QUEUE][MC0_EVENT_LINE];
+static uint8_t       g_mc_event_head;
+static uint8_t       g_mc_event_count;
 /* placeholder until onboarding sets the real name (and MAC sets the num) */
 static lz_identity_t g_id = { 0x7c3af1d0, "!7c3af1d0", "Node", "NODE" };
 static bool          g_have_identity;            /* false until onboarding done */
@@ -97,6 +110,11 @@ static struct {
 } g_delivery[LZ_DELIVERY_PEND];
 
 static lz_thread_rt *find_thread(uint32_t num);
+static void mc0_note_node_change(const lz_node_rt *n);
+static void mc0_note_message_change(const char *kind, const lz_thread_rt *t,
+                                    const char *text, bool self);
+static void mc0_note_tx_status(const char *kind, const char *target,
+                               const char *client_mid, const char *status);
 
 /* ---------- helpers ---------- */
 
@@ -905,6 +923,13 @@ static lz_thread_rt *find_thread_by_addr(const char *addr)
     return NULL;
 }
 
+static void note_thread_mc_key(lz_thread_rt *t, const lz_node_rt *n)
+{
+    if(!t || !n || n->net != LZ_NET_MC || !n->has_key) return;
+    memcpy(t->mc_pubkey, n->pubkey, sizeof t->mc_pubkey);
+    t->has_mc_pubkey = true;
+}
+
 static void touch_thread_meta(lz_thread_rt *t, const char *text, uint32_t ts, bool inc_unread)
 {
     snprintf(t->last_text, sizeof t->last_text, "%s", text);
@@ -915,7 +940,10 @@ static void touch_thread_meta(lz_thread_rt *t, const char *text, uint32_t ts, bo
 static lz_thread_rt *ensure_thread(lz_node_rt *n)
 {
     lz_thread_rt *t = find_thread(n->num);
-    if(t) return t;
+    if(t) {
+        note_thread_mc_key(t, n);
+        return t;
+    }
     if(g_thread_count >= LZ_MAX_THREADS) return NULL;   /* full: do not clobber slot 0 */
     t = &g_threads[g_thread_count++];
     memset(t, 0, sizeof *t);
@@ -923,6 +951,7 @@ static lz_thread_rt *ensure_thread(lz_node_rt *n)
     t->net = n->net;
     snprintf(t->addr, sizeof t->addr, "%s", n->id);
     snprintf(t->name, sizeof t->name, "%s", n->name);
+    note_thread_mc_key(t, n);
     t->messageable = lz_node_messageable(n);
     t->is_channel = false;
     snprintf(t->path, sizeof t->path, "direct");
@@ -987,6 +1016,150 @@ lz_thread_rt *lz_svc_mc_channel_thread(void)
     t->messageable = true;
     t->is_channel = true;
     return t;
+}
+
+#define LZ_MC_ADDR_HEX_CHARS 64
+
+static int mc_hex_val(char c)
+{
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static void mc_key_hex(const uint8_t key[32], char *out, int cap)
+{
+    static const char hex[] = "0123456789abcdef";
+    if(!out || cap <= 0) return;
+    if(!key || cap < LZ_MC_ADDR_HEX_CHARS + 1) {
+        out[0] = 0;
+        return;
+    }
+    for(int i = 0; i < 32; i++) {
+        out[i * 2] = hex[(key[i] >> 4) & 0x0F];
+        out[i * 2 + 1] = hex[key[i] & 0x0F];
+    }
+    out[LZ_MC_ADDR_HEX_CHARS] = 0;
+}
+
+static bool mc_key_from_hex(const char *s, uint8_t out[32])
+{
+    if(!s || !out || strlen(s) != LZ_MC_ADDR_HEX_CHARS) return false;
+    for(int i = 0; i < 32; i++) {
+        int hi = mc_hex_val(s[i * 2]);
+        int lo = mc_hex_val(s[i * 2 + 1]);
+        if(hi < 0 || lo < 0) return false;
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return true;
+}
+
+static bool mc_node_addr(const lz_node_rt *nd, char *out, int cap)
+{
+    if(!nd || nd->net != LZ_NET_MC || !nd->has_key) {
+        if(out && cap > 0) out[0] = 0;
+        return false;
+    }
+    mc_key_hex(nd->pubkey, out, cap);
+    return out && out[0] != 0;
+}
+
+static void mc_node_short_id(const lz_node_rt *nd, char *out, int cap)
+{
+    if(!out || cap <= 0) return;
+    if(nd && nd->net == LZ_NET_MC && nd->has_key) {
+        snprintf(out, (size_t)cap, "MC-%02x%02x%02x%02x",
+                 nd->pubkey[0], nd->pubkey[1], nd->pubkey[2], nd->pubkey[3]);
+    } else if(nd && nd->id[0]) {
+        snprintf(out, (size_t)cap, "%s", nd->id);
+    } else {
+        snprintf(out, (size_t)cap, "MC-unknown");
+    }
+}
+
+static bool mc_local_addr(char *out, int cap)
+{
+    uint8_t pub[32];
+    if(lz_backend_mc_pubkey && lz_backend_mc_pubkey(pub)) {
+        mc_key_hex(pub, out, cap);
+        return out && out[0] != 0;
+    }
+    if(out && cap > 0) out[0] = 0;
+    return false;
+}
+
+static lz_node_rt *mc_node_by_pubkey(const uint8_t key[32])
+{
+    if(!key) return NULL;
+    for(int i = 0; i < g_node_count; i++)
+        if(g_nodes[i].net == LZ_NET_MC && g_nodes[i].has_key &&
+           memcmp(g_nodes[i].pubkey, key, 32) == 0)
+            return &g_nodes[i];
+    return NULL;
+}
+
+static lz_node_rt *mc_node_by_addr(const char *addr, bool *bad_addr)
+{
+    uint8_t key[32];
+    if(bad_addr) *bad_addr = false;
+    if(!addr || !addr[0]) return NULL;
+    if(!mc_key_from_hex(addr, key)) {
+        if(bad_addr) *bad_addr = true;
+        return NULL;
+    }
+    return mc_node_by_pubkey(key);
+}
+
+static char mc_fold_char(char c)
+{
+    return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+}
+
+static bool mc_name_eq(const char *a, const char *b)
+{
+    if(!a || !b) return false;
+    while(*a && *b) {
+        if(mc_fold_char(*a++) != mc_fold_char(*b++)) return false;
+    }
+    return *a == 0 && *b == 0;
+}
+
+static lz_node_rt *mc_node_by_name_unique(const char *name, bool *ambiguous)
+{
+    lz_node_rt *match = NULL;
+    if(ambiguous) *ambiguous = false;
+    if(!name || !name[0]) return NULL;
+    for(int i = 0; i < g_node_count; i++) {
+        if(g_nodes[i].net != LZ_NET_MC || !mc_name_eq(g_nodes[i].name, name)) continue;
+        if(match) {
+            if(ambiguous) *ambiguous = true;
+            return match;
+        }
+        match = &g_nodes[i];
+    }
+    return match;
+}
+
+static const char *mc_companion_dm_state(const lz_node_rt *n)
+{
+    if(!n || n->net != LZ_NET_MC) return "not_messageable";
+    if(strcmp(n->role, "Chat") != 0) return "not_messageable";
+    if(!n->has_key) return "no_key";
+    return "ready";
+}
+
+static bool mc_companion_dm_target(const lz_node_rt *n)
+{
+    return strcmp(mc_companion_dm_state(n), "ready") == 0;
+}
+
+static bool mc_companion_send_dm_node(lz_node_rt *target, const char *text)
+{
+    if(!target || !text || !text[0] || !mc_companion_dm_target(target))
+        return false;
+    return lz_backend_mc_dm_key &&
+           lz_backend_mc_dm_key(target->pubkey, target->name, text);
 }
 
 static void track_loaded_delivery(lz_thread_rt *t);
@@ -1128,7 +1301,8 @@ bool lz_svc_send_text(lz_thread_rt *t, const char *text)
     if(!t || !text[0] || !t->messageable) return false;
     if(t->net == LZ_NET_MC) {       /* MeshCore: backend sends + echoes into the thread */
         if(t->is_channel) return lz_backend_mc_send_public && lz_backend_mc_send_public(text);
-        return lz_backend_mc_dm && lz_backend_mc_dm(t->name, text);
+        lz_node_rt *n = find_node(t->node_num);
+        return mc_companion_send_dm_node(n, text);
     }
     uint32_t ts = now_epoch();
     uint32_t pid = next_packet_id();
@@ -1274,8 +1448,9 @@ int lz_svc_delivery_diag(char *buf, int n)
 int lz_svc_mc_companion_hello(char *buf, int n)
 {
     if(!buf || n <= 0) return 0;
-    char addr[24];
-    lz_backend_mc_addr(addr, sizeof addr);
+    char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
+    if(!mc_local_addr(addr, sizeof addr)) lz_backend_mc_addr(addr, sizeof addr);
+    lz_backend_mc_addr(short_id, sizeof short_id);
     const char *build =
 #if LZ_MESHCORE_ENABLED
         "enabled";
@@ -1283,8 +1458,8 @@ int lz_svc_mc_companion_hello(char *buf, int n)
         "gated";
 #endif
     return snprintf(buf, (size_t)n,
-                    "mccomp: hello v0 build=%s meshcore=%s addr=%s protocol=line\n",
-                    build, build, addr);
+                    "mccomp: hello v0 build=%s meshcore=%s addr=%s short_id=%s protocol=line\n",
+                    build, build, addr, short_id);
 }
 
 int lz_svc_mc_companion_status(char *buf, int n)
@@ -1298,19 +1473,14 @@ int lz_svc_mc_companion_status(char *buf, int n)
         mc_threads++;
         unread += g_threads[i].unread;
     }
-    char addr[24];
-    lz_backend_mc_addr(addr, sizeof addr);
+    char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
+    if(!mc_local_addr(addr, sizeof addr)) lz_backend_mc_addr(addr, sizeof addr);
+    lz_backend_mc_addr(short_id, sizeof short_id);
     return snprintf(buf, (size_t)n,
-                    "mccomp: status v0 addr=%s nodes=%d threads=%d unread=%d public=%s dm=%s\n",
-                    addr, mc_nodes, mc_threads, unread,
+                    "mccomp: status v0 addr=%s short_id=%s nodes=%d threads=%d unread=%d public=%s dm=%s\n",
+                    addr, short_id, mc_nodes, mc_threads, unread,
                     lz_backend_mc_send_public ? "sendable" : "unavailable",
-                    lz_backend_mc_dm ? "sendable" : "unavailable");
-}
-
-static bool mc_companion_dm_target(const lz_node_rt *n)
-{
-    if(!n || n->net != LZ_NET_MC) return false;
-    return strcmp(n->role, "Chat") == 0;
+                    lz_backend_mc_dm_key ? "sendable" : "unavailable");
 }
 
 int lz_svc_mc_companion_nodes(char *buf, int n)
@@ -1322,9 +1492,14 @@ int lz_svc_mc_companion_nodes(char *buf, int n)
         if(nd->net != LZ_NET_MC) continue;
         char ago[12];
         lz_fmt_ago(nd->last_heard, ago, sizeof ago);
+        char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
+        bool has_addr = mc_node_addr(nd, addr, sizeof addr);
+        mc_node_short_id(nd, short_id, sizeof short_id);
         pos = buf_appendf(buf, n, pos,
-                          "mccomp-node: name=\"%s\" id=%s role=%s snr=%.1f last=%s dm=%s\n",
-                          nd->name, nd->id, nd->role, (double)nd->snr, ago,
+                          "mccomp-node: name=\"%s\" addr=%s short_id=%s role=%s snr=%.1f last=%s public_key=%s dm=%s\n",
+                          nd->name, has_addr ? addr : "-", short_id, nd->role,
+                          (double)nd->snr, ago,
+                          nd->has_key ? "present" : "missing",
                           mc_companion_dm_target(nd) ? "yes" : "no");
         listed++;
     }
@@ -1365,9 +1540,10 @@ bool lz_svc_mc_companion_send_public(const char *text)
 bool lz_svc_mc_companion_send_dm(const char *name, const char *text)
 {
     if(!name || !name[0] || !text || !text[0]) return false;
-    lz_node_rt *n = lz_svc_node_by_name(name);
-    if(!mc_companion_dm_target(n)) return false;
-    return lz_backend_mc_dm && lz_backend_mc_dm(name, text);
+    bool ambiguous = false;
+    lz_node_rt *n = mc_node_by_name_unique(name, &ambiguous);
+    if(ambiguous) return false;
+    return mc_companion_send_dm_node(n, text);
 }
 
 static const char *mc0_skip_ws(const char *p)
@@ -1441,6 +1617,175 @@ static int mc0_append_pct(char *buf, int n, int pos, const char *s)
     return pos;
 }
 
+static bool mc_thread_peer_addr(const lz_thread_rt *t, char *out, int cap)
+{
+    if(out && cap > 0) out[0] = 0;
+    if(!t || t->net != LZ_NET_MC || t->is_channel) return false;
+    if(t->has_mc_pubkey) {
+        mc_key_hex(t->mc_pubkey, out, cap);
+        return out && out[0] != 0;
+    }
+    lz_node_rt *peer = find_node(t->node_num);
+    return peer && mc_node_addr(peer, out, cap);
+}
+
+static void mc0_event_finish(char *line, int n)
+{
+    if(!line || n <= 0) return;
+    int len = 0;
+    while(len < n && line[len]) len++;
+    if(len >= n - 1) {
+        static const char suffix[] = " truncated=1\n";
+        int slen = (int)strlen(suffix);
+        int start = n - slen - 1;
+        if(start < 0) start = 0;
+        memcpy(line + start, suffix, (size_t)slen + 1);
+        return;
+    }
+    if(len == 0 || line[len - 1] != '\n') {
+        if(len >= n - 2) len = n - 2;
+        line[len++] = '\n';
+        line[len] = 0;
+    }
+}
+
+static bool mc0_event_type_match(const char *want, const char *token)
+{
+    size_t tl = strlen(token);
+    const char *p = want ? want : "";
+    while(*p) {
+        while(*p == ',' || *p == ' ') p++;
+        const char *s = p;
+        while(*p && *p != ',') p++;
+        if((size_t)(p - s) == tl && strncmp(s, token, tl) == 0) return true;
+        if((size_t)(p - s) == 3 && strncmp(s, "all", 3) == 0) return true;
+    }
+    return false;
+}
+
+static bool mc0_event_enabled_for(const char *bucket)
+{
+    return g_mc_events_enabled && mc0_event_type_match(g_mc_event_types, bucket);
+}
+
+static void mc0_event_push(const char *line)
+{
+    if(!line || !line[0]) return;
+    uint8_t slot;
+    if(g_mc_event_count < MC0_EVENT_QUEUE) {
+        slot = (uint8_t)((g_mc_event_head + g_mc_event_count) % MC0_EVENT_QUEUE);
+        g_mc_event_count++;
+    } else {
+        slot = g_mc_event_head;
+        g_mc_event_head = (uint8_t)((g_mc_event_head + 1) % MC0_EVENT_QUEUE);
+    }
+    snprintf(g_mc_events[slot], sizeof g_mc_events[slot], "%s", line);
+}
+
+static void mc0_note_node_change(const lz_node_rt *n)
+{
+    if(!n || n->net != LZ_NET_MC) return;
+    uint32_t seq = ++g_mc_event_seq;
+    g_mc_nodes_rev++;
+    if(!mc0_event_enabled_for("nodes")) return;
+
+    char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
+    bool has_addr = mc_node_addr(n, addr, sizeof addr);
+    mc_node_short_id(n, short_id, sizeof short_id);
+    char line[MC0_EVENT_LINE];
+    int pos = snprintf(line, sizeof line,
+                       "MC0 EVT %lu node_upsert addr=%s short_id=%s nodes_rev=%lu name=",
+                       (unsigned long)seq, has_addr ? addr : "-", short_id,
+                       (unsigned long)g_mc_nodes_rev);
+    pos = mc0_append_pct(line, sizeof line, pos, n->name);
+    pos = buf_appendf(line, sizeof line, pos, " role=");
+    pos = mc0_append_pct(line, sizeof line, pos, n->role);
+    pos = buf_appendf(line, sizeof line, pos, " public_key=%s dm=%s",
+                      n->has_key ? "present" : "missing",
+                      mc_companion_dm_state(n));
+    mc0_event_finish(line, sizeof line);
+    mc0_event_push(line);
+}
+
+static void mc0_note_message_change(const char *kind, const lz_thread_rt *t,
+                                    const char *text, bool self)
+{
+    if(!t || t->net != LZ_NET_MC) return;
+    uint32_t seq = ++g_mc_event_seq;
+    g_mc_messages_rev++;
+    if(!mc0_event_enabled_for(self ? "tx" : "messages")) return;
+
+    char line[MC0_EVENT_LINE];
+    int pos = snprintf(line, sizeof line, "MC0 EVT %lu %s messages_rev=%lu kind=%s ",
+                       (unsigned long)seq, kind ? kind : "snapshot_dirty",
+                       (unsigned long)g_mc_messages_rev,
+                       t->is_channel ? "public" : "dm");
+    if(self) {
+        if(t->is_channel) {
+            pos = buf_appendf(line, sizeof line, pos, "room=public ");
+        } else {
+            char peer_addr[LZ_MC_ADDR_HEX_CHARS + 1];
+            if(mc_thread_peer_addr(t, peer_addr, sizeof peer_addr))
+                pos = buf_appendf(line, sizeof line, pos, "to_addr=%s ", peer_addr);
+        }
+        pos = buf_appendf(line, sizeof line, pos, "status=sent text=");
+    } else {
+        const char *body = text;
+        char public_sender[28] = "";
+        if(t->is_channel) {
+            const char *sep = text ? strstr(text, ": ") : NULL;
+            if(sep) {
+                size_t sl = (size_t)(sep - text);
+                if(sl >= sizeof public_sender) sl = sizeof public_sender - 1;
+                memcpy(public_sender, text, sl);
+                public_sender[sl] = 0;
+                body = sep + 2;
+            }
+            pos = buf_appendf(line, sizeof line, pos, "room=public from_name=");
+            pos = mc0_append_pct(line, sizeof line, pos,
+                                 public_sender[0] ? public_sender : "-");
+        } else {
+            char peer_addr[LZ_MC_ADDR_HEX_CHARS + 1];
+            if(mc_thread_peer_addr(t, peer_addr, sizeof peer_addr))
+                pos = buf_appendf(line, sizeof line, pos, "from_addr=%s ", peer_addr);
+            pos = buf_appendf(line, sizeof line, pos, "from_name=");
+            pos = mc0_append_pct(line, sizeof line, pos, t->name);
+        }
+        pos = buf_appendf(line, sizeof line, pos, " text=");
+        text = body;
+    }
+    pos = mc0_append_pct(line, sizeof line, pos, text);
+    mc0_event_finish(line, sizeof line);
+    mc0_event_push(line);
+}
+
+static void mc0_note_tx_status(const char *kind, const char *target,
+                               const char *client_mid, const char *status)
+{
+    uint32_t seq = ++g_mc_event_seq;
+    if(!mc0_event_enabled_for("tx")) return;
+
+    char line[MC0_EVENT_LINE];
+    int pos = snprintf(line, sizeof line, "MC0 EVT %lu tx_status kind=%s status=%s",
+                       (unsigned long)seq, kind ? kind : "unknown",
+                       status ? status : "queued");
+    if(target && target[0]) {
+        if(kind && strcmp(kind, "public") == 0)
+            pos = buf_appendf(line, sizeof line, pos, " room=");
+        else if(kind && strcmp(kind, "dm") == 0)
+            pos = buf_appendf(line, sizeof line, pos, " to_addr=");
+        else
+            pos = buf_appendf(line, sizeof line, pos, " target=");
+        pos = mc0_append_pct(line, sizeof line, pos, target);
+    }
+    if(client_mid && client_mid[0]) {
+        pos = buf_appendf(line, sizeof line, pos, " client_mid=");
+        pos = mc0_append_pct(line, sizeof line, pos, client_mid);
+    }
+    mc0_event_finish(line, sizeof line);
+    mc0_event_push(line);
+}
+
 static bool mc0_get_arg(const char *p, const char *key, char *out, int cap)
 {
     char tok[220];
@@ -1494,144 +1839,169 @@ static int mc0_hello(char *buf, int n, const char *id)
 {
     int pos = mc0_ok_prefix(buf, n, id);
     return buf_appendf(buf, n, pos,
-                       "proto=0 fw=0.8-draft device=tdeck caps=identity,nodes,status,threads,send_public,send_dm,events,exit max_line=512 max_text=%d event_seq=0 nodes_rev=0 messages_rev=0\n",
-                       LZ_TEXT_MAX);
+                       "proto=0 fw=0.8-draft device=tdeck caps=identity,nodes,status,threads,send_public,send_dm,events,exit max_line=512 max_text=%d event_seq=%lu nodes_rev=%lu messages_rev=%lu\n",
+                       LZ_TEXT_MAX, (unsigned long)g_mc_event_seq,
+                       (unsigned long)g_mc_nodes_rev,
+                       (unsigned long)g_mc_messages_rev);
 }
 
 static int mc0_identity(char *buf, int n, const char *id)
 {
-    char addr[24];
-    lz_backend_mc_addr(addr, sizeof addr);
+    char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
+    bool have_addr = mc_local_addr(addr, sizeof addr);
+    if(!have_addr) lz_backend_mc_addr(addr, sizeof addr);
+    lz_backend_mc_addr(short_id, sizeof short_id);
     int pos = mc0_ok_prefix(buf, n, id);
     pos = buf_appendf(buf, n, pos, "enabled=%d name=", LZ_MESHCORE_ENABLED ? 1 : 0);
     pos = mc0_append_pct(buf, n, pos, g_id.long_name);
     return buf_appendf(buf, n, pos,
-                       " addr=%s role=chat addr_format=meshcore-id advert_ready=1\n",
-                       addr);
+                       " addr=%s short_id=%s role=chat pubkey=%s addr_format=meshcore-pubkey-hex advert_ready=%d\n",
+                       addr, short_id, have_addr ? addr : "-",
+                       have_addr ? 1 : 0);
 }
 
 static int mc0_status(char *buf, int n, const char *id)
 {
-    char addr[24];
+    char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
     int unread = 0;
     int nodes = mc0_count_nodes();
     int threads = mc0_count_threads(&unread);
-    lz_backend_mc_addr(addr, sizeof addr);
+    if(!mc_local_addr(addr, sizeof addr)) lz_backend_mc_addr(addr, sizeof addr);
+    lz_backend_mc_addr(short_id, sizeof short_id);
     int pos = mc0_ok_prefix(buf, n, id);
     return buf_appendf(buf, n, pos,
-                       "proto=0 mc=%s bridge=usb mc_companion=attached mt_companion=%s addr=%s nodes=%d threads=%d unread=%d public=%d dm=%d event_seq=0 nodes_rev=0 messages_rev=0\n",
+                       "proto=0 mc=%s bridge=usb mc_companion=%s mt_companion=%s addr=%s short_id=%s nodes=%d threads=%d unread=%d public=%d dm=%d events=%s event_seq=%lu nodes_rev=%lu messages_rev=%lu\n",
                        LZ_MESHCORE_ENABLED ? "on" : "disabled",
+                       g_mc_events_enabled ? "streaming" : "attached",
                        lz_mtc_active() ? "on" : "off",
-                       addr, nodes, threads, unread,
+                       addr, short_id, nodes, threads, unread,
                        lz_backend_mc_send_public ? 1 : 0,
-                       lz_backend_mc_dm ? 1 : 0);
+                       lz_backend_mc_dm_key ? 1 : 0,
+                       g_mc_events_enabled ? "on" : "off",
+                       (unsigned long)g_mc_event_seq,
+                       (unsigned long)g_mc_nodes_rev,
+                       (unsigned long)g_mc_messages_rev);
 }
 
-static int mc0_nodes(char *buf, int n, const char *id)
+static int mc0_limit_arg(const char *args, int def, int max)
 {
-    int count = mc0_count_nodes();
+    char raw[12];
+    int limit = def;
+    if(mc0_get_arg(args, "limit", raw, sizeof raw)) {
+        limit = atoi(raw);
+        if(limit <= 0) limit = def;
+    }
+    if(limit > max) limit = max;
+    return limit;
+}
+
+static int mc0_nodes(char *buf, int n, const char *id, const char *args)
+{
+    int total = mc0_count_nodes();
+    char since_s[16];
+    uint32_t since = mc0_get_arg(args, "since", since_s, sizeof since_s)
+                   ? (uint32_t)strtoul(since_s, NULL, 10) : 0;
+    if(since && since >= g_mc_nodes_rev) total = 0;
+    int limit = mc0_limit_arg(args, 5, 5);
+    int listed = total < limit ? total : limit;
+    int more = total > listed ? 1 : 0;
     int pos = buf_appendf(buf, n, 0,
-                          "MC0 %s BEGIN type=nodes rev=0 count=%d more=0 cursor=end\n",
-                          id, count);
+                          "MC0 %s BEGIN type=nodes rev=%lu count=%d more=%d cursor=%s\n",
+                          id, (unsigned long)g_mc_nodes_rev, listed,
+                          more, more ? "next" : "end");
+    int emitted = 0;
     for(int i = 0; i < g_node_count; i++) {
         const lz_node_rt *nd = &g_nodes[i];
         if(nd->net != LZ_NET_MC) continue;
+        if(emitted >= listed) break;
         uint32_t seen_ms = 0;
         uint32_t now_s = now_epoch();
         if(nd->last_heard && now_s >= nd->last_heard)
             seen_ms = (now_s - nd->last_heard) * 1000u;
-        pos = buf_appendf(buf, n, pos, "MC0 %s NODE addr=%s name=", id, nd->id);
+        char addr[LZ_MC_ADDR_HEX_CHARS + 1], short_id[24];
+        bool has_addr = mc_node_addr(nd, addr, sizeof addr);
+        mc_node_short_id(nd, short_id, sizeof short_id);
+        pos = buf_appendf(buf, n, pos, "MC0 %s NODE addr=%s short_id=%s name=",
+                          id, has_addr ? addr : "-", short_id);
         pos = mc0_append_pct(buf, n, pos, nd->name);
         pos = buf_appendf(buf, n, pos, " role=");
         pos = mc0_append_pct(buf, n, pos, nd->role);
-        pos = buf_appendf(buf, n, pos, " seen_ms=%lu snr=%.1f dm=%s\n",
+        pos = buf_appendf(buf, n, pos, " seen_ms=%lu snr=%.1f public_key=%s dm=%s\n",
                           (unsigned long)seen_ms, (double)nd->snr,
-                          mc_companion_dm_target(nd) ? "ready" : "not_messageable");
+                          nd->has_key ? "present" : "missing",
+                          mc_companion_dm_state(nd));
+        emitted++;
     }
     return buf_appendf(buf, n, pos,
-                       "MC0 %s END type=nodes rev=0 count=%d more=0 cursor=end\n",
-                       id, count);
+                       "MC0 %s END type=nodes rev=%lu count=%d more=%d cursor=%s\n",
+                       id, (unsigned long)g_mc_nodes_rev, emitted,
+                       more, more ? "next" : "end");
 }
 
-static int mc0_threads(char *buf, int n, const char *id)
+static int mc0_threads(char *buf, int n, const char *id, const char *args)
 {
     int count = mc0_count_threads(NULL);
+    char since_s[16];
+    uint32_t since = mc0_get_arg(args, "since", since_s, sizeof since_s)
+                   ? (uint32_t)strtoul(since_s, NULL, 10) : 0;
+    if(since && since >= g_mc_messages_rev) count = 0;
     int pos = buf_appendf(buf, n, 0,
-                          "MC0 %s BEGIN type=threads rev=0 count=%d more=0 cursor=end\n",
-                          id, count);
-    for(int oi = 0; oi < g_thread_count; oi++) {
-        int idx = (oi < LZ_MAX_THREADS) ? g_order[oi] : -1;
-        if(idx < 0 || idx >= g_thread_count) continue;
-        const lz_thread_rt *t = &g_threads[idx];
-        if(t->net != LZ_NET_MC) continue;
-        pos = buf_appendf(buf, n, pos, "MC0 %s THREAD addr=%s name=", id, t->addr);
-        pos = mc0_append_pct(buf, n, pos, t->name);
-        pos = buf_appendf(buf, n, pos, " kind=%s unread=%d last=%lu text=",
-                          t->is_channel ? "public" : "dm", t->unread,
-                          (unsigned long)t->last_ts);
-        pos = mc0_append_pct(buf, n, pos, t->last_text);
-        pos = buf_appendf(buf, n, pos, "\n");
+                          "MC0 %s BEGIN type=threads rev=%lu count=%d more=0 cursor=end\n",
+                          id, (unsigned long)g_mc_messages_rev, count);
+    if(count) {
+        for(int oi = 0; oi < g_thread_count; oi++) {
+            int idx = (oi < LZ_MAX_THREADS) ? g_order[oi] : -1;
+            if(idx < 0 || idx >= g_thread_count) continue;
+            const lz_thread_rt *t = &g_threads[idx];
+            if(t->net != LZ_NET_MC) continue;
+            const char *thread_addr = t->addr;
+            char peer_addr[LZ_MC_ADDR_HEX_CHARS + 1];
+            if(!t->is_channel) {
+                thread_addr = mc_thread_peer_addr(t, peer_addr, sizeof peer_addr)
+                            ? peer_addr : "-";
+            }
+            pos = buf_appendf(buf, n, pos, "MC0 %s THREAD addr=%s name=", id, thread_addr);
+            pos = mc0_append_pct(buf, n, pos, t->name);
+            if(!t->is_channel) {
+                pos = buf_appendf(buf, n, pos, " short_id=");
+                pos = mc0_append_pct(buf, n, pos, t->addr);
+            }
+            pos = buf_appendf(buf, n, pos, " kind=%s unread=%d last=%lu text=",
+                              t->is_channel ? "public" : "dm", t->unread,
+                              (unsigned long)t->last_ts);
+            pos = mc0_append_pct(buf, n, pos, t->last_text);
+            pos = buf_appendf(buf, n, pos, "\n");
+        }
     }
     return buf_appendf(buf, n, pos,
-                       "MC0 %s END type=threads rev=0 count=%d more=0 cursor=end\n",
-                       id, count);
-}
-
-static lz_node_rt *mc0_node_by_addr(const char *addr)
-{
-    if(!addr || !addr[0]) return NULL;
-    for(int i = 0; i < g_node_count; i++)
-        if(g_nodes[i].net == LZ_NET_MC && strcmp(g_nodes[i].id, addr) == 0)
-            return &g_nodes[i];
-    return NULL;
-}
-
-static char mc0_fold_char(char c)
-{
-    return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
-}
-
-static bool mc0_name_eq(const char *a, const char *b)
-{
-    if(!a || !b) return false;
-    while(*a && *b) {
-        if(mc0_fold_char(*a++) != mc0_fold_char(*b++)) return false;
-    }
-    return *a == 0 && *b == 0;
-}
-
-static lz_node_rt *mc0_node_by_name_unique(const char *name, bool *ambiguous)
-{
-    lz_node_rt *match = NULL;
-    if(ambiguous) *ambiguous = false;
-    if(!name || !name[0]) return NULL;
-    for(int i = 0; i < g_node_count; i++) {
-        if(g_nodes[i].net != LZ_NET_MC || !mc0_name_eq(g_nodes[i].name, name)) continue;
-        if(match) {
-            if(ambiguous) *ambiguous = true;
-            return match;
-        }
-        match = &g_nodes[i];
-    }
-    return match;
+                       "MC0 %s END type=threads rev=%lu count=%d more=0 cursor=end\n",
+                       id, (unsigned long)g_mc_messages_rev, count);
 }
 
 static int mc0_send_public(char *buf, int n, const char *id, const char *args)
 {
-    char text[LZ_TEXT_MAX + 1];
+    char text[LZ_TEXT_MAX + 1], client_mid[40];
     if(!mc0_get_arg(args, "text", text, sizeof text))
         return mc0_err(buf, n, id, "bad_request", false, "missing text");
     if((int)strlen(text) > LZ_TEXT_MAX)
         return mc0_err(buf, n, id, "text_too_long", false, "text too long");
     if(!lz_svc_mc_companion_send_public(text))
         return mc0_err(buf, n, id, "send_failed", true, "public send failed");
+    mc0_get_arg(args, "client_mid", client_mid, sizeof client_mid);
+    mc0_note_tx_status("public", "public", client_mid, "queued");
     int pos = mc0_ok_prefix(buf, n, id);
-    return buf_appendf(buf, n, pos, "accepted=1 kind=public status=queued\n");
+    pos = buf_appendf(buf, n, pos, "accepted=1 kind=public status=queued event_seq=%lu",
+                      (unsigned long)g_mc_event_seq);
+    if(client_mid[0]) {
+        pos = buf_appendf(buf, n, pos, " client_mid=");
+        pos = mc0_append_pct(buf, n, pos, client_mid);
+    }
+    return buf_appendf(buf, n, pos, "\n");
 }
 
 static int mc0_send_dm(char *buf, int n, const char *id, const char *args)
 {
-    char text[LZ_TEXT_MAX + 1], name[64], addr[32];
+    char text[LZ_TEXT_MAX + 1], name[64], addr[LZ_MC_ADDR_HEX_CHARS + 1], client_mid[40];
     if(!mc0_get_arg(args, "text", text, sizeof text))
         return mc0_err(buf, n, id, "bad_request", false, "missing text");
     if((int)strlen(text) > LZ_TEXT_MAX)
@@ -1642,24 +2012,80 @@ static int mc0_send_dm(char *buf, int n, const char *id, const char *args)
     lz_node_rt *target = NULL;
     bool ambiguous = false;
     if(have_addr) {
-        target = mc0_node_by_addr(addr);
+        bool bad_addr = false;
+        target = mc_node_by_addr(addr, &bad_addr);
+        if(bad_addr) return mc0_err(buf, n, id, "bad_addr", false, "to_addr must be 64 hex chars");
         if(!target) return mc0_err(buf, n, id, "not_found", false, "node not found");
-    } else if(have_name) {
-        target = mc0_node_by_name_unique(name, &ambiguous);
+    }
+    if(have_name) {
+        lz_node_rt *by_name = mc_node_by_name_unique(name, &ambiguous);
         if(ambiguous) return mc0_err(buf, n, id, "ambiguous_name", false, "name is ambiguous");
-    } else {
+        if(!by_name) return mc0_err(buf, n, id, "not_found", false, "node not found");
+        if(target && by_name != target)
+            return mc0_err(buf, n, id, "target_mismatch", false, "to_addr and to_name identify different nodes");
+        target = by_name;
+    }
+    if(!have_addr && !have_name) {
         return mc0_err(buf, n, id, "bad_request", false, "missing to_name or to_addr");
     }
     if(!target) return mc0_err(buf, n, id, "not_found", false, "node not found");
-    if(!mc_companion_dm_target(target))
+    const char *dm_state = mc_companion_dm_state(target);
+    if(strcmp(dm_state, "no_key") == 0)
+        return mc0_err(buf, n, id, "no_key", false, "node key is missing");
+    if(strcmp(dm_state, "ready") != 0)
         return mc0_err(buf, n, id, "not_messageable", false, "node cannot receive DMs");
-    if(!lz_svc_mc_companion_send_dm(target->name, text))
+    if(!mc_companion_send_dm_node(target, text))
         return mc0_err(buf, n, id, "send_failed", true, "DM send failed");
 
+    char target_addr[LZ_MC_ADDR_HEX_CHARS + 1];
+    mc_node_addr(target, target_addr, sizeof target_addr);
+    mc0_get_arg(args, "client_mid", client_mid, sizeof client_mid);
+    mc0_note_tx_status("dm", target_addr, client_mid, "queued");
     int pos = mc0_ok_prefix(buf, n, id);
-    pos = buf_appendf(buf, n, pos, "accepted=1 kind=dm to_name=");
+    pos = buf_appendf(buf, n, pos, "accepted=1 kind=dm to_addr=%s to_name=",
+                      target_addr);
     pos = mc0_append_pct(buf, n, pos, target->name);
-    return buf_appendf(buf, n, pos, " status=queued\n");
+    pos = buf_appendf(buf, n, pos, " status=queued event_seq=%lu", (unsigned long)g_mc_event_seq);
+    if(client_mid[0]) {
+        pos = buf_appendf(buf, n, pos, " client_mid=");
+        pos = mc0_append_pct(buf, n, pos, client_mid);
+    }
+    return buf_appendf(buf, n, pos, "\n");
+}
+
+static int mc0_events(char *buf, int n, const char *id, const char *args)
+{
+    char mode[12], types[40];
+    if(!mc0_get_arg(args, "mode", mode, sizeof mode)) {
+        int pos = mc0_ok_prefix(buf, n, id);
+        return buf_appendf(buf, n, pos,
+                           "events=%s types=%s event_seq=%lu nodes_rev=%lu messages_rev=%lu\n",
+                           g_mc_events_enabled ? "on" : "off", g_mc_event_types,
+                           (unsigned long)g_mc_event_seq,
+                           (unsigned long)g_mc_nodes_rev,
+                           (unsigned long)g_mc_messages_rev);
+    }
+    if(strcmp(mode, "on") == 0) {
+        g_mc_events_enabled = true;
+        if(mc0_get_arg(args, "types", types, sizeof types))
+            snprintf(g_mc_event_types, sizeof g_mc_event_types, "%s", types);
+        else
+            snprintf(g_mc_event_types, sizeof g_mc_event_types, "nodes,messages,tx,status");
+    } else if(strcmp(mode, "off") == 0) {
+        g_mc_events_enabled = false;
+        snprintf(g_mc_event_types, sizeof g_mc_event_types, "none");
+        g_mc_event_head = 0;
+        g_mc_event_count = 0;
+    } else {
+        return mc0_err(buf, n, id, "bad_request", false, "bad events mode");
+    }
+    int pos = mc0_ok_prefix(buf, n, id);
+    return buf_appendf(buf, n, pos,
+                       "events=%s types=%s event_seq=%lu nodes_rev=%lu messages_rev=%lu\n",
+                       g_mc_events_enabled ? "on" : "off", g_mc_event_types,
+                       (unsigned long)g_mc_event_seq,
+                       (unsigned long)g_mc_nodes_rev,
+                       (unsigned long)g_mc_messages_rev);
 }
 
 int lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode)
@@ -1679,20 +2105,33 @@ int lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *ex
     if(strcmp(verb, "HELLO") == 0) return mc0_hello(buf, n, id);
     if(strcmp(verb, "IDENTITY") == 0) return mc0_identity(buf, n, id);
     if(strcmp(verb, "STATUS") == 0) return mc0_status(buf, n, id);
-    if(strcmp(verb, "NODES") == 0) return mc0_nodes(buf, n, id);
-    if(strcmp(verb, "THREADS") == 0) return mc0_threads(buf, n, id);
+    if(strcmp(verb, "NODES") == 0) return mc0_nodes(buf, n, id, p);
+    if(strcmp(verb, "THREADS") == 0) return mc0_threads(buf, n, id, p);
     if(strcmp(verb, "SEND_PUBLIC") == 0) return mc0_send_public(buf, n, id, p);
     if(strcmp(verb, "SEND_DM") == 0) return mc0_send_dm(buf, n, id, p);
-    if(strcmp(verb, "EVENTS") == 0) {
-        int pos = mc0_ok_prefix(buf, n, id);
-        return buf_appendf(buf, n, pos, "events=off types=none event_seq=0\n");
-    }
+    if(strcmp(verb, "EVENTS") == 0) return mc0_events(buf, n, id, p);
     if(strcmp(verb, "EXIT") == 0) {
         if(exit_mode) *exit_mode = true;
         int pos = mc0_ok_prefix(buf, n, id);
         return buf_appendf(buf, n, pos, "mode=usb state=detached\n");
     }
     return mc0_err(buf, n, id, "unknown_command", false, "unknown MC0 command");
+}
+
+int lz_svc_mc_companion_drain_events(char *buf, int n)
+{
+    int pos = 0;
+    if(!buf || n <= 0) return 0;
+    buf[0] = 0;
+    while(g_mc_event_count && pos + 1 < n) {
+        const char *line = g_mc_events[g_mc_event_head];
+        int len = (int)strlen(line);
+        if(pos && pos + len >= n) break;
+        pos = buf_appendf(buf, n, pos, "%s", line);
+        g_mc_event_head = (uint8_t)((g_mc_event_head + 1) % MC0_EVENT_QUEUE);
+        g_mc_event_count--;
+    }
+    return pos;
 }
 
 int lz_svc_mc_companion_selftest(char *buf, int n)
@@ -1707,7 +2146,11 @@ int lz_svc_mc_companion_selftest(char *buf, int n)
     lz_svc_mc_companion_handle_line("MC0 3 NODES", out, sizeof out, &exit_mode);
     ok = ok && strstr(out, "MC0 3 BEGIN type=nodes") != NULL &&
               strstr(out, "MC0 3 END type=nodes") != NULL;
-    lz_svc_mc_companion_handle_line("MC0 4 EXIT", out, sizeof out, &exit_mode);
+    lz_svc_mc_companion_handle_line("MC0 4 EVENTS mode=on types=nodes,messages,tx", out, sizeof out, &exit_mode);
+    ok = ok && strstr(out, "events=on") != NULL && strstr(out, "types=nodes,messages,tx") != NULL;
+    lz_svc_mc_companion_handle_line("MC0 5 EVENTS mode=off", out, sizeof out, &exit_mode);
+    ok = ok && strstr(out, "events=off") != NULL;
+    lz_svc_mc_companion_handle_line("MC0 6 EXIT", out, sizeof out, &exit_mode);
     ok = ok && exit_mode && strstr(out, "state=detached") != NULL;
     return snprintf(buf, (size_t)n, "MeshCore MC0 protocol selftest: %s", ok ? "PASS" : "FAIL");
 }
@@ -1771,7 +2214,9 @@ void lz_core_on_nodeinfo(uint32_t from, const char *id, const char *long_name,
     if(role >= 0) snprintf(n->role, sizeof n->role, "%s", lz_svc_mt_role_label(role));
     if(!isnan(snr)) n->snr = snr;
     n->last_heard = now_epoch();
+    note_thread_mc_key(find_thread(n->num), n);
     lz_store_save_nodes(g_nodes, g_node_count);
+    mc0_note_node_change(n);
     mark_dirty();
 }
 
@@ -1782,7 +2227,8 @@ void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, f
     uint32_t num = ((uint32_t)pubkey[0] << 24) | ((uint32_t)pubkey[1] << 16) |
                    ((uint32_t)pubkey[2] << 8) | (uint32_t)pubkey[3];
     char id[16];
-    snprintf(id, sizeof id, "MC-%02x%02x", pubkey[0], pubkey[1]);
+    snprintf(id, sizeof id, "MC-%02x%02x%02x%02x",
+             pubkey[0], pubkey[1], pubkey[2], pubkey[3]);
     lz_node_rt *n = ensure_node(num, id, LZ_NET_MC);
     if(!n) return;
     n->net = LZ_NET_MC;
@@ -1796,6 +2242,7 @@ void lz_core_on_mc_node(const uint8_t *pubkey, const char *name, int adv_type, f
     if(!isnan(snr)) n->snr = snr;
     n->last_heard = now_epoch();
     lz_store_save_nodes(g_nodes, g_node_count);
+    mc0_note_node_change(n);
     mark_dirty();
 }
 
@@ -1811,6 +2258,10 @@ static void mc_thread_append(lz_thread_rt *t, bool self, const char *text)
     touch_thread_meta(t, text, ts, !self && g_open != t);   /* unread only for inbound */
     reorder_threads();
     lz_store_save_threads(g_threads, g_thread_count);
+    if(t->net == LZ_NET_MC) {
+        const char *kind = self ? "tx_message" : (t->is_channel ? "rx_public" : "rx_dm");
+        mc0_note_message_change(kind, t, text, self);
+    }
     mark_dirty();
 }
 
@@ -1824,7 +2275,11 @@ static lz_thread_rt *mc_dm_thread(const uint8_t *pubkey, const char *name, float
     n->net = LZ_NET_MC;
     if(name && name[0]) snprintf(n->name, sizeof n->name, "%s", name);
     lz_thread_rt *t = ensure_thread(n);
-    if(t) { t->net = LZ_NET_MC; t->messageable = true; }   /* a chat peer we can DM back */
+    if(t) {
+        t->net = LZ_NET_MC;
+        t->messageable = true;   /* a chat peer we can DM back */
+        note_thread_mc_key(t, n);
+    }
     return t;
 }
 
@@ -2136,6 +2591,13 @@ void lz_svc_init(const char *datadir, bool seed_demo)
     if(LZ_MESHCORE_ENABLED) lz_svc_mc_channel_thread();   /* MeshCore Public always in Channels too */
     track_stored_delivery();
     reorder_threads();
+    g_mc_event_seq = 0;
+    g_mc_nodes_rev = 0;
+    g_mc_messages_rev = 0;
+    g_mc_events_enabled = false;
+    snprintf(g_mc_event_types, sizeof g_mc_event_types, "none");
+    g_mc_event_head = 0;
+    g_mc_event_count = 0;
     lz_backend_init();
 }
 
