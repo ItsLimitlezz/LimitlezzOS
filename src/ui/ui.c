@@ -585,6 +585,178 @@ void lz_ui_key(lz_key_t k, char c)
 
 /* ================= shared widgets ================= */
 
+static void safe_append_char(char *out, size_t cap, size_t *len, char c)
+{
+    if(!out || cap == 0) return;
+    if(*len + 1 >= cap) return;
+    out[(*len)++] = c;
+    out[*len] = 0;
+}
+
+static void safe_append_str(char *out, size_t cap, size_t *len, const char *s)
+{
+    if(!s) return;
+    while(*s) safe_append_char(out, cap, len, *s++);
+}
+
+static bool utf8_decode_one(const unsigned char *s, uint32_t *cp, size_t *used)
+{
+    unsigned char c = s[0];
+    *used = 1;
+    if(c < 0x80u) { *cp = c; return true; }
+
+    if(c >= 0xC2u && c <= 0xDFu) {
+        if(!s[1] || (s[1] & 0xC0u) != 0x80u) return false;
+        *cp = ((uint32_t)(c & 0x1Fu) << 6) | (uint32_t)(s[1] & 0x3Fu);
+        *used = 2;
+        return true;
+    }
+    if(c == 0xE0u) {
+        if(!s[1] || !s[2] || s[1] < 0xA0u || s[1] > 0xBFu ||
+           (s[2] & 0xC0u) != 0x80u) return false;
+    } else if(c >= 0xE1u && c <= 0xECu) {
+        if(!s[1] || !s[2] || (s[1] & 0xC0u) != 0x80u ||
+           (s[2] & 0xC0u) != 0x80u) return false;
+    } else if(c == 0xEDu) {
+        if(!s[1] || !s[2] || s[1] < 0x80u || s[1] > 0x9Fu ||
+           (s[2] & 0xC0u) != 0x80u) return false;
+    } else if(c >= 0xEEu && c <= 0xEFu) {
+        if(!s[1] || !s[2] || (s[1] & 0xC0u) != 0x80u ||
+           (s[2] & 0xC0u) != 0x80u) return false;
+    } else if(c == 0xF0u) {
+        if(!s[1] || !s[2] || !s[3] || s[1] < 0x90u || s[1] > 0xBFu ||
+           (s[2] & 0xC0u) != 0x80u || (s[3] & 0xC0u) != 0x80u) return false;
+    } else if(c >= 0xF1u && c <= 0xF3u) {
+        if(!s[1] || !s[2] || !s[3] || (s[1] & 0xC0u) != 0x80u ||
+           (s[2] & 0xC0u) != 0x80u || (s[3] & 0xC0u) != 0x80u) return false;
+    } else if(c == 0xF4u) {
+        if(!s[1] || !s[2] || !s[3] || s[1] < 0x80u || s[1] > 0x8Fu ||
+           (s[2] & 0xC0u) != 0x80u || (s[3] & 0xC0u) != 0x80u) return false;
+    } else {
+        return false;
+    }
+
+    if(c < 0xF0u) {
+        *cp = ((uint32_t)(c & 0x0Fu) << 12) |
+              ((uint32_t)(s[1] & 0x3Fu) << 6) |
+              (uint32_t)(s[2] & 0x3Fu);
+        *used = 3;
+        return true;
+    }
+
+    *cp = ((uint32_t)(c & 0x07u) << 18) |
+          ((uint32_t)(s[1] & 0x3Fu) << 12) |
+          ((uint32_t)(s[2] & 0x3Fu) << 6) |
+          (uint32_t)(s[3] & 0x3Fu);
+    *used = 4;
+    return *cp <= 0x10FFFFu;
+}
+
+static const char *safe_alias(uint32_t cp)
+{
+    switch(cp) {
+        case 0x00A0u: return " ";
+        case 0x00B0u: return "deg";
+        case 0x2013u:
+        case 0x2014u: return "-";
+        case 0x2018u:
+        case 0x2019u: return "'";
+        case 0x201Cu:
+        case 0x201Du: return "\"";
+        case 0x2022u: return "*";
+        case 0x2026u: return "...";
+        case 0x2032u: return "'";
+        case 0x2033u: return "\"";
+        case 0x200Du:
+        case 0xFE0Eu:
+        case 0xFE0Fu: return "";
+        case 0x26A0u: return "!";
+        case 0x2705u:
+        case 0x2713u:
+        case 0x2714u: return "OK";
+        case 0x1F44Du: return "ok";
+        case 0x1F4ACu: return "msg";
+        case 0x1F4CDu: return "pin";
+        case 0x1F4E1u: return "radio";
+        case 0x1F50Bu: return "bat";
+        case 0x1F525u: return "fire";
+        case 0x1F680u: return "go";
+        default: break;
+    }
+    if((cp >= 0x0300u && cp <= 0x036Fu) ||
+       (cp >= 0x1F3FBu && cp <= 0x1F3FFu))
+        return "";
+    return "*";
+}
+
+size_t lz_text_safe_copy(char *out, size_t cap, const char *raw,
+                         lz_text_safe_mode_t mode)
+{
+    size_t len = 0;
+    if(!out || cap == 0) return 0;
+    out[0] = 0;
+    if(!raw) return 0;
+
+    const unsigned char *p = (const unsigned char *)raw;
+    while(*p) {
+        unsigned char c = *p;
+        if(c < 0x80u) {
+            if(c >= 32u && c <= 126u) {
+                safe_append_char(out, cap, &len, (char)c);
+            } else if(mode == LZ_TEXT_SAFE_BLOCK && c == '\n') {
+                safe_append_char(out, cap, &len, '\n');
+            } else if(c == '\t' || c == '\r' || c < 32u || c == 127u) {
+                safe_append_char(out, cap, &len, ' ');
+            }
+            p++;
+            continue;
+        }
+
+        uint32_t cp = 0;
+        size_t used = 1;
+        if(utf8_decode_one(p, &cp, &used)) {
+            safe_append_str(out, cap, &len, safe_alias(cp));
+            p += used;
+        } else {
+            safe_append_char(out, cap, &len, '?');
+            p++;
+        }
+    }
+    return len;
+}
+
+size_t lz_text_safe_tail_fit(char *out, size_t cap, const char *raw,
+                             const lv_font_t *font, int max_px,
+                             lz_text_safe_mode_t mode)
+{
+    char safe[192];
+    if(!out || cap == 0) return 0;
+    lz_text_safe_copy(safe, sizeof safe, raw, mode);
+    if(!font || max_px <= 0) return lz_text_safe_copy(out, cap, safe, LZ_TEXT_SAFE_BLOCK);
+
+    lv_point_t sz;
+    lv_txt_get_size(&sz, safe, font, 0, 0, LV_COORD_MAX, 0);
+    if(sz.x <= max_px) return lz_text_safe_copy(out, cap, safe, LZ_TEXT_SAFE_BLOCK);
+
+    lv_point_t ell;
+    lv_txt_get_size(&ell, "...", font, 0, 0, LV_COORD_MAX, 0);
+    int fit_px = max_px - ell.x;
+    if(fit_px < 0) fit_px = 0;
+
+    const char *start = safe;
+    while(*start) {
+        lv_txt_get_size(&sz, start, font, 0, 0, LV_COORD_MAX, 0);
+        if(sz.x <= fit_px) break;
+        start++;
+    }
+
+    size_t len = 0;
+    out[0] = 0;
+    safe_append_str(out, cap, &len, "...");
+    safe_append_str(out, cap, &len, start);
+    return len;
+}
+
 lv_obj_t *lz_box(lv_obj_t *parent)
 {
     lv_obj_t *o = lv_obj_create(parent);

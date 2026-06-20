@@ -103,6 +103,16 @@ void lz_nav_track(lv_obj_t *obj, int idx);    /* scrolled into view when focused
 void lz_on_click(lv_obj_t *obj, void (*fn)(void));  /* tap handler for chrome elements */
 
 /* --- shared widgets / helpers --- */
+typedef enum {
+    LZ_TEXT_SAFE_LINE,
+    LZ_TEXT_SAFE_BLOCK
+} lz_text_safe_mode_t;
+
+size_t    lz_text_safe_copy(char *out, size_t cap, const char *raw,
+                            lz_text_safe_mode_t mode);
+size_t    lz_text_safe_tail_fit(char *out, size_t cap, const char *raw,
+                                const lv_font_t *font, int max_px,
+                                lz_text_safe_mode_t mode);
 lv_obj_t *lz_box(lv_obj_t *parent);                       /* plain styleless container */
 lv_obj_t *lz_text(lv_obj_t *parent, const char *txt, const lv_font_t *font, lv_color_t color);
 lv_obj_t *lz_icon(lv_obj_t *parent, const char *glyph, const lv_font_t *font, lv_color_t color);
