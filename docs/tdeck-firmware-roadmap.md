@@ -371,6 +371,9 @@ Deliverables:
   Initial foundation: hidden staging directories, manifest-id validation, live
   app backup/rollback promotion, and staging discard helpers.
 - Show update badges on installed apps.
+- Show update badges on installed apps. Initial implementation: local App Store
+  rows compare manifest versions with catalog metadata and display update chips
+  plus detail status when a newer catalog version exists.
 - Support uninstall/delete with data retention choice.
 - Add plain-language permission prompts. Initial implementation: local app
   detail and foreground metadata now show a bounded `Access` summary generated

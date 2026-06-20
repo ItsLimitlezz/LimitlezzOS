@@ -57,14 +57,14 @@ const lz_node_t LZ_NODES[9] = {
 };
 
 lz_store_app_t LZ_STORE[8] = {
-    { "calc",    "Calculator",   "Utilities",    "0.1 MB", "4.5", LZ_I_CALCULATE,  40,  LZ_ST_GET    },
-    { "notes",   "Notes",        "Productivity", "0.2 MB", "4.4", LZ_I_NOTE,       95,  LZ_ST_GET    },
-    { "aprs",    "APRS Bridge",  "Connectivity", "0.4 MB", "4.6", LZ_I_SATELLITE,  200, LZ_ST_GET    },
-    { "weather", "Weather Mesh", "Sensors",      "0.6 MB", "4.3", LZ_I_THERMOSTAT, 48,  LZ_ST_GET    },
-    { "bbs",     "Mesh BBS",     "Messaging",    "0.3 MB", "4.1", LZ_I_DNS,        280, LZ_ST_UPDATE },
-    { "scope",   "Signal Scope", "Utilities",    "0.9 MB", "4.7", LZ_I_GRAPHIC_EQ, 330, LZ_ST_GET    },
-    { "chess",   "LoRa Chess",   "Games",        "0.5 MB", "4.2", LZ_I_GAMEPAD,    18,  LZ_ST_GET    },
-    { "maps",    "Offline Maps", "Navigation",   "1.2 MB", "4.8", LZ_I_MAP,        150, LZ_ST_GET    },
+    { "calc",    "Calculator",   "0.1.0", "Utilities",    "0.1 MB", "4.5", LZ_I_CALCULATE,  40,  LZ_ST_GET    },
+    { "notes",   "Notes",        "0.2.0", "Productivity", "0.2 MB", "4.4", LZ_I_NOTE,       95,  LZ_ST_GET    },
+    { "aprs",    "APRS Bridge",  "0.1.0", "Connectivity", "0.4 MB", "4.6", LZ_I_SATELLITE,  200, LZ_ST_GET    },
+    { "weather", "Weather Mesh", "0.2.0", "Sensors",      "0.6 MB", "4.3", LZ_I_THERMOSTAT, 48,  LZ_ST_GET    },
+    { "bbs",     "Mesh BBS",     "0.2.0", "Messaging",    "0.3 MB", "4.1", LZ_I_DNS,        280, LZ_ST_UPDATE },
+    { "scope",   "Signal Scope", "0.2.0", "Utilities",    "0.9 MB", "4.7", LZ_I_GRAPHIC_EQ, 330, LZ_ST_GET    },
+    { "chess",   "LoRa Chess",   "0.1.0", "Games",        "0.5 MB", "4.2", LZ_I_GAMEPAD,    18,  LZ_ST_GET    },
+    { "maps",    "Offline Maps", "0.2.0", "Navigation",   "1.2 MB", "4.8", LZ_I_MAP,        150, LZ_ST_GET    },
 };
 
 const char *LZ_TERM_LINES[12] = {
