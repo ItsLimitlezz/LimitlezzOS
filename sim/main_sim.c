@@ -1096,6 +1096,8 @@ static int codec_selftest(void)
     /* 11. local app scanner: valid manifests become local apps; broken packages
     /* 9b. User settings include the app catalog source selector while still
      *      loading older settings.cfg files with the beginner-safe default. */
+    /* 10. settings schema regression: current saves write v3, and older v1/v2
+     * files still load with safe defaults for fields that did not exist yet. */
     {
         extern void lz_store_init(const char *datadir);
         extern void lz_store_save_settings(const lz_user_settings_t *s);
@@ -1128,6 +1130,53 @@ static int codec_selftest(void)
         CHECK(lz_store_load_settings(&loaded) &&
               loaded.app_source == LZ_APP_SOURCE_OFFICIAL,
               "store: legacy settings default to official app source");
+
+        lz_user_settings_t s; memset(&s, 0, sizeof s);
+        s.net_mt = true; s.net_mc = true; s.airtime = LZ_AIRTIME_MC_FIRST;
+        s.tx = 2; s.gps = true; s.bright = 61; s.timeout = 4; s.kb_light = 1;
+        s.tz_idx = 5; s.clock24 = true; s.save = true; s.developer = true;
+        lz_store_save_settings(&s);
+
+        lz_user_settings_t got; memset(&got, 0, sizeof got);
+        CHECK(lz_store_load_settings(&got), "store: settings v3 reload");
+        CHECK(got.net_mt && got.net_mc && got.airtime == LZ_AIRTIME_MC_FIRST &&
+              got.tx == 2 && got.gps && got.bright == 61 && got.timeout == 4 &&
+              got.kb_light == 1 && got.tz_idx == 5 && got.clock24 &&
+              got.save && got.developer,
+              "store: settings v3 round-trip fields");
+        FILE *sf = fopen("./settings.cfg", "rb");
+        char line[160] = {0};
+        bool line_ok = sf && fgets(line, sizeof line, sf) != NULL;
+        if(sf) fclose(sf);
+        CHECK(line_ok && strncmp(line, "3 ", 2) == 0,
+              "store: settings save writes schema v3");
+
+        sf = fopen("./settings.cfg", "wb");
+        if(sf) { fputs("1 1 0 2 1 66 3 2 4 1 1\n", sf); fclose(sf); }
+        memset(&got, 0, sizeof got);
+        CHECK(lz_store_load_settings(&got), "store: legacy settings v1 loads");
+        CHECK(got.net_mt && !got.net_mc && got.airtime == LZ_AIRTIME_DEFAULT &&
+              got.tx == 2 && got.gps && got.bright == 66 && got.timeout == 3 &&
+              got.kb_light == 2 && got.tz_idx == 4 && got.clock24 &&
+              got.save && !got.developer,
+              "store: legacy settings v1 defaults new fields");
+
+        sf = fopen("./settings.cfg", "wb");
+        if(sf) { fputs("2 0 1 1 0 44 2 1 3 0 0 1\n", sf); fclose(sf); }
+        memset(&got, 0, sizeof got);
+        CHECK(lz_store_load_settings(&got), "store: legacy settings v2 loads");
+        CHECK(!got.net_mt && got.net_mc && got.airtime == LZ_AIRTIME_DEFAULT &&
+              got.tx == 1 && !got.gps && got.bright == 44 && got.timeout == 2 &&
+              got.kb_light == 1 && got.tz_idx == 3 && !got.clock24 &&
+              !got.save && got.developer,
+              "store: legacy settings v2 keeps developer flag");
+
+        sf = fopen("./settings.cfg", "wb");
+        if(sf) { fputs("3 1 1 99 3 0 74 1 0 0 0 0 0\n", sf); fclose(sf); }
+        memset(&got, 0, sizeof got);
+        CHECK(lz_store_load_settings(&got) && got.airtime == LZ_AIRTIME_DEFAULT,
+              "store: settings v3 clamps unknown airtime");
+
         remove("./settings.cfg");
         lz_store_init(NULL);
     }
