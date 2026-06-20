@@ -15,6 +15,7 @@
 #include "sim_radio.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 
 void lz_backend_init(void) { sim_radio_init(); }
 
@@ -36,11 +37,54 @@ bool lz_backend_mc_advert_now(bool flood) { return sim_radio_mc_advert_now(flood
 
 void lz_backend_mc_addr(char *buf, int n) { snprintf(buf, n, "MC-1ec77175"); }
 
+bool lz_backend_mc_pubkey(uint8_t out32[32])
+{
+    if(!out32) return false;
+    for(int i = 0; i < 32; i++) out32[i] = (uint8_t)(0x10 + i);
+    return true;
+}
+
 /* MeshCore outbound API. sim_radio models inbound MeshCore (sim_inject_mc_*);
  * the outbound contract still needs these symbols defined or the native build
  * fails to link on macOS (weak externs in mesh_core.c don't resolve to NULL). */
 bool lz_backend_mc_send_public(const char *text) { (void)text; return true; }
-bool lz_backend_mc_dm(const char *name, const char *text) { (void)name; (void)text; return true; }
+
+static bool g_last_mc_dm;
+static uint8_t g_last_mc_dm_key[32];
+static char g_last_mc_dm_name[28];
+static char g_last_mc_dm_text[160];
+
+bool lz_backend_mc_dm_key(const uint8_t peer_pub[32], const char *name_hint, const char *text)
+{
+    if(!peer_pub || !text || !text[0]) return false;
+    g_last_mc_dm = true;
+    memcpy(g_last_mc_dm_key, peer_pub, 32);
+    snprintf(g_last_mc_dm_name, sizeof g_last_mc_dm_name, "%s",
+             name_hint ? name_hint : "");
+    snprintf(g_last_mc_dm_text, sizeof g_last_mc_dm_text, "%s", text);
+    return true;
+}
+
+bool lz_backend_mc_dm(const char *name, const char *text) { (void)name; (void)text; return false; }
+
+void sim_backend_mc_clear_last_dm(void)
+{
+    g_last_mc_dm = false;
+    memset(g_last_mc_dm_key, 0, sizeof g_last_mc_dm_key);
+    g_last_mc_dm_name[0] = 0;
+    g_last_mc_dm_text[0] = 0;
+}
+
+bool sim_backend_mc_last_dm(uint8_t out32[32], char *name, int name_cap,
+                            char *text, int text_cap)
+{
+    if(!g_last_mc_dm) return false;
+    if(out32) memcpy(out32, g_last_mc_dm_key, 32);
+    if(name && name_cap > 0) snprintf(name, (size_t)name_cap, "%s", g_last_mc_dm_name);
+    if(text && text_cap > 0) snprintf(text, (size_t)text_cap, "%s", g_last_mc_dm_text);
+    return true;
+}
+
 int  lz_backend_mc_peers(char *buf, int n) { snprintf(buf, n, "no MeshCore peers (sim)\n"); return 0; }
 
 static bool g_sim_companion;

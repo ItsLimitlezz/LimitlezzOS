@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Python tooling selftests
         run: |
-          python -m py_compile scripts/check_tdeck_budget.py scripts/fetch_tdeck_artifact.py scripts/serial_harness.py scripts/tdeck_smoke.py scripts/tdm_airtime_smoke.py
+          python -m py_compile scripts/check_tdeck_budget.py scripts/fetch_tdeck_artifact.py scripts/serial_harness.py scripts/tdeck_smoke.py scripts/tdm_airtime_smoke.py scripts/mc_companion_usb_smoke.py scripts/mc_companion_ble_smoke.py
           python scripts/tdm_airtime_smoke.py --selftest
       - name: Validate local app samples
         run: |

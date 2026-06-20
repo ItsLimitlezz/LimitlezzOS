@@ -180,6 +180,8 @@ typedef struct {
     char     name[28];
     lz_net_t net;
     uint32_t node_num;           /* LZ_BROADCAST for the broadcast channel */
+    uint8_t  mc_pubkey[32];      /* MeshCore DM peer key when known */
+    bool     has_mc_pubkey;
     char     last_text[72];
     uint32_t last_ts;
     int      unread;
@@ -380,6 +382,10 @@ int  lz_svc_mc_companion_threads(char *buf, int n);
 bool lz_svc_mc_companion_send_public(const char *text);
 bool lz_svc_mc_companion_send_dm(const char *name, const char *text);
 int  lz_svc_mc_companion_handle_line(const char *line, char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_handle_line_for(const char *line, const char *bridge,
+                                         char *buf, int n, bool *exit_mode);
+int  lz_svc_mc_companion_drain_events(char *buf, int n);
+void lz_svc_mc_companion_reset_session(void);
 int  lz_svc_mc_companion_selftest(char *buf, int n);
 
 /* ---- radio stats (airtime accounting) ---- */
@@ -476,6 +482,9 @@ void lz_backend_set_airtime(int mode);  /* choose the both-networks split */
 void lz_backend_request_nodeinfo(uint32_t to);   /* ask a node for its NodeInfo (PKI key) */
 bool lz_backend_mc_advert_now(bool flood);       /* send a MeshCore self-advert (flood/zero-hop) */
 void lz_backend_mc_addr(char *buf, int n);       /* our MeshCore address, e.g. "MC-978bbe5f" */
+bool lz_backend_mc_pubkey(uint8_t out32[32]);    /* our 32-byte MeshCore public key */
+bool lz_backend_mc_dm_key(const uint8_t peer_pub[32], const char *name_hint,
+                          const char *text);     /* MeshCore DM to exact public key */
 /* companion bridge: USB serial speaks the Meshtastic app protocol when active */
 bool lz_mtc_active(void);
 void lz_mtc_set_active(bool on);
@@ -494,6 +503,12 @@ void lz_mcc_usb_set_active(bool on);
 void lz_mcc_usb_poll(void);
 int  lz_mcc_usb_status(char *buf, int n);
 int  lz_mcc_usb_selftest(char *buf, int n);
+bool lz_mcc_ble_enabled(void);
+bool lz_mcc_ble_connected(void);
+void lz_mcc_ble_set_enabled(bool on);
+void lz_mcc_ble_poll(void);
+int  lz_mcc_ble_status(char *buf, int n);
+int  lz_mcc_ble_selftest(char *buf, int n);
 
 /* called by backends on radio events */
 void lz_core_on_text(uint32_t from, uint32_t to, const char *text, int hops_used, float snr);

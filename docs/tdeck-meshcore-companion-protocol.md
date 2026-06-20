@@ -1,10 +1,12 @@
 # T-Deck MeshCore Companion V0 Protocol
 
-Status: Phase 5 / V0.8 protocol foundation plus an initial firmware serial
-smoke surface. The current firmware exposes `companion mc hello`, `status`,
-`nodes`, `threads`, `send`, `dm`, and `test` for USB console validation; the
-formal `MC0` request/response bridge, live events, BLE transport, and external
-app compatibility are still planned.
+Status: Phase 5 / V0.8 USB-first protocol foundation. The firmware exposes
+`companion mc hello`, `status`, `nodes`, `threads`, `send`, `dm`, and `test`
+for USB console validation, plus formal `companion mc usb on` MC0 mode for
+`HELLO`, `IDENTITY`, `STATUS`, `NODES`, `THREADS`, `SEND_PUBLIC`, `SEND_DM`,
+`EVENTS`, and `EXIT`. Snapshot revision counters and a bounded event drain are
+implemented. A private MC0-over-BLE transport mirrors the same logical lines for
+test clients; external MeshCore app compatibility is still unclaimed.
 
 ## Goal
 
@@ -20,7 +22,8 @@ built test tool or LimitlezzOS companion app:
 - receive message, node, send-status, and snapshot-change events
 - recover cleanly from validation, routing, and radio errors
 
-BLE can reuse the same logical lines later, but USB is the V0 transport.
+USB is the primary V0 validation transport. BLE uses the same MC0 lines over a
+LimitlezzOS-specific GATT service and is not the official MeshCore app protocol.
 
 ## Compatibility Boundary
 
@@ -49,14 +52,30 @@ the normal console prompt. The firmware enters MC0 mode with:
 ```text
 companion mc usb on
 MC0 1 HELLO proto=0 app=limitlezz-smoke host=windows want=none
-MC0 2 STATUS
-MC0 3 NODES since=0 limit=5
+MC0 2 IDENTITY
+MC0 3 STATUS
+MC0 4 NODES since=0 limit=5
+MC0 5 THREADS since=0 limit=5
+MC0 6 EVENTS mode=on types=nodes,messages,tx,status
+MC0 7 EVENTS mode=off
 MC0 99 EXIT
 ```
 
 Host smoke keeps the mode-entry command and exit line configurable for older
 artifacts and later protocol revisions, but it must not treat Meshtastic
 companion mode as a fallback.
+
+MC0 BLE mode is enabled from the serial console with `companion mc ble on`.
+It advertises as `Limitlezz-MC0-<shortname>` and exposes:
+
+```text
+service b8f13f20-6a6f-4f8d-8b0d-4d4330000001
+rx/write b8f13f20-6a6f-4f8d-8b0d-4d4330000002
+tx/read+notify b8f13f20-6a6f-4f8d-8b0d-4d4330000003
+```
+
+Hosts write one UTF-8 MC0 line to RX and read or subscribe to TX for response
+and event lines. `STATUS` reports `bridge=ble` over this transport.
 
 - Encoding: UTF-8 text lines.
 - Line ending: `\n`; firmware should accept `\r\n`.
@@ -111,7 +130,7 @@ MC0 1 HELLO proto=0 app=limitlezz-test host=windows want=events
 Response:
 
 ```text
-MC0 1 OK proto=0 fw=0.8-draft device=tdeck session=84 caps=identity,nodes,status,send_public,send_dm,events max_line=512 max_text=180 event_seq=120 nodes_rev=42 messages_rev=77
+MC0 1 OK proto=0 fw=0.8-draft device=tdeck caps=identity,nodes,status,threads,send_public,send_dm,events,exit max_line=512 max_text=180 event_seq=120 nodes_rev=42 messages_rev=77
 ```
 
 Required fields:
@@ -140,14 +159,16 @@ MC0 2 IDENTITY
 Response:
 
 ```text
-MC0 2 OK enabled=1 name=Jess addr=4f8e21a0 role=chat pubkey=6b1d... addr_format=meshcore-hex advert_ready=1
+MC0 2 OK enabled=1 name=Jess addr=6b1d000000000000000000000000000000000000000000000000000000000000 short_id=MC-6b1d0000 role=chat pubkey=6b1d000000000000000000000000000000000000000000000000000000000000 addr_format=meshcore-pubkey-hex advert_ready=1
 ```
 
 Required fields:
 
 - `enabled`: whether MeshCore is currently enabled.
 - `name`: percent-encoded local display name.
-- `addr`: local MeshCore address, lowercase hex, opaque to the host.
+- `addr`: local MeshCore address, lowercase 64-hex MeshCore public key, opaque
+  to the host except for exact equality.
+- `short_id`: optional display-only short identifier. Hosts must not route by it.
 - `role`: current local MeshCore role, such as `chat`, `router`, or
   `unknown`.
 - `addr_format`: the address encoding advertised for this session.
@@ -169,18 +190,19 @@ MC0 3 STATUS
 Response:
 
 ```text
-MC0 3 OK mc=on bridge=usb mc_companion=idle mt_companion=off tdm=active airtime=balanced queue=0 event_seq=120 nodes_rev=42 messages_rev=77
+MC0 3 OK proto=0 mc=on bridge=usb mc_companion=attached mt_companion=off addr=6b1d000000000000000000000000000000000000000000000000000000000000 short_id=MC-6b1d0000 nodes=2 threads=2 unread=1 public=1 dm=1 events=off event_seq=120 nodes_rev=42 messages_rev=77
 ```
 
 Suggested fields:
 
 - `mc`: `on`, `off`, or `disabled`.
-- `bridge`: active transport, usually `usb` for V0.
-- `mc_companion`: `idle`, `attached`, or `streaming`.
+- `bridge`: active transport, `usb` or `ble`.
+- `mc_companion`: `attached` or `streaming`.
 - `mt_companion`: Meshtastic companion state so clients can detect conflicts.
-- `tdm`: `active`, `mc_only`, `mt_only`, or `idle`.
-- `airtime`: current split-airtime preset.
-- `queue`: queued outbound MeshCore sends owned by the firmware.
+- `addr` and `short_id`: local MeshCore identity fields, matching `IDENTITY`.
+- `nodes`, `threads`, and `unread`: current snapshot counts.
+- `public` and `dm`: whether firmware-backed public and DM sends are available.
+- `events`: `on` when typed event streaming is enabled.
 - `event_seq`, `nodes_rev`, `messages_rev`: resync counters.
 
 ### `NODES`
@@ -197,8 +219,8 @@ Response:
 
 ```text
 MC0 4 BEGIN type=nodes rev=42 count=2 more=0 cursor=end
-MC0 4 NODE addr=4f8e21a0 name=Limitlezz role=chat seen_ms=12000 snr=-9 rssi=-112 public_key=present dm=ready
-MC0 4 NODE addr=12ab9001 name=Hilltop role=router seen_ms=180000 snr=-14 rssi=-118 public_key=missing dm=not_messageable
+MC0 4 NODE addr=4f8e21a000000000000000000000000000000000000000000000000000000000 short_id=MC-4f8e21a0 name=Limitlezz role=chat seen_ms=12000 snr=-9 public_key=present dm=ready
+MC0 4 NODE addr=- short_id=MC-12ab9001 name=Hilltop role=router seen_ms=180000 snr=-14 public_key=missing dm=not_messageable
 MC0 4 END type=nodes rev=42 count=2 more=0 cursor=end
 ```
 
@@ -206,16 +228,19 @@ Request fields:
 
 - `since`: last `nodes_rev` known by the host, or `0` for a full snapshot.
 - `limit`: maximum rows requested. Firmware may cap this below the requested
-  value.
+  value; V0 USB mode caps node snapshots at five rows to keep line responses
+  bounded.
 - `cursor`: optional opaque cursor from a previous `NODES` response.
 
 Node fields:
 
-- `addr`: MeshCore address, lowercase hex, opaque to the host.
+- `addr`: MeshCore address, lowercase 64-hex public key when known. `-` means
+  the firmware has no usable key yet, so `SEND_DM to_addr=...` is impossible.
+- `short_id`: display-only short identifier for compact UI labels.
 - `name`: percent-encoded display name, if known.
 - `role`: `chat`, `router`, `repeater`, `sensor`, or `unknown`.
 - `seen_ms`: milliseconds since last heard, or `-1` if unknown.
-- `snr`, `rssi`: last RF quality values, or omitted when unknown.
+- `snr`: last RF quality value, or omitted when unknown.
 - `public_key`: `present`, `missing`, or `unknown`.
 - `dm`: `ready`, `no_key`, `not_messageable`, or `unknown`.
 
@@ -236,14 +261,13 @@ MC0 5 SEND_PUBLIC room=public text=Hello%20mesh client_mid=pc-0001
 Immediate response:
 
 ```text
-MC0 5 OK accepted=1 msg_id=mc-804 queue=1 status=queued
+MC0 5 OK accepted=1 kind=public status=queued event_seq=121 client_mid=pc-0001
 ```
 
 Later events:
 
 ```text
-MC0 EVT 121 tx_status client_mid=pc-0001 msg_id=mc-804 kind=public status=sent
-MC0 EVT 122 tx_status client_mid=pc-0001 msg_id=mc-804 kind=public status=delivered
+MC0 EVT 121 tx_status kind=public status=queued room=public client_mid=pc-0001
 ```
 
 Request fields:
@@ -263,7 +287,7 @@ name. Address is preferred because display names can collide.
 By address:
 
 ```text
-MC0 6 SEND_DM to_addr=4f8e21a0 text=Meet%20at%20camp client_mid=pc-0002
+MC0 6 SEND_DM to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 text=Meet%20at%20camp client_mid=pc-0002
 ```
 
 By known name:
@@ -275,23 +299,25 @@ MC0 7 SEND_DM to_name=Limitlezz text=Copy%20that client_mid=pc-0003
 Immediate response:
 
 ```text
-MC0 6 OK accepted=1 msg_id=mc-805 to_addr=4f8e21a0 status=queued
+MC0 6 OK accepted=1 kind=dm to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 to_name=Limitlezz status=queued event_seq=122 client_mid=pc-0002
 ```
 
 Later event:
 
 ```text
-MC0 EVT 123 tx_status client_mid=pc-0002 msg_id=mc-805 kind=dm to_addr=4f8e21a0 status=delivered
+MC0 EVT 122 tx_status kind=dm status=queued to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 client_mid=pc-0002
 ```
 
 V0 name matching rules:
 
-- Match against the firmware's known MeshCore display name and short name.
+- Match against the firmware's known MeshCore display name.
 - Case-insensitive exact match only.
 - If zero nodes match, return `ERR code=not_found`.
 - If more than one node matches, return `ERR code=ambiguous_name`.
 - If the matching node lacks a usable session/key, return `ERR code=no_key`.
 - If the node role is not messageable, return `ERR code=not_messageable`.
+- If both `to_addr` and `to_name` are supplied, they must identify the same
+  node or firmware returns `ERR code=target_mismatch`.
 
 The host does not manage MeshCore private keys or sessions in V0.
 
@@ -309,22 +335,22 @@ MC0 8 EVENTS mode=on types=nodes,messages,tx,status
 Response:
 
 ```text
-MC0 8 OK events=on types=nodes,messages,tx,status event_seq=123
+MC0 8 OK events=on types=nodes,messages,tx,status event_seq=123 nodes_rev=42 messages_rev=77
 ```
 
 Supported event types:
 
 ```text
-MC0 EVT 124 node_upsert addr=4f8e21a0 nodes_rev=43
-MC0 EVT 125 snapshot_dirty type=nodes rev=43 reason=node_upsert
-MC0 EVT 126 rx_public msg_id=mc-806 from_addr=4f8e21a0 from_name=Limitlezz room=public text=Copy%20CH0.
-MC0 EVT 127 rx_dm msg_id=mc-807 from_addr=4f8e21a0 from_name=Limitlezz text=Direct%20copy.
-MC0 EVT 128 tx_status client_mid=pc-0002 msg_id=mc-805 kind=dm status=failed reason=ack_timeout retry=1
-MC0 EVT 129 status mc=on tdm=active airtime=balanced queue=0
+MC0 EVT 124 node_upsert addr=4f8e21a000000000000000000000000000000000000000000000000000000000 short_id=MC-4f8e21a0 nodes_rev=43 name=Limitlezz role=chat public_key=present dm=ready
+MC0 EVT 125 rx_public messages_rev=78 kind=public room=public from_name=Limitlezz text=Copy%20CH0.
+MC0 EVT 126 rx_dm messages_rev=79 kind=dm from_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 from_name=Limitlezz text=Direct%20copy.
+MC0 EVT 127 tx_status kind=dm status=queued to_addr=4f8e21a000000000000000000000000000000000000000000000000000000000 client_mid=pc-0002
 ```
 
 Snapshot events are hints. The host should use `STATUS`, `NODES`, or later
 message snapshot commands for authoritative state after reconnect.
+The current V0 firmware accepts `status` in `types`, but it has no live status
+event producer yet; poll `STATUS` for authoritative radio and bridge state.
 
 ## Error Semantics
 
@@ -373,13 +399,17 @@ Rules:
 2. Add an initial USB serial-console smoke surface for `hello`, `status`,
    `nodes`, `threads`, Public send, DM send, and self-test.
 3. Add a USB-only MeshCore companion mode with `HELLO`, `IDENTITY`, `STATUS`,
-   and `NODES`.
+   and `NODES`. Implemented.
 4. Add `SEND_PUBLIC` and `SEND_DM` using the existing firmware-owned MeshCore
-   send paths.
+   send paths. Implemented.
 5. Add event streaming for receive, send-status, node-change, and status
-   changes.
-6. Add snapshot revision counters and reconnect/resync behavior.
-7. Mirror the same logical protocol over BLE only after USB behavior is stable.
+   changes. In progress: event controls and a bounded event drain are
+   implemented for node, message, and TX events.
+6. Add snapshot revision counters and reconnect/resync behavior. Implemented
+   for node/thread snapshots and `STATUS`/`HELLO` resync.
+7. Mirror the same logical protocol over BLE after USB behavior is stable.
+   Implemented as the private MC0 BLE service above; hardware smoke remains
+   the validation gate.
 8. Revisit external-app compatibility only after the real MeshCore app protocol
    is confirmed.
 
@@ -390,9 +420,17 @@ Rules:
   `companion mc test`.
 - Formal USB MC0 smoke is opt-in:
   `python scripts/mc_companion_usb_smoke.py --mc0-usb` enters the configured
-  USB mode, sends `HELLO`, `STATUS`, and `NODES`, asserts `MC0 ... OK`,
-  `BEGIN`, and `END` response markers, then exits through the configured
-  `MC0 <id> EXIT` line.
+  USB mode, sends `HELLO`, `IDENTITY`, `STATUS`, `NODES`, `THREADS`, and
+  `EVENTS` on/off, asserts `MC0 ... OK`, the public-key address format,
+  revision markers, `BEGIN`, and `END` response markers, then exits through
+  the configured `MC0 <id> EXIT` line.
+- Add `--mc0-tx-smoke` to the formal USB smoke when a hardware run should prove
+  live event draining. It sends a public `SEND_PUBLIC` with a known
+  `client_mid` and waits for a matching `MC0 EVT tx_status`.
+- Formal BLE MC0 smoke is opt-in and requires a host BLE client dependency:
+  enable the service with `companion mc ble on`, then run
+  `python scripts/mc_companion_ble_smoke.py --mc0-tx-smoke`. The smoke asserts
+  `bridge=ble`, snapshot markers, and the same public `tx_status` event path.
 - If firmware lands different command names, use the smoke helper's
   `--mc0-enter-command`, `--mc0-*-template`, `--mc0-*-marker`, and
   `--mc0-exit-template` flags instead of editing firmware or weakening the

@@ -801,20 +801,32 @@ static void handle_mc_path(const mc_pkt_t *p)
         handle_mc_ack(p->payload + i);
 }
 
-/* send a direct message to a known MeshCore peer (matched by node-name substring). */
-extern "C" bool lz_backend_mc_dm(const char *name, const char *text)
+static bool mc_name_eq_ci(const char *a, const char *b)
 {
-    if(!g_ok || !g_net_mc || !name || !text || !text[0]) return false;
+    if(!a || !b) return false;
+    while(*a && *b) {
+        char ca = (*a >= 'A' && *a <= 'Z') ? (char)(*a - 'A' + 'a') : *a;
+        char cb = (*b >= 'A' && *b <= 'Z') ? (char)(*b - 'A' + 'a') : *b;
+        if(ca != cb) return false;
+        a++; b++;
+    }
+    return *a == 0 && *b == 0;
+}
+
+static bool send_mc_dm_to_key(const uint8_t ppub[32], const char *name_hint, const char *text)
+{
+    if(!g_ok || !g_net_mc || !ppub || !text || !text[0]) return false;
+    char pname[24];
+    snprintf(pname, sizeof pname, "%s", (name_hint && name_hint[0]) ? name_hint : "MeshCore peer");
+
     const lz_node_rt *nodes; int nn = lz_svc_nodes(&nodes);
-    uint8_t ppub[32]; char pname[24]; bool found = false;
-    for(int i = 0; i < nn; i++)
-        if(nodes[i].net == LZ_NET_MC && nodes[i].has_key && nodes[i].name[0] &&
-           strstr(nodes[i].name, name)) {
-            memcpy(ppub, nodes[i].pubkey, 32);
-            snprintf(pname, sizeof pname, "%s", nodes[i].name);
-            found = true; break;
+    for(int i = 0; i < nn; i++) {
+        if(nodes[i].net == LZ_NET_MC && nodes[i].has_key &&
+           memcmp(nodes[i].pubkey, ppub, 32) == 0) {
+            if(nodes[i].name[0]) snprintf(pname, sizeof pname, "%s", nodes[i].name);
+            break;
         }
-    if(!found) return false;                          /* unknown peer: need their advert first */
+    }
 
     retune_guarded(PROF_MC, millis());
     uint8_t shared[32];
@@ -838,6 +850,30 @@ extern "C" bool lz_backend_mc_dm(const char *name, const char *text)
             g_ack_dwell_until = millis() + ACK_DWELL_MC;
     }
     return sent;
+}
+
+/* send a direct message to an exact MeshCore public key selected by the core. */
+extern "C" bool lz_backend_mc_dm_key(const uint8_t peer_pub[32],
+                                     const char *name_hint,
+                                     const char *text)
+{
+    return send_mc_dm_to_key(peer_pub, name_hint, text);
+}
+
+/* legacy serial-console wrapper: exact unique display-name match only. */
+extern "C" bool lz_backend_mc_dm(const char *name, const char *text)
+{
+    if(!name || !name[0]) return false;
+    const lz_node_rt *nodes; int nn = lz_svc_nodes(&nodes);
+    const lz_node_rt *match = NULL;
+    for(int i = 0; i < nn; i++) {
+        if(nodes[i].net != LZ_NET_MC || !nodes[i].has_key || !nodes[i].name[0])
+            continue;
+        if(!mc_name_eq_ci(nodes[i].name, name)) continue;
+        if(match) return false;
+        match = &nodes[i];
+    }
+    return match && send_mc_dm_to_key(match->pubkey, match->name, text);
 }
 
 /* list known MeshCore peers (serial `mc peers`) */
@@ -1097,6 +1133,13 @@ extern "C" int lz_backend_mc_id(char *buf, int n)
     int k = snprintf(buf, n, "MeshCore pubkey: ");
     for(int i = 0; i < 32 && k < n - 2; i++) k += snprintf(buf + k, n - k, "%02x", g_mc_pub[i]);
     return k;
+}
+
+extern "C" bool lz_backend_mc_pubkey(uint8_t out32[32])
+{
+    if(!g_mc_id_ok || !out32) return false;
+    memcpy(out32, g_mc_pub, 32);
+    return true;
 }
 
 /* self-test: build our advert, parse + Ed25519-verify it exactly as a remote
