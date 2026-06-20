@@ -340,28 +340,28 @@ static bool app_data_clear_walk(const char *dir, int depth, int *entries,
     return true;
 }
 
-#define LZ_APP_INSTALL_MAX_ENTRIES 128
-#define LZ_APP_INSTALL_MAX_DEPTH 4
+#define LZ_APP_REMOVE_MAX_ENTRIES 128
+#define LZ_APP_REMOVE_MAX_DEPTH 4
 
-static bool path_remove_tree_walk(const char *dir, int depth, int *entries,
-                                  char *err, int err_cap)
+static bool remove_tree_walk(const char *dir, int depth, int *entries,
+                             char *err, int err_cap)
 {
-    if(depth > LZ_APP_INSTALL_MAX_DEPTH) {
-        set_err(err, err_cap, "install too deep");
+    if(depth > LZ_APP_REMOVE_MAX_DEPTH) {
+        set_err(err, err_cap, "remove too deep");
         return false;
     }
     DIR *d = opendir(dir);
     if(!d) {
-        set_err(err, err_cap, "install scan failed");
+        set_err(err, err_cap, "remove scan failed");
         return false;
     }
 
     struct dirent *e;
     while((e = readdir(d)) != NULL) {
         if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
-        if(++(*entries) > LZ_APP_INSTALL_MAX_ENTRIES) {
+        if(++(*entries) > LZ_APP_REMOVE_MAX_ENTRIES) {
             closedir(d);
-            set_err(err, err_cap, "install too many files");
+            set_err(err, err_cap, "remove too many files");
             return false;
         }
 
@@ -370,22 +370,22 @@ static bool path_remove_tree_walk(const char *dir, int depth, int *entries,
         struct stat st;
         if(stat(path, &st) != 0) {
             closedir(d);
-            set_err(err, err_cap, "install scan failed");
+            set_err(err, err_cap, "remove scan failed");
             return false;
         }
         if(S_ISDIR(st.st_mode)) {
-            if(!path_remove_tree_walk(path, depth + 1, entries, err, err_cap)) {
+            if(!remove_tree_walk(path, depth + 1, entries, err, err_cap)) {
                 closedir(d);
                 return false;
             }
             if(!path_rmdir(path)) {
                 closedir(d);
-                set_err(err, err_cap, "install remove failed");
+                set_err(err, err_cap, "remove failed");
                 return false;
             }
         } else if(remove(path) != 0) {
             closedir(d);
-            set_err(err, err_cap, "install remove failed");
+            set_err(err, err_cap, "remove failed");
             return false;
         }
     }
@@ -393,23 +393,23 @@ static bool path_remove_tree_walk(const char *dir, int depth, int *entries,
     return true;
 }
 
-static bool path_remove_tree(const char *path, char *err, int err_cap)
+static bool remove_tree(const char *path, char *err, int err_cap)
 {
     if(!path || !path[0]) {
-        set_err(err, err_cap, "install remove failed");
+        set_err(err, err_cap, "remove failed");
         return false;
     }
     struct stat st;
     if(stat(path, &st) != 0) return true;
     if(!S_ISDIR(st.st_mode)) {
         if(remove(path) == 0) return true;
-        set_err(err, err_cap, "install remove failed");
+        set_err(err, err_cap, "remove failed");
         return false;
     }
     int entries = 0;
-    if(!path_remove_tree_walk(path, 0, &entries, err, err_cap)) return false;
+    if(!remove_tree_walk(path, 0, &entries, err, err_cap)) return false;
     if(!path_rmdir(path)) {
-        set_err(err, err_cap, "install remove failed");
+        set_err(err, err_cap, "remove failed");
         return false;
     }
     return true;
@@ -936,6 +936,51 @@ static bool app_install_temp_name(const char *name)
             strncmp(name, LZ_APP_BACKUP_PREFIX, strlen(LZ_APP_BACKUP_PREFIX)) == 0);
 }
 
+#define LZ_APP_RETAINED_PREFIX ".retained-"
+
+static bool app_retained_name(const char *name)
+{
+    return name && strncmp(name, LZ_APP_RETAINED_PREFIX, strlen(LZ_APP_RETAINED_PREFIX)) == 0;
+}
+
+static bool app_retained_paths(const char *id, char *root, size_t root_cap,
+                               char *data, size_t data_cap,
+                               char *err, int err_cap)
+{
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    if(!safe_id(id) || strlen(id) > 23) {
+        set_err(err, err_cap, "unsafe id");
+        return false;
+    }
+
+    char apps[128];
+    char retained_name[40];
+    int rn = snprintf(retained_name, sizeof retained_name, "%s%s", LZ_APP_RETAINED_PREFIX, id);
+    if(rn < 0 || rn >= (int)sizeof retained_name) {
+        set_err(err, err_cap, "path too long");
+        return false;
+    }
+    path_join(apps, sizeof apps, g_dir, "apps");
+    path_join(root, root_cap, apps, retained_name);
+    path_join(data, data_cap, root, "data");
+    return true;
+}
+
+static bool app_path_in_primary_apps(const char *path)
+{
+    if(!g_persist || !path || !path[0]) return false;
+    char apps[128];
+    path_join(apps, sizeof apps, g_dir, "apps");
+    size_t al = strlen(apps);
+    if(strncmp(path, apps, al) != 0) return false;
+    if(path[al] != '/' && path[al] != '\\') return false;
+    const char *rest = path + al + 1;
+    return rest[0] && strchr(rest, '/') == NULL && strchr(rest, '\\') == NULL;
+}
+
 static bool local_app_seen(const lz_local_app_t *out, int n, const char *id)
 {
     for(int i = 0; i < n; i++)
@@ -1323,7 +1368,7 @@ bool lz_store_prepare_app_install(const char *id, char *staging_path, int stagin
         set_err(err, err_cap, "apps mkdir failed");
         return false;
     }
-    if(!path_remove_tree(staging, err, err_cap)) return false;
+    if(!remove_tree(staging, err, err_cap)) return false;
     if(!path_mkdir(staging) || !path_is_dir(staging)) {
         set_err(err, err_cap, "staging mkdir failed");
         return false;
@@ -1341,7 +1386,7 @@ bool lz_store_discard_app_install(const char *id, char *err, int err_cap)
                           staging, sizeof staging, backup, sizeof backup,
                           err, err_cap))
         return false;
-    return path_remove_tree(staging, err, err_cap);
+    return remove_tree(staging, err, err_cap);
 }
 
 bool lz_store_promote_app_install(const char *id, char *err, int err_cap)
@@ -1375,7 +1420,7 @@ bool lz_store_promote_app_install(const char *id, char *err, int err_cap)
         set_err(err, err_cap, "live not dir");
         return false;
     }
-    if(!path_remove_tree(backup, err, err_cap)) return false;
+    if(!remove_tree(backup, err, err_cap)) return false;
 
     bool had_live = path_is_dir(live);
     if(had_live && rename(live, backup) != 0) {
@@ -1389,7 +1434,7 @@ bool lz_store_promote_app_install(const char *id, char *err, int err_cap)
     }
     if(had_live) {
         char cleanup_err[32];
-        path_remove_tree(backup, cleanup_err, sizeof cleanup_err);
+        remove_tree(backup, cleanup_err, sizeof cleanup_err);
     }
     return true;
 }
@@ -1404,6 +1449,7 @@ static void scan_app_root(const char *apps_dir, lz_local_app_t *out, int cap, in
     while(*count < cap && (e = readdir(d)) != NULL) {
         if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         if(app_install_temp_name(e->d_name)) continue;
+        if(app_retained_name(e->d_name)) continue;
         char pkg[128];
         path_join(pkg, sizeof pkg, apps_dir, e->d_name);
         if(!path_is_dir(pkg)) continue;
@@ -1451,6 +1497,7 @@ static void scan_app_issue_root(const char *apps_dir, lz_local_app_issue_t *out,
     while(*count < cap && (e = readdir(d)) != NULL) {
         if(strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
         if(app_install_temp_name(e->d_name)) continue;
+        if(app_retained_name(e->d_name)) continue;
         char pkg[128];
         path_join(pkg, sizeof pkg, apps_dir, e->d_name);
         if(!path_is_dir(pkg)) continue;
@@ -1686,12 +1733,66 @@ bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int pa
     }
     char data[128];
     path_join(data, sizeof data, app->path, "data");
+    if(!path_is_dir(data)) {
+        char retained[128], retained_data[160];
+        char restore_err[32];
+        restore_err[0] = 0;
+        if(app_retained_paths(app->id, retained, sizeof retained,
+                              retained_data, sizeof retained_data,
+                              restore_err, sizeof restore_err) &&
+           path_is_dir(retained_data)) {
+            if(rename(retained_data, data) != 0) {
+                if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "data restore failed");
+                return false;
+            }
+            path_rmdir(retained);
+        }
+    }
     if(!path_mkdir(data) || !path_is_dir(data)) {
         if(err && err_cap > 0) snprintf(err, (size_t)err_cap, "data mkdir failed");
         return false;
     }
     if(path_out && path_cap > 0) snprintf(path_out, (size_t)path_cap, "%s", data);
     return true;
+}
+
+bool lz_store_uninstall_local_app(const lz_local_app_t *app, bool keep_data,
+                                  char *err, int err_cap)
+{
+    set_err(err, err_cap, "");
+    if(!g_persist) {
+        set_err(err, err_cap, "storage unavailable");
+        return false;
+    }
+    if(!app || !app->id[0] || !app->path[0] || !path_is_dir(app->path)) {
+        set_err(err, err_cap, "package missing");
+        return false;
+    }
+    if(!safe_id(app->id) || !app_path_in_primary_apps(app->path)) {
+        set_err(err, err_cap, "not removable");
+        return false;
+    }
+
+    char data[128];
+    path_join(data, sizeof data, app->path, "data");
+    if(keep_data && path_is_dir(data)) {
+        char retained[128], retained_data[160];
+        if(!app_retained_paths(app->id, retained, sizeof retained,
+                               retained_data, sizeof retained_data,
+                               err, err_cap))
+            return false;
+        if(!remove_tree(retained, err, err_cap)) return false;
+        if(!path_mkdir(retained) || !path_is_dir(retained)) {
+            set_err(err, err_cap, "retain mkdir failed");
+            return false;
+        }
+        if(rename(data, retained_data) != 0) {
+            set_err(err, err_cap, "retain failed");
+            return false;
+        }
+    }
+
+    return remove_tree(app->path, err, err_cap);
 }
 
 bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,

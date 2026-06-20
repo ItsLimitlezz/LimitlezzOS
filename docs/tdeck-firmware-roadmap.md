@@ -376,6 +376,10 @@ Deliverables:
   detail and foreground metadata now show a bounded `Access` summary generated
   from the manifest permission bits, while keeping raw permission IDs visible
   for diagnostics.
+- Support uninstall/delete with data retention choice. Initial implementation:
+  local App Store details expose keep-data and delete-data removal paths; retained
+  data is hidden from app scanning and restored on reinstall.
+- Add plain-language permission prompts.
 - Add catalog/source settings suitable for community repos without confusing first-time users.
 - Add plain-language permission prompts.
 - Add catalog/source settings suitable for community repos without confusing

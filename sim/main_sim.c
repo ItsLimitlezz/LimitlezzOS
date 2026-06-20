@@ -1175,6 +1175,58 @@ static int codec_selftest(void)
               "app install failed promote leaves prior app intact");
         CHECK(lz_store_discard_app_install("weather.mesh", err, sizeof err),
               "app install staging discard succeeds");
+    }
+    /* 10. local app uninstall: users can delete a package while either
+     *     retaining scoped data for reinstall or deleting everything. */
+    {
+        extern void lz_store_init(const char *datadir);
+        extern int  lz_store_scan_apps(lz_local_app_t *out, int cap);
+        extern int  lz_store_scan_app_issues(lz_local_app_issue_t *out, int cap);
+        extern bool lz_store_prepare_app_data(const lz_local_app_t *app, char *path_out, int path_cap,
+                                              char *err, int err_cap);
+        extern bool lz_store_app_data_usage(const lz_local_app_t *app, uint32_t *used, uint32_t *quota,
+                                            char *err, int err_cap);
+        extern bool lz_store_uninstall_local_app(const lz_local_app_t *app, bool keep_data,
+                                                 char *err, int err_cap);
+        sim_reset_dir("lzdata_appuninstall");
+        sim_write_local_app("lzdata_appuninstall", "weather", "weather.mesh", "Weather Mesh",
+                            "main.lua", "weather", 48, "Local weather dashboard",
+                            "[\"display\",\"input\",\"storage\"]");
+        lz_store_init("lzdata_appuninstall");
+        lz_local_app_t apps[4];
+        int an = lz_store_scan_apps(apps, 4);
+        CHECK(an == 1, "local app uninstall test app scans");
+        char data_path[128], err[48];
+        CHECK(an == 1 && lz_store_prepare_app_data(&apps[0], data_path, sizeof data_path,
+                                                   err, sizeof err),
+              "local app uninstall data prepares");
+        char cache_path[160];
+        snprintf(cache_path, sizeof cache_path, "%s/cache.bin", data_path);
+        sim_write_bytes(cache_path, 1536);
+
+        CHECK(an == 1 && lz_store_uninstall_local_app(&apps[0], true, err, sizeof err),
+              "local app uninstall can retain data");
+        CHECK(lz_store_scan_apps(apps, 4) == 0,
+              "local app uninstall removes live package");
+        lz_local_app_issue_t issues[4];
+        CHECK(lz_store_scan_app_issues(issues, 4) == 0,
+              "local app retained data stays hidden from diagnostics");
+
+        sim_write_local_app("lzdata_appuninstall", "weather", "weather.mesh", "Weather Mesh",
+                            "main.lua", "weather", 48, "Local weather dashboard",
+                            "[\"display\",\"input\",\"storage\"]");
+        an = lz_store_scan_apps(apps, 4);
+        CHECK(an == 1 && lz_store_prepare_app_data(&apps[0], data_path, sizeof data_path,
+                                                   err, sizeof err),
+              "local app reinstall restores retained data");
+        uint32_t used = 0, quota = 0;
+        CHECK(an == 1 && lz_store_app_data_usage(&apps[0], &used, &quota, err, sizeof err) &&
+                  used == 1536,
+              "local app retained data survives reinstall");
+        CHECK(an == 1 && lz_store_uninstall_local_app(&apps[0], false, err, sizeof err),
+              "local app uninstall can delete data");
+        CHECK(lz_store_scan_apps(apps, 4) == 0,
+              "local app delete-data uninstall removes package");
         lz_store_init(NULL);
     }
 
