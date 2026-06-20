@@ -76,7 +76,7 @@ static void cmd_help(void)
         "  companion test       loopback-verify the companion protocol\n"
         "  feedback status|test  feedback/app-notification diagnostics\n"
         "  app notify test      request a test app notification\n"
-        "  app catalog status|test  app catalog schema diagnostics\n"
+        "  app catalog status|test|fetch <url>|refresh <url>|clear\n"
         "  touch [cal|debug|S X Y]  touch: 'cal' runs on-screen calibration, 'debug' logs taps, 'S X Y' sets transform\n"
         "  feedback             show DND/priority feedback policy\n"
         "  emergency [arm|confirm|cancel]  diagnostic emergency trigger guard\n"
@@ -464,6 +464,42 @@ static void cmd_app(char *args)
         Serial.print(b);
         return;
     }
+    if(args && strncmp(args, "catalog fetch ", 14) == 0) {
+        const char *url = args + 14;
+        while(*url == ' ' || *url == '\t') url++;
+        lz_app_catalog_report_t report;
+        char err[80];
+        if(lz_svc_fetch_app_catalog(url, &report, err, sizeof err)) {
+            Serial.printf("[ok] app catalog cached apps=%d\n", report.app_count);
+        } else {
+            Serial.printf("[err] app catalog fetch failed: %s\n", err[0] ? err : "failed");
+            if(report.first_id[0])
+                Serial.printf("      app=%s reason=%s\n", report.first_id, report.first_error);
+        }
+        return;
+    }
+    if(args && strncmp(args, "catalog refresh ", 16) == 0) {
+        const char *url = args + 16;
+        while(*url == ' ' || *url == '\t') url++;
+        lz_app_catalog_report_t report;
+        char err[80];
+        if(lz_svc_fetch_app_catalog(url, &report, err, sizeof err)) {
+            Serial.printf("[ok] app catalog cached apps=%d\n", report.app_count);
+        } else {
+            Serial.printf("[err] app catalog fetch failed: %s\n", err[0] ? err : "failed");
+            if(report.first_id[0])
+                Serial.printf("      app=%s reason=%s\n", report.first_id, report.first_error);
+        }
+        return;
+    }
+    if(args && strcmp(args, "catalog clear") == 0) {
+        char err[64];
+        if(lz_svc_clear_app_catalog_cache(err, sizeof err))
+            Serial.println("[ok] app catalog cache cleared");
+        else
+            Serial.printf("[err] app catalog cache clear failed: %s\n", err[0] ? err : "failed");
+        return;
+    }
     if(!args || !args[0] || strcmp(args, "catalog") == 0 ||
        strcmp(args, "catalog status") == 0) {
         char b[180];
@@ -471,7 +507,7 @@ static void cmd_app(char *args)
         Serial.print(b);
         return;
     }
-    Serial.println("usage: app notify test | app catalog status | app catalog test");
+    Serial.println("usage: app notify test | app catalog status|test|fetch <url>|refresh <url>|clear");
 }
 
 static void cmd_nodes(char *args)

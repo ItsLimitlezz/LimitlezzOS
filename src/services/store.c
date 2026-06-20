@@ -725,7 +725,7 @@ static bool catalog_fail(lz_app_catalog_report_t *r, const char *id, const char 
 static bool catalog_url_ok(const char *url)
 {
     if(!url || !url[0]) return false;
-    if(strncmp(url, "https://", 8) != 0 && strncmp(url, "http://", 7) != 0) return false;
+    if(strncmp(url, "https://", 8) != 0) return false;
     for(int i = 0; url[i]; i++) {
         char c = url[i];
         if(c <= 32 || c == '"' || c == '<' || c == '>') return false;
@@ -738,8 +738,7 @@ static bool catalog_sha256_ok(const char *s)
     if(!s) return false;
     for(int i = 0; i < 64; i++) {
         char c = s[i];
-        bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                   (c >= 'A' && c <= 'F');
+        bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
         if(!hex) return false;
     }
     return s[64] == 0;
@@ -752,17 +751,15 @@ static const char *json_array_for(const char *json, const char *key)
     return p;
 }
 
-static bool catalog_string_array_ok(const char *p, bool urls)
+static bool catalog_string_array_contains(const char *p, const char *needle)
 {
-    if(!p || *p != '[') return false;
+    if(!p || *p != '[' || !needle || !needle[0]) return false;
     p = skip_ws(p + 1);
-    int count = 0;
-    if(*p == ']') return true;
+    if(*p == ']') return false;
     for(;;) {
-        if(++count > LZ_APP_CATALOG_SCREENSHOT_MAX) return false;
         if(*p != '"') return false;
         p++;
-        char item[128];
+        char item[32];
         size_t j = 0;
         bool too_long = false;
         while(*p && *p != '"') {
@@ -774,10 +771,10 @@ static bool catalog_string_array_ok(const char *p, bool urls)
         }
         if(*p != '"' || too_long) return false;
         item[j] = 0;
-        if(urls && !catalog_url_ok(item)) return false;
+        if(strcmp(item, needle) == 0) return true;
         p = skip_ws(p + 1);
         if(*p == ',') { p = skip_ws(p + 1); continue; }
-        if(*p == ']') return true;
+        if(*p == ']') return false;
         return false;
     }
 }
@@ -824,10 +821,85 @@ static const char *catalog_next_object(const char *p, char *out, size_t cap,
     return NULL;
 }
 
+static bool catalog_compat_ok(const char *obj, const char *api)
+{
+    const char *p = json_value_for(obj, "compatibility");
+    if(!p) return false;
+    if(*p == '"') {
+        char compat[32];
+        if(!json_get_string_bounded(obj, "compatibility", compat, sizeof compat)) return false;
+#ifdef LZ_TARGET_TDECK
+        return strcmp(compat, "tdeck") == 0;
+#else
+        return strcmp(compat, "tdeck") == 0 || strcmp(compat, "sim") == 0;
+#endif
+    }
+    if(*p != '{') return false;
+
+    char compat_obj[384];
+    bool done = false, too_big = false;
+    const char *end = catalog_next_object(p, compat_obj, sizeof compat_obj, &done, &too_big);
+    if(!end || done || too_big) return false;
+
+    const char *apis = json_array_for(compat_obj, "api_versions");
+    const char *targets = json_array_for(compat_obj, "targets");
+    if(!catalog_string_array_contains(apis, api)) return false;
+#ifdef LZ_TARGET_TDECK
+    return catalog_string_array_contains(targets, "tdeck");
+#else
+    return catalog_string_array_contains(targets, "tdeck") ||
+           catalog_string_array_contains(targets, "sim");
+#endif
+}
+
+static bool catalog_screenshots_ok(const char *p)
+{
+    if(!p || *p != '[') return false;
+    p = skip_ws(p + 1);
+    int count = 0;
+    if(*p == ']') return true;
+    for(;;) {
+        if(++count > LZ_APP_CATALOG_SCREENSHOT_MAX) return false;
+        if(*p == '"') {
+            p++;
+            char url[128];
+            size_t j = 0;
+            bool too_long = false;
+            while(*p && *p != '"') {
+                char c = *p++;
+                if(c == '\\' && *p) c = *p++;
+                if(c < 32) continue;
+                if(j + 1 < sizeof url) url[j++] = c;
+                else too_long = true;
+            }
+            if(*p != '"' || too_long) return false;
+            url[j] = 0;
+            if(!catalog_url_ok(url)) return false;
+            p = skip_ws(p + 1);
+        } else if(*p == '{') {
+            char shot[512];
+            bool done = false, too_big = false;
+            const char *end = catalog_next_object(p, shot, sizeof shot, &done, &too_big);
+            if(!end || done || too_big) return false;
+            char url[128], sha[65];
+            if(!json_get_string_bounded(shot, "url", url, sizeof url) || !catalog_url_ok(url))
+                return false;
+            if(json_get_string_bounded(shot, "sha256", sha, sizeof sha) && !catalog_sha256_ok(sha))
+                return false;
+            p = skip_ws(end);
+        } else {
+            return false;
+        }
+        if(*p == ',') { p = skip_ws(p + 1); continue; }
+        if(*p == ']') return true;
+        return false;
+    }
+}
+
 static bool catalog_validate_app(const char *obj, lz_app_catalog_report_t *r)
 {
     char id[24], name[32], version[16], author[28], desc[96], icon[20];
-    char api[12], compat[32], url[128], sha[65];
+    char api[12], url[128], sha[65];
     uint32_t size = 0;
     int hue = -1;
 
@@ -847,16 +919,25 @@ static bool catalog_validate_app(const char *obj, lz_app_catalog_report_t *r)
     if(!json_get_string_bounded(obj, "api_version", api, sizeof api))
         return catalog_fail(r, id, "missing api_version");
     if(!api_version_supported(api)) return catalog_fail(r, id, "unsupported SDK");
-    if(!json_get_string_bounded(obj, "compatibility", compat, sizeof compat))
-        return catalog_fail(r, id, "missing compatibility");
-    if(!json_get_string_bounded(obj, "download_url", url, sizeof url))
+    if(!catalog_compat_ok(obj, api))
+        return catalog_fail(r, id, "bad compatibility");
+    bool current_package = json_get_string_bounded(obj, "package_url", url, sizeof url);
+    if(!current_package && !json_get_string_bounded(obj, "download_url", url, sizeof url))
         return catalog_fail(r, id, "missing download_url");
     if(!catalog_url_ok(url)) return catalog_fail(r, id, "bad download_url");
-    if(!json_get_string_bounded(obj, "sha256", sha, sizeof sha))
+    if(current_package) {
+        if(!json_get_string_bounded(obj, "package_sha256", sha, sizeof sha))
+            return catalog_fail(r, id, "missing sha256");
+    } else if(!json_get_string_bounded(obj, "sha256", sha, sizeof sha)) {
         return catalog_fail(r, id, "missing sha256");
+    }
     if(!catalog_sha256_ok(sha)) return catalog_fail(r, id, "bad sha256");
-    if(!json_get_u32(obj, "size", &size))
+    if(current_package) {
+        if(!json_get_u32(obj, "package_bytes", &size))
+            return catalog_fail(r, id, "missing size");
+    } else if(!json_get_u32(obj, "size", &size)) {
         return catalog_fail(r, id, "missing size");
+    }
     if(size == 0 || size > LZ_APP_CATALOG_PACKAGE_MAX_BYTES)
         return catalog_fail(r, id, "bad size");
     if(json_get_int(obj, "hue", &hue) && (hue < -1 || hue > 359))
@@ -868,7 +949,7 @@ static bool catalog_validate_app(const char *obj, lz_app_catalog_report_t *r)
         return catalog_fail(r, id, "bad permissions");
 
     const char *shots = json_value_for(obj, "screenshots");
-    if(shots && !catalog_string_array_ok(shots, true))
+    if(shots && !catalog_screenshots_ok(shots))
         return catalog_fail(r, id, "bad screenshots");
 
     if(r) r->app_count++;
@@ -893,7 +974,8 @@ bool lz_store_validate_app_catalog_json(const char *json, lz_app_catalog_report_
 
     char schema[32];
     if(!json_get_string_bounded(json, "schema", schema, sizeof schema) ||
-       strcmp(schema, "limitlezz.app_catalog.v1") != 0) {
+       (strcmp(schema, "limitlezz.app.catalog.v1") != 0 &&
+        strcmp(schema, "limitlezz.app_catalog.v1") != 0)) {
         catalog_fail(&r, NULL, "bad schema");
         if(out) *out = r;
         return false;
@@ -984,6 +1066,10 @@ int lz_store_app_catalog_diag(char *buf, int n)
     if(!buf || n <= 0) return 0;
     char path[160];
     if(g_persist) {
+        path_for(path, sizeof path, "app_catalog.json");
+        lz_app_catalog_report_t cached;
+        if(catalog_read_file(path, &cached))
+            return catalog_report_line(buf, n, "app catalog cache", &cached);
         path_join(path, sizeof path, g_dir, "catalog/index.json");
         lz_app_catalog_report_t r;
         if(catalog_read_file(path, &r))
@@ -1001,29 +1087,35 @@ int lz_store_app_catalog_diag(char *buf, int n)
 int lz_store_app_catalog_selftest(char *buf, int n)
 {
     static const char valid[] =
-        "{\"schema\":\"limitlezz.app_catalog.v1\",\"updated\":\"2026-06-18T00:00:00Z\","
+        "{\"schema\":\"limitlezz.app.catalog.v1\",\"generated_at\":\"2026-06-18T00:00:00Z\","
         "\"apps\":["
         "{\"id\":\"weather.mesh\",\"name\":\"Weather Mesh\",\"version\":\"0.1.0\","
         "\"author\":\"Limitless\",\"description\":\"Local weather reports\","
         "\"icon\":\"weather\",\"hue\":48,\"api_version\":\"0.1\","
-        "\"compatibility\":\"tdeck\",\"permissions\":[\"display\",\"network_wifi\"],"
-        "\"download_url\":\"https://apps.example.invalid/weather.mesh.zip\","
-        "\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
-        "\"size\":32768,\"screenshots\":[\"https://apps.example.invalid/weather.bmp\"]},"
+        "\"compatibility\":{\"min_os\":\"0.95.0\",\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\",\"sim\"]},"
+        "\"permissions\":[\"display\",\"network_wifi\"],"
+        "\"package_url\":\"https://apps.example.invalid/weather.mesh.zip\","
+        "\"package_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\","
+        "\"package_bytes\":32768,"
+        "\"screenshots\":[{\"url\":\"https://apps.example.invalid/weather.bmp\","
+        "\"width\":320,\"height\":240,"
+        "\"sha256\":\"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\"}]},"
         "{\"id\":\"notes.local\",\"name\":\"Field Notes\",\"version\":\"0.1.0\","
         "\"author\":\"Limitless\",\"description\":\"Simple local notes\","
-        "\"icon\":\"notes\",\"api_version\":\"0.1\",\"compatibility\":\"tdeck\","
+        "\"icon\":\"notes\",\"api_version\":\"0.1\","
+        "\"compatibility\":{\"min_os\":\"0.95.0\",\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\"]},"
         "\"permissions\":[\"display\",\"input\",\"storage\"],"
-        "\"download_url\":\"https://apps.example.invalid/notes.local.zip\","
-        "\"sha256\":\"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd\","
-        "\"size\":49152}]}";
+        "\"package_url\":\"https://apps.example.invalid/notes.local.zip\","
+        "\"package_sha256\":\"abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd\","
+        "\"package_bytes\":49152}]}";
     static const char invalid[] =
-        "{\"schema\":\"limitlezz.app_catalog.v1\",\"apps\":["
+        "{\"schema\":\"limitlezz.app.catalog.v1\",\"apps\":["
         "{\"id\":\"bad.local\",\"name\":\"Bad\",\"version\":\"0.1.0\","
         "\"author\":\"Limitless\",\"description\":\"Bad checksum\",\"icon\":\"bug\","
-        "\"api_version\":\"0.1\",\"compatibility\":\"tdeck\","
-        "\"permissions\":[\"display\"],\"download_url\":\"https://apps.example.invalid/bad.zip\","
-        "\"sha256\":\"not-a-sha\",\"size\":1024}]}";
+        "\"api_version\":\"0.1\","
+        "\"compatibility\":{\"min_os\":\"0.95.0\",\"api_versions\":[\"0.1\"],\"targets\":[\"tdeck\"]},"
+        "\"permissions\":[\"display\"],\"package_url\":\"https://apps.example.invalid/bad.zip\","
+        "\"package_sha256\":\"not-a-sha\",\"package_bytes\":1024}]}";
 
     lz_app_catalog_report_t ok, bad;
     bool valid_ok = lz_store_validate_app_catalog_json(valid, &ok);
