@@ -79,8 +79,11 @@ jobs:
           pio run -e tdeck -t size | tee tdeck-size.txt
           cp tdeck-build.txt .pio/build/tdeck/tdeck-build.txt
           cp tdeck-size.txt .pio/build/tdeck/tdeck-size.txt
+          # RAM usage ("used N from M") is only printed by the build log, not by
+          # `-t size` (which emits the GNU size table) — and -t size is cached
+          # here since the firmware was already built above. Parse the build log.
           python scripts/check_tdeck_budget.py \
-            --size-report tdeck-size.txt \
+            --size-report tdeck-build.txt \
             --json-out .pio/build/tdeck/size-budget.json \
             --markdown-out .pio/build/tdeck/SIZE_BUDGET.md \
             --manifest-out .pio/build/tdeck/SIZE_BUDGET.txt
