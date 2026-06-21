@@ -412,21 +412,35 @@ Goal: update the OS without USB flashing.
 
 **Status:** partial. Implemented: a bounded `limitlezz.ota_manifest.v1`
 validator, cached manifest discovery from SD/appfs, serial `ota status`, serial
-`ota test`, and native selftest coverage. Fetch/download, binary hash verify,
-inactive-slot write, boot-partition switch, rollback, UI, and feedback routing
-remain TODO.
+`ota fetch`, `ota stage`, `ota clear`, `ota write`, `ota write-test`, `ota test`,
+`ota slot-status`, `ota set-test-boot`, `ota mark-valid`, verified candidate
+firmware cache with exact size/SHA-256 checks, inactive-slot write,
+low-level boot partition selection, and native selftest coverage. Manifest
+fetch, user-facing reboot orchestration, rollback UI, update screen, and
+feedback routing remain TODO.
 
 Deliverables:
 
 - Implement firmware update manifest alongside the app catalog. Implemented:
   `docs/tdeck-ota-manifest.md` plus cached manifest diagnostics.
-- Download firmware binary over Wi-Fi.
-- Verify SHA256 before writing.
-- Write to inactive OTA partition.
-- Set OTA boot partition and reboot.
+- Download firmware binary over Wi-Fi. Implemented for cached manifests:
+  `ota fetch` downloads `firmware_url` into a temporary candidate file and
+  promotes it only after exact size and SHA-256 verification.
+- Verify SHA256 before writing. Implemented for the candidate cache:
+  `ota fetch` and `ota stage <path>` both verify against the cached manifest,
+  preserving any prior verified candidate after failure.
+- Write to inactive OTA partition. Implemented as a guarded serial path:
+  `ota write` writes a verified cached candidate and `ota write-test` copies
+  the running image for COM8 hardware smoke proof. Both leave boot selection
+  unchanged.
+- Set OTA boot partition and reboot. Low-level selection is implemented:
+  `ota set-test-boot` copies the running app into the inactive slot and selects
+  it for the next boot. The reboot remains explicit for COM8 validation and
+  user-facing confirmation still needs UI work.
 - Support rollback if new firmware fails to mark itself healthy. Initial
   implementation: a native-tested OTA boot policy chooses clean, pending
-  verification, mark-valid, and rollback actions before partition/API wiring.
+  verification, mark-valid, and rollback actions; serial `ota mark-valid`
+  calls the ESP-IDF mark-valid API for the running app.
 - Add update UI with simple confirmation language.
 - Route OTA progress and failure state through Feedback Manager.
 

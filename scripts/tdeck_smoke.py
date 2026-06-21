@@ -74,6 +74,35 @@ def find_esptool_cmd() -> list[str]:
     )
 
 
+def esptool_flash_syntax(esptool_cmd: list[str]) -> dict[str, str]:
+    probe = subprocess.run(
+        [*esptool_cmd, "--help"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    help_text = probe.stdout or ""
+    modern = "write-flash" in help_text or "default-reset" in help_text
+    if modern:
+        return {
+            "before": "default-reset",
+            "after": "hard-reset",
+            "write_flash": "write-flash",
+            "flash_mode": "--flash-mode",
+            "flash_freq": "--flash-freq",
+            "flash_size": "--flash-size",
+        }
+    return {
+        "before": "default_reset",
+        "after": "hard_reset",
+        "write_flash": "write_flash",
+        "flash_mode": "--flash_mode",
+        "flash_freq": "--flash_freq",
+        "flash_size": "--flash_size",
+    }
+
+
 def find_boot_app0(artifact_dir: Path | None = None) -> Path:
     if artifact_dir is not None:
         bundled = artifact_dir / "boot_app0.bin"
@@ -105,6 +134,7 @@ def require_artifacts(project_dir: Path, env_name: str, artifact_dir: Path | Non
 def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifact_dir: Path | None) -> None:
     bootloader, partitions, boot_app0, firmware = require_artifacts(project_dir, env_name, artifact_dir)
     esptool_cmd = find_esptool_cmd()
+    syntax = esptool_flash_syntax(esptool_cmd)
     run(
         [
             *esptool_cmd,
@@ -115,16 +145,16 @@ def nostub_upload(project_dir: Path, env_name: str, port: str, baud: int, artifa
             "--baud",
             str(baud),
             "--before",
-            "default-reset",
+            syntax["before"],
             "--after",
-            "hard-reset",
+            syntax["after"],
             "--no-stub",
-            "write-flash",
-            "--flash-mode",
+            syntax["write_flash"],
+            syntax["flash_mode"],
             "dio",
-            "--flash-freq",
+            syntax["flash_freq"],
             "80m",
-            "--flash-size",
+            syntax["flash_size"],
             "16MB",
             "0x0",
             str(bootloader),
