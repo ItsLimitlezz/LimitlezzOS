@@ -1173,6 +1173,12 @@ static int codec_selftest(void)
         extern bool lz_store_clear_ota_candidate(char *err, int err_cap);
         extern bool lz_svc_ota_write_candidate(lz_ota_install_t *out, char *err, int err_cap);
         extern bool lz_svc_ota_write_selftest(lz_ota_install_t *out, char *err, int err_cap);
+        extern bool lz_svc_ota_slot_status(lz_ota_slot_status_t *out, char *err, int err_cap);
+        extern bool lz_svc_ota_set_test_boot(lz_ota_install_t *install,
+                                             lz_ota_slot_status_t *slot,
+                                             char *err, int err_cap);
+        extern bool lz_svc_ota_mark_running_valid(lz_ota_slot_status_t *out,
+                                                  char *err, int err_cap);
         extern int  lz_store_ota_manifest_selftest(char *buf, int n);
         sim_reset_dir("lzdata_ota");
         sim_mkdirs("lzdata_ota/ota");
@@ -1220,6 +1226,19 @@ static int codec_selftest(void)
                   inst.ok && inst.copied_running_image &&
                   !inst.boot_partition_set && inst.bytes_written > 0,
               "OTA inactive-slot write selftest keeps boot unchanged");
+        lz_ota_slot_status_t slot;
+        CHECK(lz_svc_ota_slot_status(&slot, ota_err, sizeof ota_err) &&
+                  slot.ok && slot.boot_matches_running &&
+                  strcmp(slot.running_label, "sim_ota_0") == 0,
+              "OTA slot status reports current boot slot");
+        CHECK(lz_svc_ota_set_test_boot(&inst, &slot, ota_err, sizeof ota_err) &&
+                  inst.ok && inst.boot_partition_set &&
+                  !slot.boot_matches_running &&
+                  strcmp(slot.boot_label, "sim_ota_1") == 0,
+              "OTA set-test-boot selects inactive slot after copied image");
+        CHECK(lz_svc_ota_mark_running_valid(&slot, ota_err, sizeof ota_err) &&
+                  slot.ok && strcmp(slot.running_state, "valid") == 0,
+              "OTA mark-valid reports running slot status");
         cf = fopen("lzdata_ota/bad-candidate.bin", "wb");
         if(cf) {
             fputs("bad firmware body\n", cf);

@@ -39,6 +39,58 @@ static void fill_partitions(lz_ota_install_t *out, const esp_partition_t *runnin
     }
 }
 
+static const char *ota_state_label(esp_ota_img_states_t state)
+{
+    switch(state) {
+        case ESP_OTA_IMG_NEW:            return "new";
+        case ESP_OTA_IMG_PENDING_VERIFY: return "pending";
+        case ESP_OTA_IMG_VALID:          return "valid";
+        case ESP_OTA_IMG_INVALID:        return "invalid";
+        case ESP_OTA_IMG_ABORTED:        return "aborted";
+        case ESP_OTA_IMG_UNDEFINED:      return "undefined";
+        default:                         return "unknown";
+    }
+}
+
+static void fill_state_label(const esp_partition_t *part, char *out, size_t n)
+{
+    if(!out || n == 0) return;
+    snprintf(out, n, "unknown");
+    if(!part) return;
+    esp_ota_img_states_t state;
+    esp_err_t e = esp_ota_get_state_partition(part, &state);
+    if(e == ESP_OK) snprintf(out, n, "%s", ota_state_label(state));
+    else if(e == ESP_ERR_NOT_FOUND) snprintf(out, n, "unset");
+}
+
+static bool fill_slot_status(lz_ota_slot_status_t *out, char *err, int err_cap)
+{
+    ota_install_err(err, err_cap, "");
+    if(!out) return false;
+    memset(out, 0, sizeof *out);
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *boot = esp_ota_get_boot_partition();
+    const esp_partition_t *inactive = esp_ota_get_next_update_partition(NULL);
+    if(!running || !boot || !inactive) {
+        snprintf(out->error, sizeof out->error, "ota partition unavailable");
+        ota_install_err(err, err_cap, out->error);
+        return false;
+    }
+
+    out->ok = true;
+    snprintf(out->running_label, sizeof out->running_label, "%s", running->label);
+    snprintf(out->boot_label, sizeof out->boot_label, "%s", boot->label);
+    snprintf(out->inactive_label, sizeof out->inactive_label, "%s", inactive->label);
+    fill_state_label(running, out->running_state, sizeof out->running_state);
+    fill_state_label(boot, out->boot_state, sizeof out->boot_state);
+    out->running_pending_verify = strcmp(out->running_state, "pending") == 0;
+    out->boot_matches_running = running->address == boot->address;
+    out->running_address = running->address;
+    out->boot_address = boot->address;
+    out->inactive_address = inactive->address;
+    return true;
+}
+
 static bool write_stream_to_partition(FILE *f, uint32_t expected_size,
                                       lz_ota_install_t *out, char *err, int err_cap)
 {
@@ -199,6 +251,43 @@ bool lz_ota_install_running_copy_test(lz_ota_install_t *out, char *err, int err_
         out->error[0] = 0;
     }
     return true;
+}
+
+bool lz_ota_slot_status(lz_ota_slot_status_t *out, char *err, int err_cap)
+{
+    return fill_slot_status(out, err, err_cap);
+}
+
+bool lz_ota_set_inactive_boot(lz_ota_slot_status_t *out, char *err, int err_cap)
+{
+    ota_install_err(err, err_cap, "");
+    if(out) memset(out, 0, sizeof *out);
+    const esp_partition_t *inactive = esp_ota_get_next_update_partition(NULL);
+    if(!inactive) {
+        if(out) snprintf(out->error, sizeof out->error, "ota partition unavailable");
+        return install_fail(NULL, err, err_cap, "ota partition unavailable");
+    }
+    esp_err_t e = esp_ota_set_boot_partition(inactive);
+    if(e != ESP_OK) {
+        if(out) snprintf(out->error, sizeof out->error, "boot partition failed");
+        return install_fail(NULL, err, err_cap, "boot partition failed");
+    }
+    return fill_slot_status(out, err, err_cap);
+}
+
+bool lz_ota_mark_running_valid(lz_ota_slot_status_t *out, char *err, int err_cap)
+{
+    ota_install_err(err, err_cap, "");
+    esp_err_t e = esp_ota_mark_app_valid_cancel_rollback();
+    if(e != ESP_OK) {
+        if(out) {
+            memset(out, 0, sizeof *out);
+            snprintf(out->error, sizeof out->error, "mark valid failed");
+        }
+        ota_install_err(err, err_cap, "mark valid failed");
+        return false;
+    }
+    return fill_slot_status(out, err, err_cap);
 }
 
 #endif

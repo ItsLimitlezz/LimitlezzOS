@@ -86,7 +86,7 @@ static void cmd_help(void)
         "  nodes [test]         list heard nodes / test node DB schema\n"
         "  send <text>          broadcast text on the channel\n"
         "  stats                radio TX/RX + airtime utilization\n"
-        "  ota status|fetch|stage|clear|write|write-test|test  OTA manifest/candidate diagnostics\n"
+        "  ota status|fetch|stage|clear|write|write-test|slot-status|set-test-boot|mark-valid|test  OTA diagnostics\n"
         "  security [status|test|set <pin>|check <pin>|clear <pin>]\n"
         "  wifi [scan|on|off]   wifi status / control\n"
         "  settings [test]      persisted settings schema diagnostics\n"
@@ -565,6 +565,28 @@ static void ota_print_install(const lz_ota_install_t *inst)
                   inst->boot_partition_set ? "yes" : "no");
 }
 
+static void ota_print_slots(const lz_ota_slot_status_t *st)
+{
+    if(!st) return;
+    if(!st->ok) {
+        Serial.printf("ota slots: failed");
+        if(st->error[0]) Serial.printf(" error=\"%s\"", st->error);
+        Serial.println();
+        return;
+    }
+    Serial.printf("ota slots: running=%s@0x%08lx state=%s boot=%s@0x%08lx state=%s inactive=%s@0x%08lx boot-matches-running=%s pending=%s\n",
+                  st->running_label[0] ? st->running_label : "?",
+                  (unsigned long)st->running_address,
+                  st->running_state[0] ? st->running_state : "?",
+                  st->boot_label[0] ? st->boot_label : "?",
+                  (unsigned long)st->boot_address,
+                  st->boot_state[0] ? st->boot_state : "?",
+                  st->inactive_label[0] ? st->inactive_label : "?",
+                  (unsigned long)st->inactive_address,
+                  st->boot_matches_running ? "yes" : "no",
+                  st->running_pending_verify ? "yes" : "no");
+}
+
 static void cmd_ota(char *args)
 {
     if(args && strcmp(args, "boot-test") == 0) {
@@ -650,8 +672,38 @@ static void cmd_ota(char *args)
         ota_print_install(&inst);
         return;
     }
+    if(args && strcmp(args, "slot-status") == 0) {
+        char err[64] = {0};
+        lz_ota_slot_status_t st;
+        if(!lz_svc_ota_slot_status(&st, err, sizeof err))
+            Serial.printf("[err] %s\n", err[0] ? err : "OTA slot status failed");
+        ota_print_slots(&st);
+        return;
+    }
+    if(args && strcmp(args, "set-test-boot") == 0) {
+        char err[64] = {0};
+        lz_ota_install_t inst;
+        lz_ota_slot_status_t st;
+        if(lz_svc_ota_set_test_boot(&inst, &st, err, sizeof err))
+            Serial.println("[ok] OTA copied current app and selected inactive slot for next boot; reset to test");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "OTA set test boot failed");
+        ota_print_install(&inst);
+        ota_print_slots(&st);
+        return;
+    }
+    if(args && strcmp(args, "mark-valid") == 0) {
+        char err[64] = {0};
+        lz_ota_slot_status_t st;
+        if(lz_svc_ota_mark_running_valid(&st, err, sizeof err))
+            Serial.println("[ok] OTA running app marked valid");
+        else
+            Serial.printf("[err] %s\n", err[0] ? err : "OTA mark valid failed");
+        ota_print_slots(&st);
+        return;
+    }
     if(args && args[0] && strcmp(args, "status") != 0) {
-        Serial.println("usage: ota [status|fetch|stage <path>|clear|write|write-test|test|boot-policy ...|boot-test]");
+        Serial.println("usage: ota [status|fetch|stage <path>|clear|write|write-test|slot-status|set-test-boot|mark-valid|test|boot-policy ...|boot-test]");
         return;
     }
 

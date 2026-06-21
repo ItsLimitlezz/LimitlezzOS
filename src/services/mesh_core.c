@@ -586,6 +586,30 @@ bool lz_svc_ota_write_selftest(lz_ota_install_t *out, char *err, int err_cap)
     return lz_ota_install_running_copy_test(out, err, err_cap);
 }
 
+bool lz_svc_ota_slot_status(lz_ota_slot_status_t *out, char *err, int err_cap)
+{
+    return lz_ota_slot_status(out, err, err_cap);
+}
+
+bool lz_svc_ota_set_test_boot(lz_ota_install_t *install, lz_ota_slot_status_t *slot,
+                              char *err, int err_cap)
+{
+    if(err && err_cap > 0) err[0] = 0;
+    if(install) memset(install, 0, sizeof *install);
+    if(slot) memset(slot, 0, sizeof *slot);
+    if(!lz_ota_install_running_copy_test(install, err, err_cap))
+        return false;
+    if(!lz_ota_set_inactive_boot(slot, err, err_cap))
+        return false;
+    if(install) install->boot_partition_set = true;
+    return true;
+}
+
+bool lz_svc_ota_mark_running_valid(lz_ota_slot_status_t *out, char *err, int err_cap)
+{
+    return lz_ota_mark_running_valid(out, err, err_cap);
+}
+
 bool lz_svc_security_status(lz_security_status_t *out)
 {
     return lz_store_security_status(out);

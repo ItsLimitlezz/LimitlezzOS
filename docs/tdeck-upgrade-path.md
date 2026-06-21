@@ -4,8 +4,9 @@ This guide documents the upgrade path that is available today. LimitlezzOS has
 an OTA-capable partition layout, but over-the-air firmware updates are still
 roadmap work. Current releases upgrade through a USB flash of an exact release
 or GitHub Actions artifact. The firmware can now verify and cache an OTA
-candidate binary and write it to the inactive OTA slot from serial diagnostics,
-but it does not yet select that slot for boot or mark the new firmware healthy.
+candidate binary, write it to the inactive OTA slot, select a copied-current
+image for next boot from serial diagnostics, and mark the running app valid.
+It does not yet provide a user-facing OTA update flow or rollback UX.
 
 ## Current Support
 
@@ -17,6 +18,8 @@ Supported today:
 - rollback by reflashing a previously saved known-good artifact
 - OTA manifest diagnostics plus verified candidate download/staging cache
 - serial inactive-slot write diagnostics that leave boot unchanged
+- serial boot-slot selection and mark-valid diagnostics for copied-current-image
+  hardware proof
 - persistent SD-backed user data when the SD card and store remain intact
 - persistent NVS-backed Wi-Fi credentials on T-Deck hardware
 
@@ -168,12 +171,15 @@ ota fetch
 ota stage /sd/limitlezz/ota/downloads/firmware.bin
 ota write
 ota write-test
+ota slot-status
+ota set-test-boot
+ota mark-valid
 ota clear
 ```
 
 Do not claim an OTA upgrade from this evidence alone. A release still upgrades
-only after the candidate is selected for boot, confirmed healthy after reboot,
-and covered by rollback behavior.
+only after a verified candidate is selected for boot from the update flow,
+confirmed healthy after reboot, and covered by rollback behavior.
 
 ## Rollback
 

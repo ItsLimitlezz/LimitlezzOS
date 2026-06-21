@@ -19,6 +19,14 @@ Implemented:
 - `ota write-test` over the USB serial console. This copies the currently
   running valid firmware image into the inactive OTA slot as a hardware smoke
   path, also leaving the boot partition unchanged.
+- `ota slot-status` over the USB serial console. This reports the running,
+  configured boot, and inactive OTA partitions plus OTA image state when the
+  bootloader exposes it.
+- `ota set-test-boot` over the USB serial console. This copies the currently
+  running image into the inactive slot, selects that inactive slot for the next
+  boot, and returns without rebooting.
+- `ota mark-valid` over the USB serial console. This calls the ESP-IDF
+  mark-valid API for the currently running app and reports slot status.
 - `ota test` over the USB serial console.
 - Native simulator selftest coverage for valid/invalid manifests, candidate
   staging, inactive-slot writer dispatch, size mismatch rejection,
@@ -28,8 +36,8 @@ Implemented:
 Still TODO:
 
 - fetch the manifest over Wi-Fi
-- set the OTA boot partition, reboot, and mark the new firmware healthy
-- rollback UX and failure recovery
+- user-confirmed reboot orchestration after boot-slot selection
+- rollback UX and failure recovery beyond the low-level mark-valid hook
 - user-facing update screen and Feedback Manager progress routing
 
 ## Cache Paths
@@ -153,6 +161,29 @@ Hardware smoke the same inactive-slot writer without preparing an SD candidate:
 lz> ota write-test
 [ok] OTA inactive-slot write selftest passed; boot unchanged
 ota write: ok source=running-copy running=ota_0 inactive=ota_1 addr=0x00510000 size=5242880 bytes=1539920 boot-set=no
+```
+
+Inspect and select the test boot slot:
+
+```text
+lz> ota slot-status
+ota slots: running=ota_0@0x00010000 state=unset boot=ota_0@0x00010000 state=unset inactive=ota_1@0x00510000 boot-matches-running=yes pending=no
+
+lz> ota set-test-boot
+[ok] OTA copied current app and selected inactive slot for next boot; reset to test
+ota write: ok source=running-copy running=ota_0 inactive=ota_1 addr=0x00510000 size=5242880 bytes=1539920 boot-set=yes
+ota slots: running=ota_0@0x00010000 state=unset boot=ota_1@0x00510000 state=unset inactive=ota_1@0x00510000 boot-matches-running=no pending=no
+```
+
+After reset, confirm the running slot and mark the image valid:
+
+```text
+lz> ota slot-status
+ota slots: running=ota_1@0x00510000 state=unset boot=ota_1@0x00510000 state=unset inactive=ota_0@0x00010000 boot-matches-running=yes pending=no
+
+lz> ota mark-valid
+[ok] OTA running app marked valid
+ota slots: running=ota_1@0x00510000 state=unset boot=ota_1@0x00510000 state=unset inactive=ota_0@0x00010000 boot-matches-running=yes pending=no
 ```
 
 Clear the candidate cache:

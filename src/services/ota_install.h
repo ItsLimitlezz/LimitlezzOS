@@ -12,6 +12,9 @@ extern "C" {
 bool lz_ota_install_file_to_inactive(const char *path, uint32_t expected_size,
                                      lz_ota_install_t *out, char *err, int err_cap);
 bool lz_ota_install_running_copy_test(lz_ota_install_t *out, char *err, int err_cap);
+bool lz_ota_slot_status(lz_ota_slot_status_t *out, char *err, int err_cap);
+bool lz_ota_set_inactive_boot(lz_ota_slot_status_t *out, char *err, int err_cap);
+bool lz_ota_mark_running_valid(lz_ota_slot_status_t *out, char *err, int err_cap);
 
 #ifdef __cplusplus
 }
